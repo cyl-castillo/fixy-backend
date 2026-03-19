@@ -1,0 +1,10 @@
+# Plantilla para túnel formal de Cloudflare para Fixy
+# Completar cuando exista dominio y túnel nombrado.
+
+tunnel: fixy-backend
+credentials-file: /home/father/.cloudflared/fixy-backend.json
+
+ingress:
+  - hostname: api.TU_DOMINIO
+    service: http://127.0.0.1:8080
+  - service: http_status:404

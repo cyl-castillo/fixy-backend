@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="es-UY">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fixy Ops | Leads</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="ops.css" />
+    <script src="ops.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Fixy Ops</p>
+        <h1>Gestión interna de leads</h1>
+        <p class="topbar-subtitle">Seguimiento rápido de casos, asignaciones y estados.</p>
+      </div>
+      <button id="refreshButton" class="btn btn-secondary">Actualizar</button>
+    </header>
+
+    <main class="layout">
+      <section class="panel panel-sidebar">
+        <h2>Nuevo lead</h2>
+        <form id="createLeadForm" class="form-stack">
+          <label>
+            Nombre
+            <input name="name" type="text" placeholder="Lucía" />
+          </label>
+          <label>
+            Teléfono
+            <input name="phone" type="text" placeholder="099123456" />
+          </label>
+          <label>
+            Canal
+            <select name="channel">
+              <option value="whatsapp">WhatsApp</option>
+              <option value="telefono">Teléfono</option>
+              <option value="web">Web</option>
+            </select>
+          </label>
+          <label>
+            Problema
+            <textarea name="problem" rows="5" placeholder="Describe el problema del cliente" required></textarea>
+          </label>
+          <button class="btn btn-primary" type="submit">Crear lead</button>
+        </form>
+
+        <div class="divider"></div>
+
+        <h2>Filtros operativos</h2>
+        <div class="filter-stack">
+          <label>
+            Estado
+            <select id="statusFilter">
+              <option value="">Todos</option>
+              <option value="NEW">NEW</option>
+              <option value="IN_REVIEW">IN_REVIEW</option>
+              <option value="PROVIDER_CONTACTED">PROVIDER_CONTACTED</option>
+              <option value="ASSIGNED">ASSIGNED</option>
+              <option value="IN_PROGRESS">IN_PROGRESS</option>
+              <option value="COMPLETED">COMPLETED</option>
+              <option value="CANCELLED">CANCELLED</option>
+            </select>
+          </label>
+          <label>
+            Urgencia
+            <select id="urgencyFilter">
+              <option value="">Todas</option>
+              <option value="alta">Alta</option>
+              <option value="media">Media</option>
+              <option value="baja">Baja</option>
+            </select>
+          </label>
+          <label>
+            Asignación
+            <select id="assignmentFilter">
+              <option value="">Todos</option>
+              <option value="assigned">Asignados</option>
+              <option value="unassigned">Sin asignar</option>
+            </select>
+          </label>
+          <label>
+            Proveedor
+            <select id="providerFilter">
+              <option value="">Todos</option>
+            </select>
+          </label>
+          <label>
+            Buscar
+            <input id="searchInput" type="text" placeholder="Nombre, teléfono, problema o zona" />
+          </label>
+          <button id="clearFiltersButton" class="btn btn-secondary" type="button">Limpiar filtros</button>
+        </div>
+      </section>
+
+      <section class="panel panel-main">
+        <div class="panel-head">
+          <div>
+            <h2>Resumen</h2>
+            <p id="summaryText">Cargando leads…</p>
+          </div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid"></div>
+        <div id="feedback" class="feedback" hidden></div>
+
+        <div class="board-head">
+          <h2>Tablero por estado</h2>
+          <p>Vista rápida para operar sin perder contexto.</p>
+        </div>
+        <div id="boardContainer" class="board"></div>
+
+        <div class="list-head">
+          <h2>Lista detallada</h2>
+          <p>Edición rápida de proveedor, notas y estado.</p>
+        </div>
+        <div id="leadsContainer" class="lead-list"></div>
+      </section>
+    </main>
+  </body>
+</html>

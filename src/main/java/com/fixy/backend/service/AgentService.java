@@ -18,9 +18,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Service
 public class AgentService {
 
-  private static final List<String> CIUDAD_COSTA_ZONES = List.of(
-      "solymar", "lagomar", "shangrila", "shangrilá", "el pinar", "san jose de carrasco",
-      "san jose de carrasco norte", "lomas de solymar", "medanos de solymar", "médanos de solymar"
+  private static final List<String> MONTEVIDEO_ZONES = List.of(
+      "centro", "cordon", "cordón", "pocitos", "punta carretas", "carrasco", "malvin", "malvín",
+      "buceo", "union", "unión", "parque batlle", "tres cruces", "cerro", "la blanqueada",
+      "prado", "sayago", "belvedere", "villa espanola", "villa española"
   );
 
   private final ObjectMapper objectMapper;
@@ -56,7 +57,7 @@ public class AgentService {
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
     String prompt = """
         Eres el agente de intake de Fixy.
-        Fixy opera primero en Ciudad de la Costa, Uruguay.
+        Fixy opera primero en Montevideo, Uruguay.
         Analiza el mensaje y devuelve solo JSON con estas claves:
         leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply.
         Usa valores en espanol minusculas simples.
@@ -193,13 +194,14 @@ public class AgentService {
   }
 
   private String detectArea(String message) {
-    for (String zone : CIUDAD_COSTA_ZONES) {
-      if (message.toLowerCase(Locale.ROOT).contains(zone)) {
+    String normalized = message.toLowerCase(Locale.ROOT);
+    for (String zone : MONTEVIDEO_ZONES) {
+      if (normalized.contains(zone)) {
         return toDisplayArea(zone);
       }
     }
-    if (message.contains("ciudad de la costa")) {
-      return "Ciudad de la Costa";
+    if (normalized.contains("montevideo")) {
+      return "Montevideo";
     }
     return "sin definir";
   }
@@ -216,8 +218,9 @@ public class AgentService {
 
   private List<String> detectMissingFields(String message) {
     List<String> fields = new ArrayList<>();
-    if (!containsAny(message, "solymar", "lagomar", "shangrila", "shangrilá", "el pinar",
-        "ciudad de la costa", "san jose de carrasco", "lomas de solymar", "medanos de solymar", "médanos de solymar")) {
+    if (!containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos", "punta carretas",
+        "carrasco", "malvin", "malvín", "buceo", "union", "unión", "parque batlle", "tres cruces",
+        "cerro", "la blanqueada", "prado", "sayago", "belvedere", "villa espanola", "villa española")) {
       fields.add("zona");
     }
     if (!containsAny(message, "foto", "imagen")) {
@@ -250,14 +253,23 @@ public class AgentService {
 
   private String toDisplayArea(String zone) {
     return switch (zone) {
-      case "el pinar" -> "El Pinar";
-      case "lagomar" -> "Lagomar";
-      case "lomas de solymar" -> "Lomas de Solymar";
-      case "medanos de solymar", "médanos de solymar" -> "Medanos de Solymar";
-      case "san jose de carrasco", "san jose de carrasco norte" -> "San Jose de Carrasco";
-      case "shangrila", "shangrilá" -> "Shangrila";
-      case "solymar" -> "Solymar";
-      default -> "Ciudad de la Costa";
+      case "belvedere" -> "Belvedere";
+      case "buceo" -> "Buceo";
+      case "carrasco" -> "Carrasco";
+      case "centro" -> "Centro";
+      case "cerro" -> "Cerro";
+      case "cordon", "cordón" -> "Cordón";
+      case "la blanqueada" -> "La Blanqueada";
+      case "malvin", "malvín" -> "Malvín";
+      case "parque batlle" -> "Parque Batlle";
+      case "pocitos" -> "Pocitos";
+      case "prado" -> "Prado";
+      case "punta carretas" -> "Punta Carretas";
+      case "sayago" -> "Sayago";
+      case "tres cruces" -> "Tres Cruces";
+      case "union", "unión" -> "Unión";
+      case "villa espanola", "villa española" -> "Villa Española";
+      default -> "Montevideo";
     };
   }
 

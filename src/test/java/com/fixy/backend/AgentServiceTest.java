@@ -15,7 +15,7 @@ class AgentServiceTest {
   void shouldClassifyCustomerPlumbingCase() {
     AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
     IntakeRequest request = new IntakeRequest(
-        "Se rompio la ducha y pierde agua sin parar en Solymar",
+        "Se rompio la ducha y pierde agua sin parar en Pocitos, Montevideo",
         "Lucia",
         "093551242",
         "whatsapp"
@@ -25,7 +25,7 @@ class AgentServiceTest {
 
     assertEquals("cliente", response.leadType());
     assertEquals("plomeria", response.serviceCategory());
-    assertEquals("Solymar", response.area());
+    assertEquals("Pocitos", response.area());
     assertEquals("alta", response.urgency());
     assertTrue(response.missingFields().contains("direccion exacta"));
   }
