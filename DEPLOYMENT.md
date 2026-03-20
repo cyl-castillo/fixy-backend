@@ -5,14 +5,18 @@
 - Backend local corriendo en `127.0.0.1:8080`
 - UI interna mínima en `/ops.html`
 - Protección básica con HTTP Basic Auth
-- Exposición temporal por Cloudflare quick tunnel
+- Servicio systemd activo: `fixy-backend.service`
+- Exposición temporal por Cloudflare quick tunnel / futura migración a túnel formal
 
 ## Credenciales actuales de ops
 
-- Usuario: `fixy`
-- Password: `fixy-ops-2026`
+Se recomienda NO documentar credenciales activas en texto plano dentro del repo.
 
-> Cambiar estas credenciales antes de un despliegue más serio.
+- Usuario: definido por variable de entorno `FIXY_OPS_USERNAME`
+- Password: definido por variable de entorno `FIXY_OPS_PASSWORD`
+- En esta máquina hoy se cargan desde `/etc/fixy-backend.env`
+
+> Verificar valores actuales en el entorno de ejecución y rotarlos antes de un despliegue más serio. No documentar el valor del secreto en el repo.
 
 ## URLs actuales
 
@@ -22,6 +26,24 @@
 
 ### Pública temporal
 - Quick tunnel de Cloudflare (puede cambiar o caer)
+
+## Servicio local
+
+Unidad:
+
+- `/etc/systemd/system/fixy-backend.service`
+
+Variables:
+
+- `/etc/fixy-backend.env`
+
+Comandos:
+
+```bash
+systemctl status fixy-backend.service
+sudo systemctl restart fixy-backend.service
+journalctl -u fixy-backend.service -n 100 --no-pager
+```
 
 ## Cuando haya dominio
 
@@ -64,7 +86,7 @@ sudo cloudflared service install
 
 ## Seguridad recomendada siguiente
 
-1. Mover usuario/password de ops a variables de entorno
+1. Mantener secretos fuera del repo
 2. Separar `ops` y `api` si hace falta
 3. Reemplazar quick tunnel por named tunnel
 4. Agregar una UI de login más seria en el futuro
