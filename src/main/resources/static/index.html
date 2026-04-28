@@ -5,170 +5,183 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Fixy te conecta con plomeros, electricistas, cerrajeros y más en Ciudad de la Costa para resolver urgencias del hogar en minutos."
+      content="Fixy te ayuda a resolver urgencias del hogar en Montevideo. Habla con el agente de Fixy y encuentra proveedores confiables rápido."
+    />
+    <meta
+      name="keywords"
+      content="Fixy, plomero Montevideo, electricista Montevideo, cerrajero Montevideo, urgencias del hogar, reparaciones hogar, servicios barometricos"
     />
     <title>Fixy | Soluciones urgentes para tu hogar</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
-    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="styles.css?v=20260331c" />
+    <script src="script.js?v=20260331c" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#main-content">Saltar al contenido</a>
 
-    <header class="site-header" id="top">
+    <header class="site-header site-header-minimal" id="top">
       <div class="container header-inner">
         <a class="logo" href="#top" aria-label="Ir al inicio">Fixy</a>
-
-        <nav class="main-nav" aria-label="Navegación principal">
-          <a href="#como-funciona">Cómo funciona</a>
-          <a href="#servicios">Servicios</a>
-          <a href="#proveedores">Proveedores</a>
-        </nav>
-
-        <a
-          class="btn btn-primary header-cta"
-          href="#"
-          data-wa="customer"
-          aria-label="Solicitar ayuda por WhatsApp"
-        >
-          Solicitar ayuda
-        </a>
+        <div class="header-status-pill">Agente activo · Montevideo</div>
       </div>
     </header>
 
     <main id="main-content">
-      <section class="hero section">
-        <div class="container hero-grid">
-          <div class="hero-content">
-            <p class="eyebrow">Ayuda urgente para el hogar en Ciudad de la Costa</p>
-            <h1>Describe tu problema. Fixy encuentra la solución.</h1>
-            <p class="hero-subtitle">
-              Comenzamos en Ciudad de la Costa para resolver urgencias del hogar
-              en minutos, con plan de expansión al resto del país.
+      <section class="hero section hero-minimal">
+        <div class="container hero-stack">
+          <div class="hero-content hero-content-minimal">
+            <p class="eyebrow">Urgencias del hogar en Montevideo</p>
+            <h1>Cuéntale el problema a Fixy.</h1>
+            <p class="hero-subtitle hero-subtitle-minimal">
+              Fixy entiende, pregunta bien y te acerca la mejor salida sin hacerte perder tiempo.
             </p>
-            <div class="hero-actions">
-              <a class="btn btn-primary" href="#" data-wa="customer">
-                Solicitar ayuda por WhatsApp
-              </a>
-              <a class="btn btn-secondary" href="#" data-wa="provider">Soy proveedor</a>
-            </div>
+
+            <form class="hero-form card hero-form-minimal" id="lead-form">
+              <div class="hero-trust-strip">
+                <span>Disponible ahora</span>
+                <span>Montevideo</span>
+                <span>Guía inteligente</span>
+              </div>
+              <label class="hero-problem-label">
+                <span>¿Qué está pasando?</span>
+                <textarea name="problem" rows="3" placeholder="Ej: me quedé sin luz y necesito resolverlo ya" required></textarea>
+              </label>
+              <div class="hero-form-grid hero-form-grid-compact">
+                <label>
+                  <span>Nombre</span>
+                  <input type="text" name="name" placeholder="Tu nombre" />
+                </label>
+                <label>
+                  <span>Teléfono</span>
+                  <input type="text" name="phone" placeholder="099123456" />
+                </label>
+              </div>
+              <div class="hero-form-actions hero-form-actions-minimal">
+                <button class="btn btn-primary btn-large" type="submit">Hablar con Fixy</button>
+                <button class="btn btn-secondary btn-large" type="button" id="provider-mode-button">Soy proveedor</button>
+              </div>
+              <div class="hero-mini-proof">
+                <span>⚡ Respuesta guiada</span>
+                <span>🧠 Entiende contexto</span>
+                <span>🎯 Opciones con criterio</span>
+              </div>
+              <div id="lead-form-feedback" class="form-feedback" hidden></div>
+            </form>
           </div>
 
-          <aside class="request-card" aria-label="Ejemplo de solicitud en Fixy">
-            <p class="card-label">Solicitud en curso</p>
-            <h2>“Se rompió la ducha y sale agua sin parar”</h2>
-            <ul>
-              <li>
-                <span>🔎 Servicio detectado</span>
-                <strong>Plomería</strong>
-              </li>
-              <li>
-                <span>⏱️ Llegada estimada</span>
-                <strong>30–45 min</strong>
-              </li>
-              <li>
-                <span>✅ Proveedor encontrado</span>
-                <strong>Disponible cerca de ti</strong>
-              </li>
-            </ul>
+          <aside class="request-card request-card-premium" aria-label="Panel del agente de Fixy" id="agent-panel">
+            <div class="card-topline">
+              <p class="card-label">Agente Fixy</p>
+              <span class="card-badge" id="agent-status-badge">Esperando caso</span>
+            </div>
+            <div class="agent-progress" aria-label="Progreso del caso">
+              <div class="agent-progress-bar"><span id="agent-progress-fill"></span></div>
+              <p id="agent-progress-text">Empieza contándome qué pasó.</p>
+            </div>
+            <h2 id="agent-title">Todavía no hay un caso cargado</h2>
+            <p class="request-intro" id="agent-summary">
+              Cuéntame el problema con tus palabras. Yo me encargo de ordenarlo y de pedirte solo lo justo para avanzar.
+            </p>
+
+            <div class="chat-shell">
+              <div class="conversation-state-card">
+                <p class="conversation-state-kicker">Estado del caso</p>
+                <div class="conversation-state-grid">
+                  <div>
+                    <span>Problema</span>
+                    <strong id="agent-understood">Todavía nada</strong>
+                  </div>
+                  <div>
+                    <span>Siguiente paso</span>
+                    <strong id="agent-next-action">Esperando inicio</strong>
+                  </div>
+                  <div>
+                    <span>Estado</span>
+                    <strong id="agent-confidence">Te guía sin hacerte perder tiempo</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div class="chat-transcript" id="chat-transcript">
+                <article class="chat-bubble chat-bubble-agent">
+                  <p class="chat-speaker">Fixy</p>
+                  <p id="agent-message-text">Cuéntame qué pasó y te voy guiando paso a paso.</p>
+                </article>
+              </div>
+
+              <div class="chat-missing" id="chat-missing-row">
+                <span>📝 Aún me falta:</span>
+                <strong id="agent-missing-fields">—</strong>
+              </div>
+
+              <div class="turn-focus-card" id="turn-focus-card">
+                <p class="turn-focus-label">Ahora necesito esto de ti</p>
+                <strong id="turn-focus-text">Cuéntame qué pasó.</strong>
+              </div>
+
+              <div class="provider-flow-card" id="provider-flow-card" hidden>
+                <p class="turn-focus-label">Modo proveedor</p>
+                <strong id="provider-focus-text">Cuéntame tu rubro, zonas, disponibilidad y experiencia.</strong>
+              </div>
+
+              <div class="agent-quick-replies" id="quick-replies" hidden></div>
+            </div>
+
+            <form class="agent-context-form" id="context-form" hidden>
+              <label id="location-field">
+                <span>Zona o ubicación</span>
+                <input type="text" name="location" placeholder="Ej: Pocitos" />
+              </label>
+              <label id="notes-field">
+                <span>Contexto adicional</span>
+                <textarea name="notes" rows="3" placeholder="Ej: es en apartamento, salta la llave general"></textarea>
+              </label>
+              <div class="hero-form-actions compact-actions">
+                <button class="btn btn-secondary" type="submit" id="context-submit-button">Seguir</button>
+                <button class="btn btn-primary" type="button" id="match-button">Buscar opciones</button>
+              </div>
+            </form>
+
+            <div class="match-results" id="match-results" hidden>
+              <div class="recommendation-intro">
+                <p class="recommendation-kicker">Recomendación de Fixy</p>
+                <h3>Estas son las opciones que mejor encajan con tu caso</h3>
+                <p id="recommendation-summary">Te las ordeno por encaje, zona y contexto del problema.</p>
+              </div>
+              <div id="match-list" class="match-list"></div>
+            </div>
           </aside>
         </div>
       </section>
 
-      <section class="section" id="como-funciona">
-        <div class="container">
-          <h2>Cómo funciona</h2>
-          <div class="steps-grid">
-            <article class="card step-card">
-              <p class="step-number">1</p>
-              <h3>Describe el problema</h3>
-              <p>
-                Cuéntanos qué pasó por WhatsApp con pocas palabras y, si quieres,
-                con foto.
-              </p>
-            </article>
-            <article class="card step-card">
-              <p class="step-number">2</p>
-              <h3>Fixy encuentra ayuda</h3>
-              <p>
-                Identificamos el rubro correcto y buscamos un proveedor confiable
-                cercano.
-              </p>
-            </article>
-            <article class="card step-card">
-              <p class="step-number">3</p>
-              <h3>Solución en minutos</h3>
-              <p>
-                Coordinamos rápido para que recibas asistencia cuando más la
-                necesitas.
-              </p>
-            </article>
+      <section class="section section-lite" id="como-funciona">
+        <div class="container lite-grid">
+          <article class="lite-card">
+            <strong>Entiende rápido</strong>
+            <p>No te hace llenar un formulario eterno para arrancar.</p>
+          </article>
+          <article class="lite-card">
+            <strong>Pregunta bien</strong>
+            <p>Te pide una sola cosa útil por vez.</p>
+          </article>
+          <article class="lite-card">
+            <strong>Recomienda con criterio</strong>
+            <p>No te suelta opciones al azar: te explica por qué.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section section-micro-proof">
+        <div class="container micro-proof-wrap">
+          <div class="micro-proof-card">
+            <span class="micro-proof-label">Qué se siente distinto</span>
+            <p>Fixy no te deja solo con un problema. Toma el caso, lo entiende y te conduce a la mejor salida con criterio.</p>
           </div>
-        </div>
-      </section>
-
-      <section class="section section-muted" id="servicios">
-        <div class="container">
-          <h2>Servicios urgentes</h2>
-          <div class="services-grid">
-            <article class="card service-card"><span>🚰</span>Plomería</article>
-            <article class="card service-card"><span>⚡</span>Electricidad</article>
-            <article class="card service-card"><span>🔐</span>Cerrajería</article>
-            <article class="card service-card"><span>🚛</span>Barométrica</article>
-            <article class="card service-card"><span>🛠️</span>Reparaciones del hogar</article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section" id="confianza">
-        <div class="container">
-          <h2>Confianza para resolver hoy</h2>
-          <div class="trust-grid">
-            <article class="card trust-card">
-              <h3>Proveedores verificados</h3>
-              <p>Trabajamos con profesionales evaluados para cada categoría.</p>
-            </article>
-            <article class="card trust-card">
-              <h3>Respuesta rápida</h3>
-              <p>Te respondemos al instante para no perder tiempo en la urgencia.</p>
-            </article>
-            <article class="card trust-card">
-              <h3>Atención local en Ciudad de la Costa</h3>
-              <p>Empezamos aquí para conectar cada urgencia con ayuda cercana y confiable.</p>
-            </article>
-            <article class="card trust-card">
-              <h3>Experiencia simple</h3>
-              <p>Sin llamadas eternas: todo claro y directo por WhatsApp.</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section section-muted" id="proveedores">
-        <div class="container provider-cta card">
-          <h2>¿Eres proveedor?</h2>
-          <p>
-            Súmate a Fixy y recibe clientes cercanos que necesitan resolver
-            urgencias del hogar en Ciudad de la Costa, antes de expandirnos al resto del país.
-          </p>
-          <a class="btn btn-primary" href="#" data-wa="provider">Quiero unirme</a>
-        </div>
-      </section>
-
-      <section class="section final-cta">
-        <div class="container card final-cta-card">
-          <h2>¿Necesitas ayuda ahora?</h2>
-          <p>
-            Describe tu problema y Fixy te conecta con ayuda confiable en Ciudad de la Costa.
-          </p>
-          <a class="btn btn-primary" href="#" data-wa="customer">
-            Solicitar ayuda por WhatsApp
-          </a>
         </div>
       </section>
     </main>
@@ -176,7 +189,7 @@
     <footer class="site-footer">
       <div class="container footer-inner">
         <p class="footer-logo">Fixy</p>
-        <p>Comenzamos en Ciudad de la Costa y vamos camino a expandirnos al resto del país.</p>
+        <p>Backend agent-ready para resolver urgencias del hogar en Montevideo.</p>
         <p>© <span id="year"></span> Fixy. Todos los derechos reservados.</p>
       </div>
     </footer>

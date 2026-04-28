@@ -16,6 +16,9 @@ const summaryText = document.getElementById("summaryText");
 const statsGrid = document.getElementById("statsGrid");
 const feedback = document.getElementById("feedback");
 const createLeadForm = document.getElementById("createLeadForm");
+const createProviderForm = document.getElementById("createProviderForm");
+const providersContainer = document.getElementById("providersContainer");
+const providerSummaryText = document.getElementById("providerSummaryText");
 const statusFilter = document.getElementById("statusFilter");
 const urgencyFilter = document.getElementById("urgencyFilter");
 const assignmentFilter = document.getElementById("assignmentFilter");
@@ -68,19 +71,40 @@ function getKnownProviders(leads) {
   return [...new Set([...fromCatalog, ...fromLeads])].sort();
 }
 
+function normalize(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function providerCategories(provider) {
+  return Array.isArray(provider.categories)
+    ? provider.categories
+    : provider.category ? [provider.category] : [];
+}
+
+function providerZones(provider) {
+  const zones = [];
+  if (provider.primaryZone) zones.push(provider.primaryZone);
+  if (Array.isArray(provider.coverageZones)) zones.push(...provider.coverageZones);
+  if (!zones.length && provider.zone) zones.push(provider.zone);
+  if (!zones.length && provider.city) zones.push(provider.city);
+  return zones;
+}
+
 function findSuggestedProviders(lead) {
-  const category = (lead.detectedCategory || "").toLowerCase();
-  const location = (lead.location || "").toLowerCase();
+  const category = normalize(lead.detectedCategory);
+  const location = normalize(lead.location);
 
   const exact = providerCatalog.filter((provider) =>
-    provider.category.toLowerCase() === category && provider.zone.toLowerCase() === location
+    providerCategories(provider).some((item) => normalize(item) === category)
+    && providerZones(provider).some((item) => normalize(item) === location)
   );
   const categoryOnly = providerCatalog.filter((provider) =>
-    provider.category.toLowerCase() === category && !exact.some((item) => item.name === provider.name)
+    providerCategories(provider).some((item) => normalize(item) === category)
+    && !exact.some((item) => item.name === provider.name)
   );
   const zoneOnly = providerCatalog.filter((provider) =>
-    provider.zone.toLowerCase() === location
-      && provider.category.toLowerCase() !== category
+    providerZones(provider).some((item) => normalize(item) === location)
+      && !providerCategories(provider).some((item) => normalize(item) === category)
       && !exact.some((item) => item.name === provider.name)
       && !categoryOnly.some((item) => item.name === provider.name)
   );
@@ -184,6 +208,53 @@ function quickActionsHtml(lead, suggestions) {
   `;
 }
 
+function discoveredProviderFormHtml(lead) {
+  return `
+    <details class="lead-notes">
+      <summary><strong>Registrar proveedor descubierto</strong></summary>
+      <form class="discovered-provider-form" data-lead-id="${lead.id}">
+        <label>
+          Nombre
+          <input name="name" type="text" placeholder="Proveedor encontrado" required />
+        </label>
+        <label>
+          Teléfono
+          <input name="phone" type="text" placeholder="099123456" required />
+        </label>
+        <label>
+          WhatsApp
+          <input name="whatsappNumber" type="text" placeholder="099123456" />
+        </label>
+        <label>
+          Categorías
+          <input name="categories" type="text" value="${escapeHtml(lead.detectedCategory || "")}" placeholder="plomeria" />
+        </label>
+        <label>
+          Zona principal
+          <input name="primaryZone" type="text" value="${escapeHtml(lead.location || "")}" placeholder="Solymar" />
+        </label>
+        <label>
+          Cobertura
+          <input name="coverageZones" type="text" placeholder="Solymar, Lagomar, El Pinar" />
+        </label>
+        <label>
+          Fuente
+          <input name="sourceName" type="text" placeholder="Google Maps, Facebook, directorio, etc." />
+        </label>
+        <label>
+          Notas
+          <textarea name="notes" rows="2" placeholder="Cómo apareció, disponibilidad, contexto, etc."></textarea>
+        </label>
+        <label>
+          <input name="assignToLead" type="checkbox" checked />
+          Asignar directamente a este lead
+        </label>
+        <button class="btn btn-primary" type="submit">Guardar proveedor descubierto</button>
+      </form>
+    </details>
+  `;
+}
+
 function renderLeadCard(lead) {
   const statusOptions = statuses
     .map((status) => `<option value="${status}" ${lead.status === status ? "selected" : ""}>${status}</option>`)
@@ -193,7 +264,7 @@ function renderLeadCard(lead) {
     .join("");
   const suggestions = findSuggestedProviders(lead);
   const suggestionHtml = suggestions.length
-    ? `<div class="lead-suggestions"><strong>Sugeridos:</strong> ${suggestions.map((provider) => `<button class="suggestion-chip" type="button" data-provider="${escapeHtml(provider.name)}">${escapeHtml(provider.name)} · ${escapeHtml(provider.zone)}</button>`).join("")}</div>`
+    ? `<div class="lead-suggestions"><strong>Sugeridos:</strong> ${suggestions.map((provider) => `<button class="suggestion-chip" type="button" data-provider="${escapeHtml(provider.name)}">${escapeHtml(provider.name)} · ${escapeHtml(provider.primaryZone || provider.zone || provider.city || "sin zona")}</button>`).join("")}</div>`
     : '<div class="lead-suggestions"><strong>Sugeridos:</strong> <span class="empty-inline">Sin match claro</span></div>';
   const urgencyClass = lead.urgency === "alta" ? "urgent" : "";
 
@@ -221,6 +292,7 @@ function renderLeadCard(lead) {
           <textarea class="notes-input" rows="3" placeholder="Agregá contexto, seguimiento o acuerdos">${escapeHtml(lead.notes || "")}</textarea>
         </label>
       </div>
+      ${discoveredProviderFormHtml(lead)}
       <div class="lead-history">
         <label>
           Historial
@@ -239,6 +311,28 @@ function renderLeadCard(lead) {
   `;
 }
 
+function renderProviderCard(provider) {
+  const categories = providerCategories(provider).join(", ") || "sin categoría";
+  const zones = providerZones(provider).join(", ") || "sin zona";
+  return `
+    <article class="lead-card">
+      <div class="lead-top">
+        <div><h3>${escapeHtml(provider.name)}</h3></div>
+        <div class="badges">
+          <span class="badge">${escapeHtml(categories)}</span>
+          <span class="badge status">${escapeHtml(provider.status || "NEW")}</span>
+        </div>
+      </div>
+      <div class="lead-meta">
+        <span>📞 ${escapeHtml(provider.whatsappNumber || provider.phone || "sin teléfono")}</span>
+        <span>📍 ${escapeHtml(zones)}</span>
+        <span>🧭 ${escapeHtml(provider.sourceType || "manual")}</span>
+      </div>
+      <p class="lead-problem">${escapeHtml(provider.notes || "Proveedor cargado en base")}</p>
+    </article>
+  `;
+}
+
 async function saveLead(card, overrides = {}) {
   const id = card.dataset.id;
   const status = overrides.status ?? card.querySelector('.status-select').value;
@@ -248,6 +342,27 @@ async function saveLead(card, overrides = {}) {
   await request(`/api/leads/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ status, assignedProvider, notes }),
+  });
+}
+
+async function submitDiscoveredProvider(form) {
+  const leadId = form.dataset.leadId;
+  const formData = new FormData(form);
+  const payload = {
+    name: formData.get('name')?.toString().trim() || '',
+    phone: formData.get('phone')?.toString().trim() || '',
+    whatsappNumber: formData.get('whatsappNumber')?.toString().trim() || null,
+    sourceName: formData.get('sourceName')?.toString().trim() || null,
+    primaryZone: formData.get('primaryZone')?.toString().trim() || null,
+    coverageZones: formData.get('coverageZones')?.toString().trim() || null,
+    categories: formData.get('categories')?.toString().trim() || null,
+    notes: formData.get('notes')?.toString().trim() || null,
+    assignToLead: formData.get('assignToLead') === 'on',
+  };
+
+  return request(`/api/leads/${leadId}/discovered-provider`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 
@@ -303,21 +418,38 @@ function bindSaveButtons() {
       }
     });
   });
+
+  document.querySelectorAll('.discovered-provider-form').forEach((form) => {
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      try {
+        const result = await submitDiscoveredProvider(form);
+        showFeedback(result.message || `Proveedor descubierto registrado para lead #${form.dataset.leadId}.`);
+        await loadLeads();
+      } catch {
+        showFeedback(`No pude registrar proveedor descubierto para lead #${form.dataset.leadId}.`, true);
+      }
+    });
+  });
 }
 
 function render() {
   const leads = getFilteredLeads();
   summaryText.textContent = `${leads.length} lead(s) visibles`;
+  providerSummaryText.textContent = `${providerCatalog.length} proveedor(es) en base`;
   renderStats(leads);
   renderBoard(leads);
 
   if (!leads.length) {
     leadsContainer.innerHTML = '<p class="empty">No hay leads para este filtro.</p>';
-    return;
+  } else {
+    leadsContainer.innerHTML = leads.map(renderLeadCard).join('');
+    bindSaveButtons();
   }
 
-  leadsContainer.innerHTML = leads.map(renderLeadCard).join('');
-  bindSaveButtons();
+  providersContainer.innerHTML = providerCatalog.length
+    ? providerCatalog.map(renderProviderCard).join('')
+    : '<p class="empty">Todavía no hay proveedores cargados.</p>';
 }
 
 async function loadLeads() {
@@ -350,6 +482,25 @@ createLeadForm.addEventListener('submit', async (event) => {
     await loadLeads();
   } catch {
     showFeedback('No pude crear el lead. Revisá el problema y probá de nuevo.', true);
+  }
+});
+
+createProviderForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  clearFeedback();
+  const formData = new FormData(createProviderForm);
+  const payload = Object.fromEntries(formData.entries());
+
+  try {
+    const provider = await request('/api/providers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    createProviderForm.reset();
+    showFeedback(`Proveedor ${provider.name} creado correctamente.`);
+    await loadLeads();
+  } catch {
+    showFeedback('No pude crear el proveedor. Revisá los datos y probá de nuevo.', true);
   }
 });
 

@@ -52,6 +52,41 @@
 
         <div class="divider"></div>
 
+        <h2>Nuevo proveedor</h2>
+        <form id="createProviderForm" class="form-stack">
+          <label>
+            Nombre
+            <input name="name" type="text" placeholder="Plomería Solymar" required />
+          </label>
+          <label>
+            Teléfono
+            <input name="phone" type="text" placeholder="099123456" required />
+          </label>
+          <label>
+            WhatsApp
+            <input name="whatsappNumber" type="text" placeholder="099123456" />
+          </label>
+          <label>
+            Categorías
+            <input name="categories" type="text" placeholder="plomeria, barometrica" required />
+          </label>
+          <label>
+            Zona principal
+            <input name="primaryZone" type="text" placeholder="Solymar" />
+          </label>
+          <label>
+            Ciudad
+            <input name="city" type="text" placeholder="Ciudad de la Costa" />
+          </label>
+          <label>
+            Notas
+            <textarea name="notes" rows="3" placeholder="Disponibilidad, observaciones, fuente, etc."></textarea>
+          </label>
+          <button class="btn btn-primary" type="submit">Crear proveedor</button>
+        </form>
+
+        <div class="divider"></div>
+
         <h2>Filtros operativos</h2>
         <div class="filter-stack">
           <label>
@@ -103,6 +138,7 @@
           <div>
             <h2>Resumen</h2>
             <p id="summaryText">Cargando leads…</p>
+            <p id="providerSummaryText">Cargando proveedores…</p>
           </div>
         </div>
 
@@ -120,6 +156,12 @@
           <p>Edición rápida de proveedor, notas y estado.</p>
         </div>
         <div id="leadsContainer" class="lead-list"></div>
+
+        <div class="list-head">
+          <h2>Proveedores en base</h2>
+          <p>Primer catálogo real persistido para matching.</p>
+        </div>
+        <div id="providersContainer" class="lead-list"></div>
       </section>
     </main>
   </body>
