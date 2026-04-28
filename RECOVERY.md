@@ -44,6 +44,7 @@ sudo systemctl start fixy-backend.service
 ```bash
 cd /home/father/Documents/workspaces/fixy-backend
 bash scripts/status.sh
+bash scripts/verify_ops.sh
 ```
 
 ## Precauciones

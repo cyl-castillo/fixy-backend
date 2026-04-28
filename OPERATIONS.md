@@ -53,7 +53,31 @@ bash scripts/healthcheck.sh
 
 - H2 sirve para etapa actual, pero no es la base final ideal para crecimiento serio.
 - El backend ya corre como servicio, pero el acceso público todavía depende de exposición temporal o futura integración formal con Cloudflare Tunnel.
-- La UI interna usa auth básica; más adelante conviene una capa de acceso más seria.
+- La UI interna usa auth básica; alcanza para esta etapa, pero más adelante conviene una capa de acceso más seria.
+
+## Política actual de acceso
+
+Público:
+- `/`
+- `/api/health`
+- `/api/intake`
+- `/api/public/**`
+
+Protegido con HTTP Basic Auth:
+- `/ops.html`
+- `/api/leads/**`
+- `/api/providers/**`
+
+Credenciales:
+- `FIXY_OPS_USERNAME`
+- `FIXY_OPS_PASSWORD`
+
+Verificación rápida de protección:
+
+```bash
+cd /home/father/Documents/workspaces/fixy-backend
+bash scripts/verify_ops.sh
+```
 
 ## Operación del servicio
 

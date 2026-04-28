@@ -6,6 +6,9 @@ Backend inicial de Fixy en `Spring Boot` para correr la landing y un agente de i
 
 - Landing estática servida desde `src/main/resources/static`
 - `POST /api/intake` para clasificar mensajes de clientes o proveedores
+- Flujo público conversacional para clientes en `POST /api/public/leads`
+- Registro público de proveedores en `POST /api/public/providers`
+- Panel operativo protegido con Basic Auth en `/ops.html`
 - Fallback heurístico para operar sin IA externa
 - Integración opcional con OpenAI vía `Responses API`
 - `GET /api/health` para chequeo simple
@@ -15,14 +18,14 @@ Backend inicial de Fixy en `Spring Boot` para correr la landing y un agente de i
 - JDK 21
 - Maven 3.9+
 
-Este servidor hoy no tiene `java` ni `mvn` instalados, así que el repo quedó preparado pero no ejecutado aquí todavía.
-
 ## Variables de entorno
 
 ```bash
 export PORT=8080
 export OPENAI_API_KEY=tu_api_key
 export OPENAI_MODEL=gpt-4.1-mini
+export FIXY_OPS_USERNAME=ops
+export FIXY_OPS_PASSWORD=cambia-esto
 ```
 
 Si `OPENAI_API_KEY` no está definida, el backend usa clasificación heurística.
@@ -50,6 +53,47 @@ Respuesta:
 {
   "status": "ok",
   "service": "fixy-backend"
+}
+```
+
+### `POST /api/public/leads`
+
+Crea un caso público desde la landing y devuelve el estado interpretado por el agente.
+
+```json
+{
+  "name": "Lucia",
+  "phone": "093551242",
+  "problem": "Se me rompio la ducha y pierde agua en Solymar",
+  "channel": "web"
+}
+```
+
+### `PATCH /api/public/leads/{id}/context`
+
+Agrega contexto faltante, por ejemplo zona o detalles adicionales.
+
+```json
+{
+  "location": "Pocitos",
+  "notes": "Es en apartamento, salta la llave general"
+}
+```
+
+### `POST /api/public/leads/{id}/matches`
+
+Genera opciones de proveedores si el caso tiene categoría y zona suficientes.
+
+### `POST /api/public/providers`
+
+Registra un proveedor interesado desde la landing.
+
+```json
+{
+  "name": "Ana",
+  "phone": "099888777",
+  "message": "Soy electricista, trabajo en Pocitos y hago urgencias",
+  "channel": "web-provider"
 }
 ```
 
@@ -86,7 +130,6 @@ Response:
 
 ## Próximos pasos recomendados
 
-1. Instalar JDK y Maven en el servidor.
-2. Probar `POST /api/intake` con casos reales.
-3. Agregar persistencia en PostgreSQL o Supabase.
-4. Conectar la API oficial de WhatsApp cuando el flujo manual ya esté validado.
+1. Probar el flujo público completo con casos reales.
+2. Conectar PostgreSQL o Supabase en producción.
+3. Conectar la API oficial de WhatsApp cuando el flujo manual ya esté validado.

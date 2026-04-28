@@ -1,0 +1,20 @@
+[Unit]
+Description=Fixy Backend
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=fixy
+Group=fixy
+WorkingDirectory=/opt/fixy-backend
+EnvironmentFile=/etc/fixy-backend.env
+ExecStart=/usr/bin/java -jar /opt/fixy-backend/fixy-backend.jar
+SuccessExitStatus=143
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/fixy-backend.log
+StandardError=append:/var/log/fixy-backend.log
+
+[Install]
+WantedBy=multi-user.target

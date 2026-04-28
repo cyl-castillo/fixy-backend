@@ -4,7 +4,7 @@
 
 - Backend local corriendo en `127.0.0.1:8080`
 - UI interna mínima en `/ops.html`
-- Protección básica con HTTP Basic Auth
+- Protección básica con HTTP Basic Auth sobre `/ops.html`, `/api/leads/**` y `/api/providers/**`
 - Servicio systemd activo: `fixy-backend.service`
 - Exposición temporal por Cloudflare quick tunnel / futura migración a túnel formal
 
