@@ -1,5 +1,6 @@
 package com.fixy.backend;
 
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -32,13 +33,15 @@ class LeadControllerTest {
         """;
 
     mockMvc.perform(post("/api/leads")
+            .with(httpBasic("test-ops", "test-pass"))
             .contentType(MediaType.APPLICATION_JSON)
             .content(createPayload))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.status").value("NEW"))
         .andExpect(jsonPath("$.detectedCategory").value("plomeria"));
 
-    mockMvc.perform(get("/api/leads"))
+    mockMvc.perform(get("/api/leads")
+            .with(httpBasic("test-ops", "test-pass")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].phone").value("093551242"));
 
@@ -50,6 +53,7 @@ class LeadControllerTest {
         """;
 
     mockMvc.perform(patch("/api/leads/1")
+            .with(httpBasic("test-ops", "test-pass"))
             .contentType(MediaType.APPLICATION_JSON)
             .content(updatePayload))
         .andExpect(status().isOk())
