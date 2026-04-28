@@ -1,5 +1,7 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.DiscoveredProviderCreateRequest;
+import com.fixy.backend.dto.DiscoveredProviderLinkResponse;
 import com.fixy.backend.dto.LeadCreateRequest;
 import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.LeadUpdateRequest;
@@ -41,5 +43,14 @@ public class LeadController {
   @PatchMapping("/{id}")
   public LeadResponse update(@PathVariable Long id, @RequestBody LeadUpdateRequest request) {
     return leadService.update(id, request);
+  }
+
+  @PostMapping("/{id}/discovered-provider")
+  @ResponseStatus(HttpStatus.CREATED)
+  public DiscoveredProviderLinkResponse createDiscoveredProvider(
+      @PathVariable Long id,
+      @Valid @RequestBody DiscoveredProviderCreateRequest request
+  ) {
+    return leadService.createDiscoveredProvider(id, request);
   }
 }

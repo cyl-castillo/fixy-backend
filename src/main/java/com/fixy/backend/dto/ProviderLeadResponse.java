@@ -1,26 +1,22 @@
 package com.fixy.backend.dto;
 
-import com.fixy.backend.model.LeadStatus;
+import com.fixy.backend.model.ProviderLeadStatus;
 import java.time.OffsetDateTime;
 import java.util.List;
 
-public record LeadResponse(
+public record ProviderLeadResponse(
     Long id,
     String name,
     String phone,
-    String problem,
-    String detectedCategory,
+    String message,
+    String category,
+    String zone,
     String urgency,
-    String location,
     String summary,
     List<String> missingFields,
-    List<String> blockingFields,
-    boolean readyForMatching,
+    boolean readyForReview,
     String nextRecommendedAction,
-    String assignedProvider,
-    String notes,
-    String history,
-    LeadStatus status,
+    ProviderLeadStatus status,
     String suggestedReply,
     String agentSource,
     OffsetDateTime createdAt,

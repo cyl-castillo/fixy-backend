@@ -13,41 +13,36 @@ import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
 
 @Entity
-@Table(name = "leads")
-public class Lead {
+@Table(name = "provider_leads")
+public class ProviderLead {
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
   @Column(nullable = false, length = 2000)
-  private String problem;
+  private String message;
 
   private String name;
   private String phone;
   private String channel;
-  private String detectedCategory;
+  private String category;
+  private String zone;
   private String urgency;
-  private String location;
   private String summary;
 
-  @Column(length = 2000)
+  @Column(length = 3000)
   private String missingFields;
 
   @Column(nullable = false)
-  private boolean readyForMatching;
-
-  private String assignedProvider;
+  private boolean readyForReview;
 
   @Column(length = 4000)
   private String notes;
 
-  @Column(length = 12000)
-  private String history;
-
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
-  private LeadStatus status;
+  private ProviderLeadStatus status;
 
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
@@ -61,7 +56,7 @@ public class Lead {
     createdAt = now;
     updatedAt = now;
     if (status == null) {
-      status = LeadStatus.NEW;
+      status = ProviderLeadStatus.PENDING_REVIEW;
     }
   }
 
@@ -71,35 +66,30 @@ public class Lead {
   }
 
   public Long getId() { return id; }
-  public void setId(Long id) { this.id = id; }
-  public String getProblem() { return problem; }
-  public void setProblem(String problem) { this.problem = problem; }
+  public String getMessage() { return message; }
+  public void setMessage(String message) { this.message = message; }
   public String getName() { return name; }
   public void setName(String name) { this.name = name; }
   public String getPhone() { return phone; }
   public void setPhone(String phone) { this.phone = phone; }
   public String getChannel() { return channel; }
   public void setChannel(String channel) { this.channel = channel; }
-  public String getDetectedCategory() { return detectedCategory; }
-  public void setDetectedCategory(String detectedCategory) { this.detectedCategory = detectedCategory; }
+  public String getCategory() { return category; }
+  public void setCategory(String category) { this.category = category; }
+  public String getZone() { return zone; }
+  public void setZone(String zone) { this.zone = zone; }
   public String getUrgency() { return urgency; }
   public void setUrgency(String urgency) { this.urgency = urgency; }
-  public String getLocation() { return location; }
-  public void setLocation(String location) { this.location = location; }
   public String getSummary() { return summary; }
   public void setSummary(String summary) { this.summary = summary; }
   public String getMissingFields() { return missingFields; }
   public void setMissingFields(String missingFields) { this.missingFields = missingFields; }
-  public boolean isReadyForMatching() { return readyForMatching; }
-  public void setReadyForMatching(boolean readyForMatching) { this.readyForMatching = readyForMatching; }
-  public String getAssignedProvider() { return assignedProvider; }
-  public void setAssignedProvider(String assignedProvider) { this.assignedProvider = assignedProvider; }
+  public boolean isReadyForReview() { return readyForReview; }
+  public void setReadyForReview(boolean readyForReview) { this.readyForReview = readyForReview; }
   public String getNotes() { return notes; }
   public void setNotes(String notes) { this.notes = notes; }
-  public String getHistory() { return history; }
-  public void setHistory(String history) { this.history = history; }
-  public LeadStatus getStatus() { return status; }
-  public void setStatus(LeadStatus status) { this.status = status; }
+  public ProviderLeadStatus getStatus() { return status; }
+  public void setStatus(ProviderLeadStatus status) { this.status = status; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }
