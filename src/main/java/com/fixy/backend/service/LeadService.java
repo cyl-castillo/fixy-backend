@@ -262,8 +262,20 @@ public class LeadService {
       lead.setLocation(classification.area());
     }
     lead.setSummary(classification.summary());
-    lead.setMissingFields(serializeMissingFields(classification.missingFields()));
+    lead.setMissingFields(serializeMissingFields(normalizeMissingFields(classification.missingFields(), lead)));
     lead.setReadyForMatching(computeBlockingFields(lead).isEmpty());
+  }
+
+  private List<String> normalizeMissingFields(List<String> missingFields, Lead lead) {
+    return missingFields.stream()
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .filter(value -> !("zona".equalsIgnoreCase(value) && hasText(lead.getLocation())
+            && !"sin definir".equalsIgnoreCase(lead.getLocation())))
+        .filter(value -> !("categoria".equalsIgnoreCase(value) && hasText(lead.getDetectedCategory())
+            && !"otro".equalsIgnoreCase(lead.getDetectedCategory())))
+        .distinct()
+        .toList();
   }
 
   private List<String> computeBlockingFields(Lead lead) {

@@ -147,6 +147,7 @@ class LeadControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.location").value("Pocitos"))
         .andExpect(jsonPath("$.readyForMatching").value(true))
+        .andExpect(jsonPath("$.missingFields.length()").value(2))
         .andExpect(jsonPath("$.blockingFields").isArray())
         .andExpect(jsonPath("$.blockingFields.length()").value(0))
         .andExpect(jsonPath("$.nextRecommendedAction").value("generate_matches"));
