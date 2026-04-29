@@ -44,14 +44,16 @@ public class AgentService {
   }
 
   public IntakeResponse classify(IntakeRequest request) {
+    IntakeResponse response = null;
     if (!openAiApiKey.isBlank()) {
-      IntakeResponse aiResponse = classifyWithOpenAi(request);
-      if (aiResponse != null) {
-        return aiResponse;
-      }
+      response = classifyWithOpenAi(request);
     }
 
-    return classifyHeuristically(request);
+    if (response == null) {
+      response = classifyHeuristically(request);
+    }
+
+    return applyStructuredFields(request, response);
   }
 
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
@@ -70,11 +72,21 @@ public class AgentService {
         Nombre: %s
         Telefono: %s
         Canal: %s
+        Servicio elegido: %s
+        Zona elegida: %s
+        Urgencia elegida: %s
+        Direccion o referencia: %s
+        Detalle adicional: %s
         Mensaje: %s
         """.formatted(
         safe(request.contactName()),
         safe(request.phone()),
         safe(request.channel()),
+        safe(request.serviceCategory()),
+        safe(request.zone()),
+        safe(request.urgency()),
+        safe(request.address()),
+        safe(request.details()),
         request.message()
     );
 
@@ -113,7 +125,7 @@ public class AgentService {
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),
           readMissingFields(result.path("missingFields")),
-          result.path("suggestedReply").asText(buildSuggestedReply(request.message())),
+          result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
           "openai"
       );
     } catch (Exception ignored) {
@@ -149,10 +161,10 @@ public class AgentService {
   private IntakeResponse classifyHeuristically(IntakeRequest request) {
     String message = request.message().toLowerCase(Locale.ROOT);
     String leadType = detectLeadType(message);
-    String service = detectService(message);
-    String area = detectArea(message);
-    String urgency = detectUrgency(message);
-    List<String> missingFields = detectMissingFields(message);
+    String service = resolvedService(request, message);
+    String area = resolvedArea(request, message);
+    String urgency = resolvedUrgency(request, message);
+    List<String> missingFields = detectMissingFields(request, message);
 
     return new IntakeResponse(
         leadType,
@@ -161,8 +173,33 @@ public class AgentService {
         urgency,
         buildSummary(request, service),
         missingFields,
-        buildSuggestedReply(message),
+        buildSuggestedReply(request, missingFields),
         "heuristic"
+    );
+  }
+
+  private IntakeResponse applyStructuredFields(IntakeRequest request, IntakeResponse response) {
+    String message = request.message().toLowerCase(Locale.ROOT);
+    String service = hasText(request.serviceCategory())
+        ? normalizeServiceCategory(request.serviceCategory())
+        : response.serviceCategory();
+    String area = hasText(request.zone())
+        ? request.zone().trim()
+        : response.area();
+    String urgency = hasText(request.urgency())
+        ? normalizeUrgency(request.urgency())
+        : response.urgency();
+    List<String> missingFields = normalizeMissingFields(request, response.missingFields(), message, service, area);
+
+    return new IntakeResponse(
+        response.leadType(),
+        hasText(service) ? service : "otro",
+        hasText(area) ? area : "sin definir",
+        hasText(urgency) ? urgency : "media",
+        buildSummary(request, hasText(service) ? service : response.serviceCategory()),
+        missingFields,
+        buildSuggestedReply(request, missingFields),
+        response.agentSource()
     );
   }
 
@@ -193,6 +230,13 @@ public class AgentService {
     return "otro";
   }
 
+  private String resolvedService(IntakeRequest request, String message) {
+    if (hasText(request.serviceCategory())) {
+      return normalizeServiceCategory(request.serviceCategory());
+    }
+    return detectService(message);
+  }
+
   private String detectArea(String message) {
     String normalized = message.toLowerCase(Locale.ROOT);
     for (String zone : MONTEVIDEO_ZONES) {
@@ -206,6 +250,13 @@ public class AgentService {
     return "sin definir";
   }
 
+  private String resolvedArea(IntakeRequest request, String message) {
+    if (hasText(request.zone())) {
+      return request.zone().trim();
+    }
+    return detectArea(message);
+  }
+
   private String detectUrgency(String message) {
     if (containsAny(message, "urgente", "ya", "ahora", "sin parar", "inund", "chispa", "corto")) {
       return "alta";
@@ -216,9 +267,16 @@ public class AgentService {
     return "baja";
   }
 
-  private List<String> detectMissingFields(String message) {
+  private String resolvedUrgency(IntakeRequest request, String message) {
+    if (hasText(request.urgency())) {
+      return normalizeUrgency(request.urgency());
+    }
+    return detectUrgency(message);
+  }
+
+  private List<String> detectMissingFields(IntakeRequest request, String message) {
     List<String> fields = new ArrayList<>();
-    if (!containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos", "punta carretas",
+    if (!hasText(request.zone()) && !containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos", "punta carretas",
         "carrasco", "malvin", "malvín", "buceo", "union", "unión", "parque batlle", "tres cruces",
         "cerro", "la blanqueada", "prado", "sayago", "belvedere", "villa espanola", "villa española")) {
       fields.add("zona");
@@ -226,8 +284,42 @@ public class AgentService {
     if (!containsAny(message, "foto", "imagen")) {
       fields.add("foto del problema");
     }
-    fields.add("direccion exacta");
+    if (!hasText(request.address()) && !containsAny(message, "direccion", "dirección", "calle", "esquina", "referencia")) {
+      fields.add("direccion exacta");
+    }
     return fields;
+  }
+
+  private List<String> normalizeMissingFields(
+      IntakeRequest request,
+      List<String> missingFields,
+      String message,
+      String service,
+      String area
+  ) {
+    List<String> normalized = new ArrayList<>(missingFields == null ? List.of() : missingFields);
+
+    if (!hasText(area) || "sin definir".equalsIgnoreCase(area)) {
+      if (!hasText(request.zone()) && !containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos",
+          "punta carretas", "carrasco", "malvin", "malvín", "buceo", "union", "unión")) {
+        normalized.add("zona");
+      }
+    }
+
+    if (!hasText(service) || "otro".equalsIgnoreCase(service)) {
+      if (!hasText(request.serviceCategory())) {
+        normalized.add("categoria");
+      }
+    }
+
+    return normalized.stream()
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .filter(value -> !("zona".equalsIgnoreCase(value) && hasText(request.zone())))
+        .filter(value -> !("categoria".equalsIgnoreCase(value) && hasText(request.serviceCategory())))
+        .filter(value -> !("direccion exacta".equalsIgnoreCase(value) && hasText(request.address())))
+        .distinct()
+        .toList();
   }
 
   private String buildSummary(IntakeRequest request, String service) {
@@ -235,11 +327,17 @@ public class AgentService {
     return "Problema de %s reportado por %s".formatted(service, contact);
   }
 
-  private String buildSuggestedReply(String message) {
-    if (detectLeadType(message).equals("proveedor")) {
+  private String buildSuggestedReply(IntakeRequest request, List<String> missingFields) {
+    if (detectLeadType(request.message().toLowerCase(Locale.ROOT)).equals("proveedor")) {
       return "Gracias por escribir. Comparteme tu rubro, la zona donde trabajas y experiencia para evaluarte como proveedor de Fixy.";
     }
-    return "Gracias, ya estamos revisando tu caso. Compartenos direccion exacta y, si puedes, una foto para coordinar mas rapido.";
+    if (missingFields.contains("direccion exacta")) {
+      return "Gracias, ya recibimos tu caso. Compartenos la direccion exacta para coordinar mas rapido.";
+    }
+    if (missingFields.contains("foto del problema")) {
+      return "Gracias, ya recibimos tu caso. Si puedes, agrega una foto para que el proveedor entienda mejor el problema.";
+    }
+    return "Gracias, ya tenemos los datos principales. El siguiente paso es coordinar proveedor disponible para tu zona.";
   }
 
   private boolean containsAny(String text, String... candidates) {
@@ -273,7 +371,42 @@ public class AgentService {
     };
   }
 
+  private String normalizeServiceCategory(String serviceCategory) {
+    String normalized = serviceCategory.toLowerCase(Locale.ROOT).trim();
+    if (containsAny(normalized, "plomer", "agua", "caño", "cano")) {
+      return "plomeria";
+    }
+    if (containsAny(normalized, "electric", "luz")) {
+      return "electricidad";
+    }
+    if (containsAny(normalized, "cerraj", "llave", "cerradura")) {
+      return "cerrajeria";
+    }
+    if (containsAny(normalized, "barometr")) {
+      return "barometrica";
+    }
+    if (containsAny(normalized, "repar")) {
+      return "reparaciones";
+    }
+    return normalized.isBlank() ? "otro" : normalized;
+  }
+
+  private String normalizeUrgency(String urgency) {
+    String normalized = urgency.toLowerCase(Locale.ROOT).trim();
+    if (containsAny(normalized, "alta", "urgente", "ya", "ahora")) {
+      return "alta";
+    }
+    if (containsAny(normalized, "media", "hoy", "pronto")) {
+      return "media";
+    }
+    return "baja";
+  }
+
   private String safe(String value) {
     return value == null ? "" : value;
+  }
+
+  private boolean hasText(String value) {
+    return value != null && !value.isBlank();
   }
 }

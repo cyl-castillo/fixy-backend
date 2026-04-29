@@ -29,4 +29,30 @@ class AgentServiceTest {
     assertEquals("alta", response.urgency());
     assertTrue(response.missingFields().contains("direccion exacta"));
   }
+
+  @Test
+  void shouldUseStructuredIntakeFieldsWhenProvided() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "Necesito ayuda, se rompió algo abajo de la pileta.",
+        "Carlos",
+        "099111222",
+        "web-app",
+        "plomeria",
+        "Solymar",
+        "hoy",
+        "Av. Principal y calle 3",
+        "Pierde agua abajo de la pileta"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("cliente", response.leadType());
+    assertEquals("plomeria", response.serviceCategory());
+    assertEquals("Solymar", response.area());
+    assertEquals("media", response.urgency());
+    assertTrue(response.missingFields().contains("foto del problema"));
+    assertTrue(!response.missingFields().contains("zona"));
+    assertTrue(!response.missingFields().contains("direccion exacta"));
+  }
 }
