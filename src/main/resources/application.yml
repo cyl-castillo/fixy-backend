@@ -22,8 +22,8 @@ spring:
 
 fixy:
   security:
-    username: ${FIXY_OPS_USERNAME}
-    password: ${FIXY_OPS_PASSWORD}
+    username: ${FIXY_OPS_USERNAME:ops}
+    password: ${FIXY_OPS_PASSWORD:change-me}
   openai:
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4.1-mini}
