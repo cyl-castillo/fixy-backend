@@ -1,0 +1,12 @@
+[Unit]
+Description=Fixy daily digest schedule (09:00 ART = 12:00 UTC)
+
+[Timer]
+# 12:00 UTC todos los dias = 09:00 ART (UTC-3, sin DST)
+OnCalendar=*-*-* 12:00:00 UTC
+Persistent=true
+RandomizedDelaySec=120
+Unit=fixy-daily-digest.service
+
+[Install]
+WantedBy=timers.target
