@@ -64,7 +64,7 @@ public class AgentService {
         leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply.
         Usa valores en espanol minusculas simples.
         leadType debe ser cliente o proveedor.
-        serviceCategory debe ser uno de: plomeria, barometrica, jardineria, otro.
+        serviceCategory debe ser uno de: plomeria, barometrica, jardineria, aires_acondicionados, otro.
         urgency debe ser: alta, media o baja.
         missingFields debe ser array de strings.
         suggestedReply debe ser corto, natural y util.
@@ -227,6 +227,9 @@ public class AgentService {
     if (containsAny(message, "jardin", "jardín", "pasto", "cesped", "césped", "cortar pasto", "mantenimiento exterior", "jardiner")) {
       return "jardineria";
     }
+    if (containsAny(message, "aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización", "no enfria", "no enfría", "no calienta", "recarga de gas", "mantenimiento de aire")) {
+      return "aires_acondicionados";
+    }
     if (containsAny(message, "arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana")) {
       return "reparaciones";
     }
@@ -385,6 +388,9 @@ public class AgentService {
     }
     if (containsAny(normalized, "jardin", "jardín", "pasto", "cesped", "césped", "jardiner")) {
       return "jardineria";
+    }
+    if (containsAny(normalized, "aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización", "refrigeracion", "refrigeración")) {
+      return "aires_acondicionados";
     }
     return normalized.isBlank() ? "otro" : normalized;
   }

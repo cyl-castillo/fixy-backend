@@ -89,6 +89,20 @@ public class ProviderSeedConfig {
               ProviderStatus.AVAILABLE,
               ProviderVerificationStatus.BASIC_CHECKED,
               "Proveedor multipropósito para pruebas de matching"
+          ),
+          provider(
+              "Aires Costa",
+              "099100606",
+              "099100606",
+              "aires_acondicionados",
+              "Ciudad de la Costa",
+              "Solymar, Lagomar, El Pinar, Shangrilá, Barra de Carrasco",
+              "Ciudad de la Costa",
+              "Canelones",
+              "manual",
+              ProviderStatus.AVAILABLE,
+              ProviderVerificationStatus.UNVERIFIED,
+              "Proveedor seed para pruebas iniciales de aires acondicionados; reemplazar por proveedor real de Carlos"
           )
       ));
     };

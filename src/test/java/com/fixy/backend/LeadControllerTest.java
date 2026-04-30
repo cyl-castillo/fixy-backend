@@ -180,6 +180,57 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldMatchAirConditioningWithinMvpArea() throws Exception {
+    String providerPayload = """
+        {
+          "name": "Aires Costa Test",
+          "phone": "099444555",
+          "primaryZone": "Ciudad de la Costa",
+          "coverageZones": "Lagomar, Solymar, El Pinar",
+          "city": "Ciudad de la Costa",
+          "categories": "aires_acondicionados"
+        }
+        """;
+
+    mockMvc.perform(post("/api/providers")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(providerPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.name").value("Aires Costa Test"));
+
+    String createPayload = """
+        {
+          "name": "Carlos",
+          "phone": "099123123",
+          "problem": "El aire acondicionado split no enfria",
+          "channel": "web",
+          "serviceCategory": "aires acondicionados",
+          "zone": "Lagomar"
+        }
+        """;
+
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.detectedCategory").value("aires_acondicionados"))
+        .andExpect(jsonPath("$.location").value("Lagomar"))
+        .andExpect(jsonPath("$.readyForMatching").value(true))
+        .andExpect(jsonPath("$.blockingFields.length()").value(0))
+        .andExpect(jsonPath("$.nextRecommendedAction").value("generate_matches"))
+        .andReturn();
+
+    Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.matches[0].category").value("aires_acondicionados"))
+        .andExpect(jsonPath("$.matches[0].reasons[0]").value("categoria_coincide"))
+        .andExpect(jsonPath("$.nextRecommendedAction").value("present_matches"));
+  }
+
+  @Test
   void shouldBlockOutOfMvpCategoryAndArea() throws Exception {
     String createPayload = """
         {

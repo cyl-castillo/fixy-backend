@@ -31,6 +31,23 @@ class AgentServiceTest {
   }
 
   @Test
+  void shouldClassifyAirConditioningCase() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "El aire acondicionado split no enfria en Lagomar",
+        "Carlos",
+        "099111222",
+        "web-app"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("cliente", response.leadType());
+    assertEquals("aires_acondicionados", response.serviceCategory());
+    assertEquals("Lagomar", response.area());
+  }
+
+  @Test
   void shouldUseStructuredIntakeFieldsWhenProvided() {
     AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
     IntakeRequest request = new IntakeRequest(

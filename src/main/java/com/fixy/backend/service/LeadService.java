@@ -32,7 +32,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class LeadService {
 
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-  private static final Set<String> MVP_CATEGORIES = Set.of("plomeria", "barometrica", "jardineria");
+  private static final Set<String> MVP_CATEGORIES = Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados");
   private static final Set<String> MVP_LOCATIONS = Set.of(
       "ciudad de la costa",
       "solymar",
