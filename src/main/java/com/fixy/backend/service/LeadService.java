@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -31,6 +32,22 @@ import org.springframework.web.server.ResponseStatusException;
 public class LeadService {
 
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+  private static final Set<String> MVP_CATEGORIES = Set.of("plomeria", "barometrica", "jardineria");
+  private static final Set<String> MVP_LOCATIONS = Set.of(
+      "ciudad de la costa",
+      "solymar",
+      "lagomar",
+      "el pinar",
+      "shangrila",
+      "shangrilá",
+      "barra de carrasco",
+      "parque miramar",
+      "san jose de carrasco",
+      "san josé de carrasco",
+      "lomas de solymar",
+      "colinas de solymar",
+      "aeroparque"
+  );
 
   private final LeadRepository leadRepository;
   private final AgentService agentService;
@@ -294,16 +311,30 @@ public class LeadService {
 
   private List<String> computeBlockingFields(Lead lead) {
     List<String> blockingFields = new ArrayList<>();
-    if (!hasText(lead.getDetectedCategory()) || "otro".equalsIgnoreCase(lead.getDetectedCategory())) {
+    String category = normalize(lead.getDetectedCategory());
+    String location = normalize(lead.getLocation());
+
+    if (category.isBlank() || "otro".equals(category)) {
       blockingFields.add("categoria");
+    } else if (!MVP_CATEGORIES.contains(category)) {
+      blockingFields.add("categoria_fuera_de_alcance");
     }
-    if (!hasText(lead.getLocation()) || "sin definir".equalsIgnoreCase(lead.getLocation())) {
+
+    if (location.isBlank() || "sin definir".equals(location)) {
       blockingFields.add("zona");
+    } else if (!MVP_LOCATIONS.contains(location)) {
+      blockingFields.add("zona_fuera_de_cobertura");
     }
     return blockingFields;
   }
 
   private String nextRecommendedAction(List<String> blockingFields) {
+    if (blockingFields.contains("categoria_fuera_de_alcance")) {
+      return "out_of_scope_category";
+    }
+    if (blockingFields.contains("zona_fuera_de_cobertura")) {
+      return "out_of_coverage_area";
+    }
     if (blockingFields.contains("categoria")) {
       return "ask_service_category";
     }

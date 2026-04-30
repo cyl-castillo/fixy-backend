@@ -95,7 +95,7 @@ public class ProviderCatalogService {
         .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
-        .map(this::toCatalogItem)
+        .map(provider -> toCatalogItem(provider, normalizedCategory))
         .toList();
   }
 
@@ -130,12 +130,20 @@ public class ProviderCatalogService {
   }
 
   private ProviderCatalogItem toCatalogItem(Provider provider) {
+    return toCatalogItem(provider, "");
+  }
+
+  private ProviderCatalogItem toCatalogItem(Provider provider, String matchedCategory) {
     String primaryCategory = splitCsv(provider.getCategories()).stream().findFirst().orElse("");
+    String displayCategory = splitCsv(provider.getCategories()).stream()
+        .filter(category -> normalize(category).equals(matchedCategory))
+        .findFirst()
+        .orElse(primaryCategory);
     String zone = firstNonBlank(provider.getPrimaryZone(), provider.getCity());
     return new ProviderCatalogItem(
         provider.getId(),
         provider.getName(),
-        primaryCategory,
+        displayCategory,
         zone,
         firstNonBlank(provider.getWhatsappNumber(), provider.getPhone()),
         provider.getStatus().name(),

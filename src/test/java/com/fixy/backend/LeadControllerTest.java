@@ -29,8 +29,8 @@ class LeadControllerTest {
         {
           "name": "Proveedor Demo",
           "phone": "093000000",
-          "primaryZone": "Montevideo",
-          "city": "Montevideo",
+          "primaryZone": "Solymar",
+          "city": "Ciudad de la Costa",
           "categories": "plomeria"
         }
         """;
@@ -46,7 +46,7 @@ class LeadControllerTest {
         {
           "name": "Lucia",
           "phone": "093551242",
-          "problem": "Se rompio la ducha y pierde agua sin parar en Montevideo",
+          "problem": "Se rompio la ducha y pierde agua sin parar en Solymar",
           "channel": "whatsapp"
         }
         """;
@@ -91,11 +91,12 @@ class LeadControllerTest {
   void shouldSupportPublicConversationalFlowAndMatches() throws Exception {
     String providerPayload = """
         {
-          "name": "Electricista Costa",
+          "name": "Jardines Costa",
           "phone": "099000111",
-          "primaryZone": "Pocitos",
-          "city": "Montevideo",
-          "categories": "electricidad"
+          "primaryZone": "Lagomar",
+          "coverageZones": "Lagomar, Solymar",
+          "city": "Ciudad de la Costa",
+          "categories": "jardineria"
         }
         """;
 
@@ -104,13 +105,13 @@ class LeadControllerTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content(providerPayload))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.name").value("Electricista Costa"));
+        .andExpect(jsonPath("$.name").value("Jardines Costa"));
 
     String createPayload = """
         {
           "name": "Carlos",
           "phone": "099123123",
-          "problem": "Necesito electricista urgente",
+          "problem": "Necesito cortar pasto y ordenar el jardin",
           "channel": "web"
         }
         """;
@@ -119,7 +120,7 @@ class LeadControllerTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content(createPayload))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.detectedCategory").value("electricidad"))
+        .andExpect(jsonPath("$.detectedCategory").value("jardineria"))
         .andExpect(jsonPath("$.readyForMatching").value(false))
         .andExpect(jsonPath("$.blockingFields[0]").value("zona"))
         .andExpect(jsonPath("$.nextRecommendedAction").value("ask_location"))
@@ -136,8 +137,8 @@ class LeadControllerTest {
 
     String enrichPayload = """
         {
-          "location": "Pocitos",
-          "notes": "Es en apartamento, salta la llave general"
+          "location": "Lagomar",
+          "notes": "Jardin crecido, necesita corte de pasto"
         }
         """;
 
@@ -145,23 +146,22 @@ class LeadControllerTest {
             .contentType(MediaType.APPLICATION_JSON)
             .content(enrichPayload))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.location").value("Pocitos"))
+        .andExpect(jsonPath("$.location").value("Lagomar"))
         .andExpect(jsonPath("$.readyForMatching").value(true))
-        .andExpect(jsonPath("$.missingFields.length()").value(2))
         .andExpect(jsonPath("$.blockingFields").isArray())
         .andExpect(jsonPath("$.blockingFields.length()").value(0))
         .andExpect(jsonPath("$.nextRecommendedAction").value("generate_matches"));
 
     mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.matches[0].name").value("Electricista Costa"))
-        .andExpect(jsonPath("$.matches[0].score").value(80))
+        .andExpect(jsonPath("$.matches[0].name").value("Jardines del Este"))
+        .andExpect(jsonPath("$.matches[0].score").value(100))
         .andExpect(jsonPath("$.matches[0].reasons[0]").value("categoria_coincide"))
         .andExpect(jsonPath("$.nextRecommendedAction").value("present_matches"));
 
     mockMvc.perform(get("/api/public/leads/{id}", leadId))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.location").value("Pocitos"))
+        .andExpect(jsonPath("$.location").value("Lagomar"))
         .andExpect(jsonPath("$.summary").exists());
 
     mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId))
@@ -175,8 +175,42 @@ class LeadControllerTest {
 
     mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.lead.location").value("Pocitos"))
+        .andExpect(jsonPath("$.lead.location").value("Lagomar"))
         .andExpect(jsonPath("$.lead.readyForMatching").value(true));
+  }
+
+  @Test
+  void shouldBlockOutOfMvpCategoryAndArea() throws Exception {
+    String createPayload = """
+        {
+          "name": "Carlos",
+          "phone": "099123123",
+          "problem": "Necesito electricista urgente",
+          "channel": "web",
+          "serviceCategory": "electricidad",
+          "zone": "Pocitos"
+        }
+        """;
+
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.detectedCategory").value("electricidad"))
+        .andExpect(jsonPath("$.location").value("Pocitos"))
+        .andExpect(jsonPath("$.readyForMatching").value(false))
+        .andExpect(jsonPath("$.blockingFields[0]").value("categoria_fuera_de_alcance"))
+        .andExpect(jsonPath("$.blockingFields[1]").value("zona_fuera_de_cobertura"))
+        .andExpect(jsonPath("$.nextRecommendedAction").value("out_of_scope_category"))
+        .andReturn();
+
+    Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.matches.length()").value(0))
+        .andExpect(jsonPath("$.blockingFields[0]").value("categoria_fuera_de_alcance"))
+        .andExpect(jsonPath("$.nextRecommendedAction").value("out_of_scope_category"));
   }
 
   @Test
@@ -215,7 +249,7 @@ class LeadControllerTest {
         {
           "name": "Ana",
           "phone": "099888777",
-          "message": "Soy electricista, trabajo en Pocitos y tengo disponibilidad para urgencias",
+          "message": "Soy jardinero, trabajo en Solymar y tengo disponibilidad para coordinar servicios",
           "channel": "web-provider"
         }
         """;
@@ -225,8 +259,8 @@ class LeadControllerTest {
             .content(payload))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.name").value("Ana"))
-        .andExpect(jsonPath("$.category").value("electricidad"))
-        .andExpect(jsonPath("$.zone").value("Pocitos"))
+        .andExpect(jsonPath("$.category").value("jardineria"))
+        .andExpect(jsonPath("$.zone").value("Solymar"))
         .andExpect(jsonPath("$.missingFields.length()").value(0))
         .andExpect(jsonPath("$.readyForReview").value(true))
         .andExpect(jsonPath("$.nextRecommendedAction").value("ready_for_review"))

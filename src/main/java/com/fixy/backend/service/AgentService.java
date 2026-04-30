@@ -18,10 +18,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 @Service
 public class AgentService {
 
-  private static final List<String> MONTEVIDEO_ZONES = List.of(
-      "centro", "cordon", "cordón", "pocitos", "punta carretas", "carrasco", "malvin", "malvín",
-      "buceo", "union", "unión", "parque batlle", "tres cruces", "cerro", "la blanqueada",
-      "prado", "sayago", "belvedere", "villa espanola", "villa española"
+  private static final List<String> CIUDAD_DE_LA_COSTA_ZONES = List.of(
+      "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
+      "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
+      "lomas de solymar", "colinas de solymar", "aeroparque", "ciudad de la costa"
   );
 
   private final ObjectMapper objectMapper;
@@ -59,12 +59,12 @@ public class AgentService {
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
     String prompt = """
         Eres el agente de intake de Fixy.
-        Fixy opera primero en Montevideo, Uruguay.
+        Fixy opera primero en Ciudad de la Costa, Canelones, Uruguay.
         Analiza el mensaje y devuelve solo JSON con estas claves:
         leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply.
         Usa valores en espanol minusculas simples.
         leadType debe ser cliente o proveedor.
-        serviceCategory debe ser uno de: plomeria, electricidad, cerrajeria, barometrica, reparaciones, otro.
+        serviceCategory debe ser uno de: plomeria, barometrica, jardineria, otro.
         urgency debe ser: alta, media o baja.
         missingFields debe ser array de strings.
         suggestedReply debe ser corto, natural y util.
@@ -224,6 +224,9 @@ public class AgentService {
     if (containsAny(message, "pozo", "barometr", "camara septica", "cámara séptica")) {
       return "barometrica";
     }
+    if (containsAny(message, "jardin", "jardín", "pasto", "cesped", "césped", "cortar pasto", "mantenimiento exterior", "jardiner")) {
+      return "jardineria";
+    }
     if (containsAny(message, "arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana")) {
       return "reparaciones";
     }
@@ -239,13 +242,13 @@ public class AgentService {
 
   private String detectArea(String message) {
     String normalized = message.toLowerCase(Locale.ROOT);
-    for (String zone : MONTEVIDEO_ZONES) {
+    for (String zone : CIUDAD_DE_LA_COSTA_ZONES) {
       if (normalized.contains(zone)) {
         return toDisplayArea(zone);
       }
     }
-    if (normalized.contains("montevideo")) {
-      return "Montevideo";
+    if (normalized.contains("canelones")) {
+      return "Ciudad de la Costa";
     }
     return "sin definir";
   }
@@ -276,9 +279,9 @@ public class AgentService {
 
   private List<String> detectMissingFields(IntakeRequest request, String message) {
     List<String> fields = new ArrayList<>();
-    if (!hasText(request.zone()) && !containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos", "punta carretas",
-        "carrasco", "malvin", "malvín", "buceo", "union", "unión", "parque batlle", "tres cruces",
-        "cerro", "la blanqueada", "prado", "sayago", "belvedere", "villa espanola", "villa española")) {
+    if (!hasText(request.zone()) && !containsAny(message, "ciudad de la costa", "solymar", "lagomar", "el pinar",
+        "shangrila", "shangrilá", "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
+        "lomas de solymar", "colinas de solymar", "aeroparque")) {
       fields.add("zona");
     }
     if (!containsAny(message, "foto", "imagen")) {
@@ -300,8 +303,9 @@ public class AgentService {
     List<String> normalized = new ArrayList<>(missingFields == null ? List.of() : missingFields);
 
     if (!hasText(area) || "sin definir".equalsIgnoreCase(area)) {
-      if (!hasText(request.zone()) && !containsAny(message, "montevideo", "centro", "cordon", "cordón", "pocitos",
-          "punta carretas", "carrasco", "malvin", "malvín", "buceo", "union", "unión")) {
+      if (!hasText(request.zone()) && !containsAny(message, "ciudad de la costa", "solymar", "lagomar", "el pinar",
+          "shangrila", "shangrilá", "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
+          "lomas de solymar", "colinas de solymar", "aeroparque")) {
         normalized.add("zona");
       }
     }
@@ -351,23 +355,17 @@ public class AgentService {
 
   private String toDisplayArea(String zone) {
     return switch (zone) {
-      case "belvedere" -> "Belvedere";
-      case "buceo" -> "Buceo";
-      case "carrasco" -> "Carrasco";
-      case "centro" -> "Centro";
-      case "cerro" -> "Cerro";
-      case "cordon", "cordón" -> "Cordón";
-      case "la blanqueada" -> "La Blanqueada";
-      case "malvin", "malvín" -> "Malvín";
-      case "parque batlle" -> "Parque Batlle";
-      case "pocitos" -> "Pocitos";
-      case "prado" -> "Prado";
-      case "punta carretas" -> "Punta Carretas";
-      case "sayago" -> "Sayago";
-      case "tres cruces" -> "Tres Cruces";
-      case "union", "unión" -> "Unión";
-      case "villa espanola", "villa española" -> "Villa Española";
-      default -> "Montevideo";
+      case "solymar" -> "Solymar";
+      case "lagomar" -> "Lagomar";
+      case "el pinar" -> "El Pinar";
+      case "shangrila", "shangrilá" -> "Shangrilá";
+      case "barra de carrasco" -> "Barra de Carrasco";
+      case "parque miramar" -> "Parque Miramar";
+      case "san jose de carrasco", "san josé de carrasco" -> "San José de Carrasco";
+      case "lomas de solymar" -> "Lomas de Solymar";
+      case "colinas de solymar" -> "Colinas de Solymar";
+      case "aeroparque" -> "Aeroparque";
+      default -> "Ciudad de la Costa";
     };
   }
 
@@ -385,8 +383,8 @@ public class AgentService {
     if (containsAny(normalized, "barometr")) {
       return "barometrica";
     }
-    if (containsAny(normalized, "repar")) {
-      return "reparaciones";
+    if (containsAny(normalized, "jardin", "jardín", "pasto", "cesped", "césped", "jardiner")) {
+      return "jardineria";
     }
     return normalized.isBlank() ? "otro" : normalized;
   }
