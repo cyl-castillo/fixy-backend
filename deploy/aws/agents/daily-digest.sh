@@ -8,7 +8,7 @@ set -euo pipefail
 # Env requeridas (desde /etc/fixy-agents.env):
 #   TELEGRAM_BOT_TOKEN
 #   TELEGRAM_CHAT_ID
-#   FIXY_OPS_USER          (mismo de fixy.security.username)
+#   FIXY_OPS_USERNAME          (mismo de fixy.security.username)
 #   FIXY_OPS_PASSWORD      (mismo de fixy.security.password)
 #
 # Env opcionales:
@@ -20,14 +20,14 @@ STATUS_ENV="${STATUS_ENV:-/var/lib/fixy-monitor/status.env}"
 
 : "${TELEGRAM_BOT_TOKEN:?missing}"
 : "${TELEGRAM_CHAT_ID:?missing}"
-: "${FIXY_OPS_USER:?missing}"
+: "${FIXY_OPS_USERNAME:?missing}"
 : "${FIXY_OPS_PASSWORD:?missing}"
 
 now_utc="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 now_local="$(date '+%Y-%m-%d %H:%M %Z')"
 
 api_curl() {
-  curl -sf --max-time 15 --user "$FIXY_OPS_USER:$FIXY_OPS_PASSWORD" "$@"
+  curl -sf --max-time 15 --user "$FIXY_OPS_USERNAME:$FIXY_OPS_PASSWORD" "$@"
 }
 
 # 1. Healthcheck rapido
