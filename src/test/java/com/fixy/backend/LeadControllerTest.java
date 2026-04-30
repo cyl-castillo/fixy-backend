@@ -180,6 +180,36 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldCreatePublicLeadWithStructuredIntakeFields() throws Exception {
+    String createPayload = """
+        {
+          "name": "Marta",
+          "phone": "098222333",
+          "problem": "Necesito ayuda con algo en casa.",
+          "channel": "web-app",
+          "serviceCategory": "plomeria",
+          "zone": "Solymar",
+          "urgency": "hoy",
+          "address": "Av. Principal y calle 3",
+          "details": "Pierde agua abajo de la pileta"
+        }
+        """;
+
+    mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.name").value("Marta"))
+        .andExpect(jsonPath("$.detectedCategory").value("plomeria"))
+        .andExpect(jsonPath("$.location").value("Solymar"))
+        .andExpect(jsonPath("$.urgency").value("media"))
+        .andExpect(jsonPath("$.readyForMatching").value(true))
+        .andExpect(jsonPath("$.blockingFields.length()").value(0))
+        .andExpect(jsonPath("$.nextRecommendedAction").value("generate_matches"))
+        .andExpect(jsonPath("$.suggestedReply").exists());
+  }
+
+  @Test
   void shouldRegisterPublicProviderLeadWithProviderSpecificReadiness() throws Exception {
     String payload = """
         {

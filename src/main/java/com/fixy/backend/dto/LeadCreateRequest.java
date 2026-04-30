@@ -6,6 +6,11 @@ public record LeadCreateRequest(
     String name,
     String phone,
     @NotBlank(message = "problem is required") String problem,
-    String channel
+    String channel,
+    String serviceCategory,
+    String zone,
+    String urgency,
+    String address,
+    String details
 ) {
 }

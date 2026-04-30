@@ -50,7 +50,7 @@ public class LeadService {
   }
 
   public LeadResponse create(LeadCreateRequest request) {
-    IntakeResponse classification = classify(request.problem(), request.name(), request.phone(), request.channel());
+    IntakeResponse classification = classify(request);
 
     Lead lead = new Lead();
     lead.setName(request.name());
@@ -253,6 +253,20 @@ public class LeadService {
 
   private IntakeResponse classify(String message, String name, String phone, String channel) {
     return agentService.classify(new IntakeRequest(message, name, phone, channel));
+  }
+
+  private IntakeResponse classify(LeadCreateRequest request) {
+    return agentService.classify(new IntakeRequest(
+        request.problem(),
+        request.name(),
+        request.phone(),
+        request.channel(),
+        request.serviceCategory(),
+        request.zone(),
+        request.urgency(),
+        request.address(),
+        request.details()
+    ));
   }
 
   private void applyClassification(Lead lead, IntakeResponse classification) {
