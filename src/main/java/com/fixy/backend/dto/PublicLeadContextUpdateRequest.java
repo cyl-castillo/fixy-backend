@@ -6,6 +6,10 @@ public record PublicLeadContextUpdateRequest(
     String phone,
     String channel,
     String location,
-    String notes
+    String notes,
+    String serviceCategory,
+    String urgency,
+    String address,
+    String details
 ) {
 }

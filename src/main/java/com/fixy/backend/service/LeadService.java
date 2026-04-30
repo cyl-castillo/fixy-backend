@@ -212,12 +212,42 @@ public class LeadService {
         changes.add("Contexto adicional agregado");
       }
     }
+    if (hasText(request.address())) {
+      String mergedNotes = mergeNotes(lead.getNotes(), "Dirección: " + request.address().trim());
+      if (!Objects.equals(mergedNotes, lead.getNotes())) {
+        lead.setNotes(mergedNotes);
+        changes.add("Dirección agregada");
+      }
+    }
+    if (hasText(request.details())) {
+      String mergedNotes = mergeNotes(lead.getNotes(), request.details().trim());
+      if (!Objects.equals(mergedNotes, lead.getNotes())) {
+        lead.setNotes(mergedNotes);
+        changes.add("Detalle agregado");
+      }
+    }
+    if (hasText(request.serviceCategory())) {
+      changes.add("Servicio sugerido: " + request.serviceCategory().trim());
+    }
+    if (hasText(request.urgency())) {
+      changes.add("Urgencia sugerida: " + request.urgency().trim());
+    }
 
     if (changes.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "no public context changes provided");
     }
 
-    IntakeResponse classification = classify(buildClassificationMessage(lead), lead.getName(), lead.getPhone(), lead.getChannel());
+    IntakeResponse classification = agentService.classify(new IntakeRequest(
+        buildClassificationMessage(lead),
+        lead.getName(),
+        lead.getPhone(),
+        lead.getChannel(),
+        request.serviceCategory(),
+        request.location(),
+        request.urgency(),
+        request.address(),
+        request.details()
+    ));
     applyClassification(lead, classification);
     String historyMessage = "Contexto publico enriquecido | " + String.join(" | ", changes);
     lead.setHistory(appendHistory(lead.getHistory(), historyMessage));
