@@ -20,8 +20,8 @@ public class HealthController {
 
   public HealthController(
       EntityManager entityManager,
-      @Value("${openai.api-key:}") String openaiApiKey,
-      @Value("${openai.model:}") String openaiModel
+      @Value("${fixy.openai.api-key:}") String openaiApiKey,
+      @Value("${fixy.openai.model:}") String openaiModel
   ) {
     this.entityManager = entityManager;
     this.openaiApiKey = openaiApiKey;
