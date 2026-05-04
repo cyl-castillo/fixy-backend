@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -13,12 +14,20 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PublicLeadAbuseProtectionService {
 
-  private static final int MAX_REQUESTS_PER_WINDOW = 5;
-  private static final Duration WINDOW = Duration.ofMinutes(10);
   private static final int MAX_CONTENT_LENGTH = 2000;
   private static final int MIN_PROBLEM_LENGTH = 12;
 
+  private final int maxRequestsPerWindow;
+  private final Duration window;
   private final Map<String, Deque<Instant>> requestsByIp = new ConcurrentHashMap<>();
+
+  public PublicLeadAbuseProtectionService(
+      @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
+      @Value("${fixy.abuse.window-seconds:600}") long windowSeconds
+  ) {
+    this.maxRequestsPerWindow = maxRequestsPerWindow;
+    this.window = Duration.ofSeconds(windowSeconds);
+  }
 
   public void validate(String clientIp, String problem) {
     validateProblem(problem);
@@ -64,7 +73,7 @@ public class PublicLeadAbuseProtectionService {
 
   private void enforceRateLimit(String ip) {
     Instant now = Instant.now();
-    Instant threshold = now.minus(WINDOW);
+    Instant threshold = now.minus(window);
 
     Deque<Instant> requests = requestsByIp.computeIfAbsent(ip, ignored -> new ArrayDeque<>());
 
@@ -73,7 +82,7 @@ public class PublicLeadAbuseProtectionService {
         requests.pollFirst();
       }
 
-      if (requests.size() >= MAX_REQUESTS_PER_WINDOW) {
+      if (requests.size() >= maxRequestsPerWindow) {
         throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
             "too many public lead requests, retry later");
       }

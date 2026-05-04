@@ -319,6 +319,84 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldAcceptStructuredHintsOnPublicContextUpdate() throws Exception {
+    String createPayload = """
+        {
+          "name": "Lucia",
+          "phone": "099123456",
+          "problem": "Necesito ayuda con algo en mi casa, no se que es",
+          "channel": "web-app"
+        }
+        """;
+
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.readyForMatching").value(false))
+        .andReturn();
+
+    Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+
+    String enrichPayload = """
+        {
+          "location": "Solymar",
+          "serviceCategory": "plomeria",
+          "urgency": "hoy",
+          "address": "Av. Giannattasio km 25",
+          "details": "perdida de agua en cocina"
+        }
+        """;
+
+    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(enrichPayload))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.detectedCategory").value("plomeria"))
+        .andExpect(jsonPath("$.location").value("Solymar"))
+        .andExpect(jsonPath("$.readyForMatching").value(true))
+        .andExpect(jsonPath("$.notes").value(org.hamcrest.Matchers.containsString("Av. Giannattasio km 25")))
+        .andExpect(jsonPath("$.notes").value(org.hamcrest.Matchers.containsString("perdida de agua en cocina")))
+        .andExpect(jsonPath("$.history").value(org.hamcrest.Matchers.containsString("Servicio sugerido")))
+        .andExpect(jsonPath("$.history").value(org.hamcrest.Matchers.containsString("Urgencia sugerida")));
+  }
+
+  @Test
+  void shouldRecordWaitlistInterestAsNotes() throws Exception {
+    String createPayload = """
+        {
+          "phone": "099000111",
+          "problem": "Necesito un electricista urgente para mi casa",
+          "channel": "web-app",
+          "serviceCategory": "electricidad",
+          "zone": "Solymar"
+        }
+        """;
+
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.nextRecommendedAction").value("out_of_scope_category"))
+        .andReturn();
+
+    Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+
+    String waitlistPayload = """
+        {
+          "notes": "Cliente quiere ser avisado: servicio fuera de cobertura (lucia@example.com)."
+        }
+        """;
+
+    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(waitlistPayload))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.notes").value(org.hamcrest.Matchers.containsString("quiere ser avisado")))
+        .andExpect(jsonPath("$.notes").value(org.hamcrest.Matchers.containsString("lucia@example.com")));
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {
