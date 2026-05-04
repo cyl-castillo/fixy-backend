@@ -28,7 +28,7 @@ public class SecurityConfig {
         .httpBasic(Customizer.withDefaults())
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/", "/index.html", "/styles.css", "/script.js", "/ops.css").permitAll()
-            .requestMatchers("/api/health", "/api/intake").permitAll()
+            .requestMatchers("/api/health", "/api/health/**", "/api/intake").permitAll()
             .requestMatchers("/api/public/**").permitAll()
             .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**").authenticated()
             .anyRequest().permitAll());
