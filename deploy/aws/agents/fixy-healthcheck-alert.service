@@ -1,0 +1,16 @@
+[Unit]
+Description=Fixy healthcheck alert (Telegram on first failure)
+
+[Service]
+Type=oneshot
+User=fixy
+Group=fixy
+EnvironmentFile=/etc/fixy-agents.env
+ExecStart=/opt/fixy-agents/healthcheck-alert.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/fixy-agents
+StandardOutput=append:/var/log/fixy-agents.log
+StandardError=append:/var/log/fixy-agents.log
