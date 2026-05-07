@@ -475,6 +475,69 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldRejectChatMessagesWithLinksAndRepeats() throws Exception {
+    String createPayload = """
+        {
+          "phone": "099445566",
+          "problem": "Necesito un plomero, perdida de agua importante",
+          "channel": "web-app",
+          "serviceCategory": "plomeria",
+          "zone": "Solymar"
+        }
+        """;
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andReturn();
+    String body = createResult.getResponse().getContentAsString();
+    Integer leadId = JsonPath.read(body, "$.id");
+    String token = JsonPath.read(body, "$.accessToken");
+
+    // link http
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"mira esto https://malware.example/x\"}"))
+        .andExpect(status().isBadRequest());
+
+    // dominio sin protocolo
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"podés ver fixy.com.uy/algo\"}"))
+        .andExpect(status().isBadRequest());
+
+    // wa.me link
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"escribime wa.me/598999\"}"))
+        .andExpect(status().isBadRequest());
+
+    // mensaje normal: ok
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"buenas, cuándo pueden venir?\"}"))
+        .andExpect(status().isCreated());
+
+    // repetido idéntico
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"buenas, cuándo pueden venir?\"}"))
+        .andExpect(status().isBadRequest());
+
+    // mensaje distinto: ok
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"hola, quería saber el horario\"}"))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {
