@@ -78,6 +78,7 @@ public class LeadService {
     lead.setStatus(LeadStatus.NEW);
     lead.setNotes("");
     lead.setHistory(buildHistoryEntry("Lead creado desde %s".formatted(safe(request.channel()))));
+    lead.setAccessToken(java.util.UUID.randomUUID().toString().replace("-", ""));
 
     Lead saved = leadRepository.save(lead);
     leadTimelineService.appendEvent(saved, "LEAD_CREATED", "user", "Lead creado desde %s".formatted(safe(request.channel())));
@@ -494,6 +495,7 @@ public class LeadService {
         lead.getStatus(),
         suggestedReply,
         agentSource,
+        lead.getAccessToken(),
         lead.getCreatedAt(),
         lead.getUpdatedAt()
     );

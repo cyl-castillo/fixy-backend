@@ -397,6 +397,84 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldExposePublicChatGuardedByAccessToken() throws Exception {
+    String createPayload = """
+        {
+          "name": "Lucia",
+          "phone": "099334455",
+          "problem": "Necesito un plomero, perdida de agua en cocina",
+          "channel": "web-app",
+          "serviceCategory": "plomeria",
+          "zone": "Solymar"
+        }
+        """;
+
+    MvcResult createResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.accessToken").exists())
+        .andReturn();
+
+    String body = createResult.getResponse().getContentAsString();
+    Integer leadId = JsonPath.read(body, "$.id");
+    String token = JsonPath.read(body, "$.accessToken");
+
+    // Sin token: 403
+    mockMvc.perform(get("/api/public/leads/{id}/messages", leadId))
+        .andExpect(status().isBadRequest());
+
+    // Token incorrecto: 403
+    mockMvc.perform(get("/api/public/leads/{id}/messages", leadId)
+            .param("token", "wrong-token"))
+        .andExpect(status().isForbidden());
+
+    // Token correcto, lista vacía
+    mockMvc.perform(get("/api/public/leads/{id}/messages", leadId)
+            .param("token", token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(0));
+
+    // Cliente manda un mensaje
+    String customerMsg = """
+        {"text": "¿Cuándo vienen aproximadamente?"}
+        """;
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(customerMsg))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.sender").value("customer"))
+        .andExpect(jsonPath("$.text").value("¿Cuándo vienen aproximadamente?"));
+
+    // Ops responde como provider (autenticado)
+    String providerMsg = """
+        {"sender": "provider", "text": "Voy mañana a las 10."}
+        """;
+    mockMvc.perform(post("/api/leads/{id}/messages", leadId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(providerMsg))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.sender").value("provider"));
+
+    // Cliente recibe ambos mensajes
+    mockMvc.perform(get("/api/public/leads/{id}/messages", leadId)
+            .param("token", token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(2))
+        .andExpect(jsonPath("$[0].sender").value("customer"))
+        .andExpect(jsonPath("$[1].sender").value("provider"));
+
+    // Cliente sin texto: 400
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"\"}"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {
