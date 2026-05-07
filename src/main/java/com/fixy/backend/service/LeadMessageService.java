@@ -5,8 +5,16 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
 import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -17,19 +25,34 @@ public class LeadMessageService {
   private static final Set<String> PUBLIC_SENDERS = Set.of("customer");
   private static final Set<String> PROVIDER_SENDERS = Set.of("provider", "fixy");
   private static final int MAX_TEXT_LENGTH = 2000;
+  /** Detector simple de URLs y dominios visibles. Cubre http(s)://, www.foo,
+   * bit.ly/algo, foo.com/bar. Falsos positivos son aceptables: el cliente
+   * coordina por chat, no necesita pasar links a esta altura. */
+  private static final Pattern URL_PATTERN = Pattern.compile(
+      "(?i)\\b(?:https?://|www\\.|bit\\.ly|tinyurl\\.com|t\\.me|wa\\.me|" +
+      "[a-z0-9-]+\\.(?:com|net|org|uy|ar|cl|br|biz|info|io|co|app|me|tk|xyz|click|link)(?:/|\\b))");
 
   private final LeadMessageRepository messageRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
 
+  private final int maxMessagesPerWindow;
+  private final Duration messageWindow;
+  private final Map<Long, Deque<Instant>> customerPostsByLead = new ConcurrentHashMap<>();
+  private final Map<Long, String> lastTextByLead = new ConcurrentHashMap<>();
+
   public LeadMessageService(
       LeadMessageRepository messageRepository,
       LeadRepository leadRepository,
-      LeadTimelineService timelineService
+      LeadTimelineService timelineService,
+      @Value("${fixy.chat.max-messages-per-window:10}") int maxMessagesPerWindow,
+      @Value("${fixy.chat.window-seconds:60}") long windowSeconds
   ) {
     this.messageRepository = messageRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
+    this.maxMessagesPerWindow = maxMessagesPerWindow;
+    this.messageWindow = Duration.ofSeconds(windowSeconds);
   }
 
   public List<LeadMessageResponse> listForCustomer(Long leadId, String token) {
@@ -51,7 +74,11 @@ public class LeadMessageService {
   public LeadMessageResponse postFromCustomer(Long leadId, String token, String rawText) {
     Lead lead = requireLeadAndToken(leadId, token);
     String text = sanitize(rawText);
+    rejectIfLooksLikeLink(text);
+    rejectIfRepeatedFromCustomer(lead.getId(), text);
+    enforceCustomerRateLimit(lead.getId());
     LeadMessage saved = persist(lead.getId(), "customer", text);
+    lastTextByLead.put(lead.getId(), text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_CUSTOMER", "user",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
     return LeadMessageResponse.fromEntity(saved);
@@ -97,6 +124,37 @@ public class LeadMessageService {
     message.setSender(sender);
     message.setText(text);
     return messageRepository.save(message);
+  }
+
+  private void rejectIfLooksLikeLink(String text) {
+    if (URL_PATTERN.matcher(text).find()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "no se permiten links en los mensajes; coordiná por acá");
+    }
+  }
+
+  private void rejectIfRepeatedFromCustomer(Long leadId, String text) {
+    String previous = lastTextByLead.get(leadId);
+    if (previous != null && previous.equals(text)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "ese mensaje ya lo enviaste; esperá la respuesta");
+    }
+  }
+
+  private void enforceCustomerRateLimit(Long leadId) {
+    Instant now = Instant.now();
+    Instant threshold = now.minus(messageWindow);
+    Deque<Instant> posts = customerPostsByLead.computeIfAbsent(leadId, ignored -> new ArrayDeque<>());
+    synchronized (posts) {
+      while (!posts.isEmpty() && posts.peekFirst().isBefore(threshold)) {
+        posts.pollFirst();
+      }
+      if (posts.size() >= maxMessagesPerWindow) {
+        throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+            "demasiados mensajes seguidos, esperá un momento");
+      }
+      posts.addLast(now);
+    }
   }
 
   private String sanitize(String text) {

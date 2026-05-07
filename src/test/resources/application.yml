@@ -24,3 +24,6 @@ fixy:
   abuse:
     max-requests-per-window: 200
     window-seconds: 60
+  chat:
+    max-messages-per-window: 100
+    window-seconds: 60
