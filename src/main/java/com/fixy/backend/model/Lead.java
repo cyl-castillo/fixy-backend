@@ -49,6 +49,12 @@ public class Lead {
   @Column(nullable = false)
   private LeadStatus status;
 
+  /** Token aleatorio que el cliente conoce desde el momento de crear el lead.
+   * Permite acceso al chat público de ese lead sin login.
+   * Generado por LeadService al crear el lead. */
+  @Column(length = 64)
+  private String accessToken;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -100,6 +106,8 @@ public class Lead {
   public void setHistory(String history) { this.history = history; }
   public LeadStatus getStatus() { return status; }
   public void setStatus(LeadStatus status) { this.status = status; }
+  public String getAccessToken() { return accessToken; }
+  public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

@@ -23,6 +23,7 @@ public record LeadResponse(
     LeadStatus status,
     String suggestedReply,
     String agentSource,
+    String accessToken,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {
