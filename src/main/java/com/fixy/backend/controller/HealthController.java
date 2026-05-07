@@ -41,7 +41,9 @@ public class HealthController {
   public HealthDepsResponse deps() {
     Map<String, String> deps = new LinkedHashMap<>();
 
-    deps.put("db", pingDatabase());
+    Map.Entry<String, String> db = pingDatabase();
+    deps.put("db", db.getKey());
+    deps.put("db_engine", db.getValue());
     deps.put("openai_key", openaiApiKey == null || openaiApiKey.isBlank() ? "missing" : "configured");
     deps.put("openai_model", openaiModel == null || openaiModel.isBlank() ? "missing" : openaiModel);
 
@@ -49,12 +51,21 @@ public class HealthController {
     return new HealthDepsResponse(degraded ? "degraded" : "ok", "fixy-backend", deps);
   }
 
-  private String pingDatabase() {
+  /** @return entry(status, engine) where status ∈ {up, error}. */
+  private Map.Entry<String, String> pingDatabase() {
     try {
       Object value = entityManager.createNativeQuery("SELECT 1").getSingleResult();
-      return value != null ? "up" : "error";
+      String engine = entityManager
+          .unwrap(org.hibernate.Session.class)
+          .doReturningWork(connection -> {
+            String product = connection.getMetaData().getDatabaseProductName();
+            String version = connection.getMetaData().getDatabaseProductVersion();
+            return product + " " + version;
+          });
+      String status = value != null ? "up" : "error";
+      return Map.entry(status, engine != null ? engine : "unknown");
     } catch (Exception ignored) {
-      return "error";
+      return Map.entry("error", "unknown");
     }
   }
 }
