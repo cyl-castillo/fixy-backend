@@ -538,6 +538,128 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldGiveProviderSelfServicePanel() throws Exception {
+    String providerPayload = """
+        {
+          "name": "Plomeros Solymar",
+          "phone": "099445566",
+          "primaryZone": "Solymar",
+          "city": "Ciudad de la Costa",
+          "categories": "plomeria"
+        }
+        """;
+    MvcResult providerResult = mockMvc.perform(post("/api/providers")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(providerPayload))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer providerId = JsonPath.read(providerResult.getResponse().getContentAsString(), "$.id");
+
+    // ops genera magic link
+    MvcResult tokenResult = mockMvc.perform(post("/api/providers/{id}/access-token", providerId)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.accessToken").exists())
+        .andExpect(jsonPath("$.url").value(org.hamcrest.Matchers.matchesPattern(".*/p/" + providerId + "/[a-f0-9]+")))
+        .andReturn();
+    String providerToken = JsonPath.read(tokenResult.getResponse().getContentAsString(), "$.accessToken");
+
+    // crear lead y asignar al proveedor
+    String createPayload = """
+        {
+          "phone": "099334455",
+          "problem": "Necesito plomero para perdida en cocina urgente",
+          "channel": "web-app",
+          "serviceCategory": "plomeria",
+          "zone": "Solymar"
+        }
+        """;
+    MvcResult leadResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(createPayload))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer leadId = JsonPath.read(leadResult.getResponse().getContentAsString(), "$.id");
+
+    String assignPayload = """
+        {
+          "status": "ASSIGNED",
+          "assignedProvider": "Plomeros Solymar"
+        }
+        """;
+    mockMvc.perform(patch("/api/leads/{id}", leadId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(assignPayload))
+        .andExpect(status().isOk());
+
+    // proveedor consulta su panel
+    mockMvc.perform(get("/api/public/providers/{id}/me", providerId)
+            .param("token", providerToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(providerId))
+        .andExpect(jsonPath("$.assignedLeads.length()").value(1))
+        .andExpect(jsonPath("$.assignedLeads[0].id").value(leadId))
+        .andExpect(jsonPath("$.assignedLeads[0].accessToken").exists());
+
+    // token incorrecto: 403
+    mockMvc.perform(get("/api/public/providers/{id}/me", providerId)
+            .param("token", "wrong"))
+        .andExpect(status().isForbidden());
+
+    // proveedor manda mensaje al cliente
+    mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/messages", providerId, leadId)
+            .param("token", providerToken)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"Voy mañana 10am.\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.sender").value("provider"));
+
+    // proveedor cambia status a IN_PROGRESS
+    mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/status", providerId, leadId)
+            .param("token", providerToken)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"IN_PROGRESS\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("IN_PROGRESS"));
+
+    // status invalido para self-service
+    mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/status", providerId, leadId)
+            .param("token", providerToken)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"NEW\"}"))
+        .andExpect(status().isBadRequest());
+
+    // proveedor solo ve sus leads. Crear otro lead asignado a otro nombre.
+    String otherLead = """
+        {
+          "phone": "099001122",
+          "problem": "Necesito plomero por desague",
+          "channel": "web-app",
+          "serviceCategory": "plomeria",
+          "zone": "Lagomar"
+        }
+        """;
+    MvcResult otherResult = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(otherLead))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer otherLeadId = JsonPath.read(otherResult.getResponse().getContentAsString(), "$.id");
+    mockMvc.perform(patch("/api/leads/{id}", otherLeadId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"ASSIGNED\", \"assignedProvider\": \"Otro Proveedor\"}"))
+        .andExpect(status().isOk());
+    mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/status", providerId, otherLeadId)
+            .param("token", providerToken)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"IN_PROGRESS\"}"))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {

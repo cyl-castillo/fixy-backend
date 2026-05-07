@@ -70,6 +70,11 @@ public class Provider {
   @Column(length = 4000)
   private String notes;
 
+  /** Token aleatorio para acceso al panel del proveedor sin login.
+   * Generado por ops vía /api/providers/{id}/access-token. */
+  @Column(length = 64)
+  private String accessToken;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -160,6 +165,8 @@ public class Provider {
   public void setCompletedJobsCount(Integer completedJobsCount) { this.completedJobsCount = completedJobsCount; }
   public String getNotes() { return notes; }
   public void setNotes(String notes) { this.notes = notes; }
+  public String getAccessToken() { return accessToken; }
+  public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }
