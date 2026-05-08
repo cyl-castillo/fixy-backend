@@ -315,7 +315,7 @@ function renderProviderCard(provider) {
   const categories = providerCategories(provider).join(", ") || "sin categoría";
   const zones = providerZones(provider).join(", ") || "sin zona";
   return `
-    <article class="lead-card">
+    <article class="lead-card" data-provider-id="${provider.id}">
       <div class="lead-top">
         <div><h3>${escapeHtml(provider.name)}</h3></div>
         <div class="badges">
@@ -329,8 +329,48 @@ function renderProviderCard(provider) {
         <span>🧭 ${escapeHtml(provider.sourceType || "manual")}</span>
       </div>
       <p class="lead-problem">${escapeHtml(provider.notes || "Proveedor cargado en base")}</p>
+      <div class="provider-actions">
+        <button type="button" class="btn btn-secondary magic-link-button">Generar link de acceso</button>
+        <p class="magic-link-output" hidden></p>
+      </div>
     </article>
   `;
+}
+
+async function generateProviderMagicLink(button) {
+  const card = button.closest('article[data-provider-id]');
+  if (!card) return;
+  const providerId = card.dataset.providerId;
+  const output = card.querySelector('.magic-link-output');
+  button.disabled = true;
+  button.textContent = 'Generando…';
+  try {
+    const data = await request(`/api/providers/${providerId}/access-token`, { method: 'POST' });
+    output.hidden = false;
+    output.innerHTML = `
+      <a href="${escapeHtml(data.url)}" target="_blank" rel="noopener">${escapeHtml(data.url)}</a>
+      <button type="button" class="btn btn-secondary copy-link-button" data-link="${escapeHtml(data.url)}">Copiar</button>
+    `;
+  } catch (err) {
+    output.hidden = false;
+    output.textContent = 'No pudimos generar el link. Probá de nuevo.';
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Regenerar link';
+  }
+}
+
+async function copyMagicLink(button) {
+  const url = button.dataset.link;
+  if (!url) return;
+  try {
+    await navigator.clipboard.writeText(url);
+    const original = button.textContent;
+    button.textContent = '¡Copiado!';
+    setTimeout(() => { button.textContent = original; }, 1500);
+  } catch {
+    // fallback noop
+  }
 }
 
 async function saveLead(card, overrides = {}) {
@@ -450,6 +490,25 @@ function render() {
   providersContainer.innerHTML = providerCatalog.length
     ? providerCatalog.map(renderProviderCard).join('')
     : '<p class="empty">Todavía no hay proveedores cargados.</p>';
+  bindProviderActions();
+}
+
+// Event delegation para botones del catálogo de proveedores. Esto cubre
+// también botones añadidos dinámicamente (ej. "Copiar" que aparece tras
+// generar el link).
+let providerActionsBound = false;
+function bindProviderActions() {
+  if (providerActionsBound) return;
+  providerActionsBound = true;
+  providersContainer.addEventListener('click', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    if (target.matches('.magic-link-button')) {
+      generateProviderMagicLink(target);
+    } else if (target.matches('.copy-link-button')) {
+      copyMagicLink(target);
+    }
+  });
 }
 
 async function loadLeads() {
