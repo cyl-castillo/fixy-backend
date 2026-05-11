@@ -86,6 +86,37 @@ public class ProviderCatalogService {
     return toResponse(providerRepository.save(provider));
   }
 
+  /**
+   * Preview público para mostrar confianza al cliente: cuántos proveedores
+   * matchean por (category, zone) y un sample corto con campos no-sensibles.
+   * NO incluye teléfono ni notas.
+   */
+  public com.fixy.backend.dto.ProviderPublicPreview publicPreview(String category, String zone, int sampleLimit) {
+    String normalizedCategory = normalize(category);
+    String normalizedLocation = normalize(zone);
+    int limit = Math.max(0, Math.min(sampleLimit, 10));
+
+    List<Provider> matched = providerRepository.findAll().stream()
+        .filter(provider -> provider.getStatus() != ProviderStatus.BLOCKED)
+        .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
+        .filter(provider -> matchesCategory(provider, normalizedCategory))
+        .filter(provider -> matchesLocation(provider, normalizedLocation))
+        .toList();
+
+    List<com.fixy.backend.dto.ProviderPublicPreview.Item> sample = matched.stream()
+        .limit(limit)
+        .map(p -> new com.fixy.backend.dto.ProviderPublicPreview.Item(
+            p.getName(),
+            p.getPrimaryZone(),
+            p.getCategories(),
+            p.getCompletedJobsCount(),
+            p.getRatingAverage()
+        ))
+        .toList();
+
+    return new com.fixy.backend.dto.ProviderPublicPreview(matched.size(), sample);
+  }
+
   public List<ProviderCatalogItem> findMatches(String category, String location) {
     String normalizedCategory = normalize(category);
     String normalizedLocation = normalize(location);
