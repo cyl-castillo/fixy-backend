@@ -40,23 +40,27 @@ run_remote "test -f /etc/fixy-agents.env || (echo 'ERROR: /etc/fixy-agents.env n
 echo "==> instalar binarios y units"
 run_remote "sudo install -d -o fixy -g fixy -m 0755 /opt/fixy-agents \
   && sudo install -d -o fixy -g fixy -m 0755 /var/lib/fixy-agents \
+  && sudo install -d -o root -g root -m 0750 /var/backups/goatcounter \
   && sudo install -o fixy -g fixy -m 0755 /tmp/fixy-agents-stage/daily-digest.sh /opt/fixy-agents/daily-digest.sh \
   && sudo install -o fixy -g fixy -m 0755 /tmp/fixy-agents-stage/healthcheck-alert.sh /opt/fixy-agents/healthcheck-alert.sh \
+  && sudo install -o root -g root -m 0755 /tmp/fixy-agents-stage/goatcounter-backup.sh /opt/fixy-agents/goatcounter-backup.sh \
   && sudo install -o root -g root -m 0644 /tmp/fixy-agents-stage/fixy-daily-digest.service /etc/systemd/system/fixy-daily-digest.service \
   && sudo install -o root -g root -m 0644 /tmp/fixy-agents-stage/fixy-daily-digest.timer /etc/systemd/system/fixy-daily-digest.timer \
   && sudo install -o root -g root -m 0644 /tmp/fixy-agents-stage/fixy-healthcheck-alert.service /etc/systemd/system/fixy-healthcheck-alert.service \
+  && sudo install -o root -g root -m 0644 /tmp/fixy-agents-stage/goatcounter-backup.service /etc/systemd/system/goatcounter-backup.service \
+  && sudo install -o root -g root -m 0644 /tmp/fixy-agents-stage/goatcounter-backup.timer /etc/systemd/system/goatcounter-backup.timer \
   && sudo touch /var/log/fixy-agents.log \
   && sudo chown fixy:fixy /var/log/fixy-agents.log \
   && sudo chmod 0640 /etc/fixy-agents.env \
   && sudo chown root:fixy /etc/fixy-agents.env \
   && rm -rf /tmp/fixy-agents-stage"
 
-echo "==> wire OnFailure del healthcheck (drop-in)"
+echo "==> wire OnFailure + OnSuccess del healthcheck (drop-in)"
 run_remote "sudo install -d -m 0755 /etc/systemd/system/fixy-healthcheck.service.d \
-  && printf '%s\\n' '[Unit]' 'OnFailure=fixy-healthcheck-alert.service' | sudo tee /etc/systemd/system/fixy-healthcheck.service.d/alert.conf >/dev/null"
+  && printf '%s\\n' '[Unit]' 'OnFailure=fixy-healthcheck-alert.service' 'OnSuccess=fixy-healthcheck-alert.service' | sudo tee /etc/systemd/system/fixy-healthcheck.service.d/alert.conf >/dev/null"
 
 echo "==> reload systemd + enable timers"
-run_remote "sudo systemctl daemon-reload && sudo systemctl enable --now fixy-daily-digest.timer"
+run_remote "sudo systemctl daemon-reload && sudo systemctl enable --now fixy-daily-digest.timer goatcounter-backup.timer"
 
 echo "==> verificar timer"
 run_remote "systemctl list-timers fixy-daily-digest.timer --no-pager"
