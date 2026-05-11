@@ -68,7 +68,7 @@ run_remote "sudo install -o fixy -g fixy -m 0644 /tmp/fixy-backend-new.jar $REMO
 
 echo "==> esperando healthcheck"
 healthy=0
-for i in $(seq 1 24); do
+for i in $(seq 1 45); do
   if [ "$DRY_RUN" = "1" ]; then
     healthy=1
     break
