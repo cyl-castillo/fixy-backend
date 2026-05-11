@@ -30,6 +30,7 @@ public class SecurityConfig {
             .requestMatchers("/", "/index.html", "/styles.css", "/script.js", "/ops.css").permitAll()
             .requestMatchers("/api/health", "/api/health/**", "/api/intake").permitAll()
             .requestMatchers("/api/public/**").permitAll()
+            .requestMatchers("/uploads/**").permitAll()
             .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**").authenticated()
             .anyRequest().permitAll());
 

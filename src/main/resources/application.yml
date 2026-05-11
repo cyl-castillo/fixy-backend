@@ -25,6 +25,15 @@ spring:
     baseline-version: 1
     baseline-description: "Schema baseline (Postgres prod 2026-05-11)"
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 8MB
+      max-request-size: 10MB
+
+fixy:
+  uploads:
+    dir: ${FIXY_UPLOADS_DIR:./data/uploads}
+    url-prefix: ${FIXY_UPLOADS_URL_PREFIX:/uploads}
 
 fixy:
   security:

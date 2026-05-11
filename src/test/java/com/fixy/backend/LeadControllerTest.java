@@ -720,6 +720,84 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldLetProviderUploadPhotoAndCustomerReadIt() throws Exception {
+    MvcResult prov = mockMvc.perform(post("/api/providers")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Plomería Fotos",
+                  "phone": "099556677",
+                  "primaryZone": "Solymar",
+                  "city": "Ciudad de la Costa",
+                  "categories": "plomeria"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer providerId = JsonPath.read(prov.getResponse().getContentAsString(), "$.id");
+
+    MvcResult tk = mockMvc.perform(post("/api/providers/{id}/access-token", providerId)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String providerToken = JsonPath.read(tk.getResponse().getContentAsString(), "$.accessToken");
+
+    MvcResult leadRes = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "phone": "099445599",
+                  "problem": "Plomero urgente para foto test",
+                  "channel": "web-app",
+                  "serviceCategory": "plomeria",
+                  "zone": "Solymar"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer leadId = JsonPath.read(leadRes.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(leadRes.getResponse().getContentAsString(), "$.accessToken");
+
+    mockMvc.perform(patch("/api/leads/{id}", leadId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"ASSIGNED\", \"assignedProviderId\": %d}".formatted(providerId)))
+        .andExpect(status().isOk());
+
+    byte[] jpegBytes = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10, 'J','F','I','F',0,1,1,0,0,1,0,1,0,0, (byte)0xFF, (byte)0xD9};
+    org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+        "file", "trabajo.jpg", "image/jpeg", jpegBytes);
+
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/providers/{pid}/leads/{lid}/photos", providerId, leadId)
+            .file(file)
+            .param("token", providerToken)
+            .param("caption", "antes del trabajo"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.url").value(org.hamcrest.Matchers.containsString("/uploads/lead-" + leadId + "/")))
+        .andExpect(jsonPath("$.caption").value("antes del trabajo"));
+
+    mockMvc.perform(get("/api/public/leads/{id}/photos", leadId)
+            .param("token", leadToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].caption").value("antes del trabajo"));
+
+    mockMvc.perform(get("/api/public/providers/{pid}/leads/{lid}/photos", providerId, leadId)
+            .param("token", "wrong"))
+        .andExpect(status().isForbidden());
+
+    org.springframework.mock.web.MockMultipartFile bad = new org.springframework.mock.web.MockMultipartFile(
+        "file", "doc.pdf", "application/pdf", new byte[]{0x25, 0x50, 0x44, 0x46});
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/providers/{pid}/leads/{lid}/photos", providerId, leadId)
+            .file(bad)
+            .param("token", providerToken))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {
