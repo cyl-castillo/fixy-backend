@@ -37,7 +37,15 @@ public class Lead {
   @Column(nullable = false)
   private boolean readyForMatching;
 
+  /** Nombre legible del proveedor asignado. Se mantiene por compatibilidad
+   *  con leads viejos donde solo se persistía el nombre. Para asignaciones
+   *  nuevas, usar también {@link #assignedProviderId}. */
   private String assignedProvider;
+
+  /** FK al provider asignado. Null si no hay asignación o si el lead viene
+   *  de antes del refactor. Cuando se setea, también se actualiza
+   *  {@link #assignedProvider} con el nombre actual del provider. */
+  private Long assignedProviderId;
 
   @Column(length = 4000)
   private String notes;
@@ -100,6 +108,8 @@ public class Lead {
   public void setReadyForMatching(boolean readyForMatching) { this.readyForMatching = readyForMatching; }
   public String getAssignedProvider() { return assignedProvider; }
   public void setAssignedProvider(String assignedProvider) { this.assignedProvider = assignedProvider; }
+  public Long getAssignedProviderId() { return assignedProviderId; }
+  public void setAssignedProviderId(Long assignedProviderId) { this.assignedProviderId = assignedProviderId; }
   public String getNotes() { return notes; }
   public void setNotes(String notes) { this.notes = notes; }
   public String getHistory() { return history; }

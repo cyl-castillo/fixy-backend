@@ -270,11 +270,26 @@ public class LeadService {
       lead.setStatus(request.status());
     }
 
-    if (request.assignedProvider() != null && !Objects.equals(request.assignedProvider(), lead.getAssignedProvider())) {
+    // assignedProviderId tiene precedencia sobre assignedProvider (string).
+    // Cuando viene el ID, resolvemos al provider y seteamos ambos campos
+    // para mantener compatibilidad con leads viejos que sólo tienen nombre.
+    if (request.assignedProviderId() != null) {
+      Long newId = request.assignedProviderId();
+      Long currentId = lead.getAssignedProviderId();
+      if (!Objects.equals(newId, currentId)) {
+        String resolvedName = providerCatalogService.get(newId).name();
+        String before = safe(lead.getAssignedProvider()).isBlank() ? "sin asignar" : lead.getAssignedProvider();
+        changes.add("Proveedor: %s → %s (#%d)".formatted(before, resolvedName, newId));
+        lead.setAssignedProviderId(newId);
+        lead.setAssignedProvider(resolvedName);
+      }
+    } else if (request.assignedProvider() != null
+        && !Objects.equals(request.assignedProvider(), lead.getAssignedProvider())) {
       String before = safe(lead.getAssignedProvider()).isBlank() ? "sin asignar" : lead.getAssignedProvider();
       String after = safe(request.assignedProvider()).isBlank() ? "sin asignar" : request.assignedProvider();
       changes.add("Proveedor: %s → %s".formatted(before, after));
       lead.setAssignedProvider(request.assignedProvider());
+      // No tocamos assignedProviderId: el caller eligió un string sin ID.
     }
 
     if (request.notes() != null && !Objects.equals(request.notes(), lead.getNotes())) {
