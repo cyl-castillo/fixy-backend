@@ -19,6 +19,12 @@ spring:
   h2:
     console:
       enabled: false
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
+    baseline-on-migrate: true
+    baseline-version: 1
+    baseline-description: "Schema baseline (Postgres prod 2026-05-11)"
+    locations: classpath:db/migration
 
 fixy:
   security:
