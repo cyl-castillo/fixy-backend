@@ -70,6 +70,21 @@ unassigned=$(echo "$leads_json" | jq '[.[] | select((.assignedProvider // "") ==
 # Status nuevos / total
 new_count=$(echo "$leads_json" | jq '[.[] | select(.status=="NEW")] | length')
 
+# Coverage gaps: (categoria, zona) sin proveedores activos.
+CATEGORIES="plomeria jardineria barometrica aires_acondicionados"
+ZONES="Solymar Lagomar El%20Pinar Shangrilá Barra%20de%20Carrasco Ciudad%20de%20la%20Costa"
+coverage_gaps=""
+for cat in $CATEGORIES; do
+  for zone in $ZONES; do
+    zone_decoded="$(printf '%b' "${zone//%/\\x}")"
+    preview="$(curl -sf --max-time 5 "$API_BASE/api/public/providers/preview?category=$cat&zone=$zone&limit=0" 2>/dev/null || echo '{"count":0}')"
+    cnt="$(echo "$preview" | jq -r '.count // 0')"
+    if [ "$cnt" = "0" ]; then
+      coverage_gaps+="$cat / $zone_decoded; "
+    fi
+  done
+done
+
 # 4. Armar mensaje (Markdown V2 simple, escape minimo)
 msg="*Fixy daily digest* — $now_local
 \`\`\`
@@ -86,6 +101,12 @@ if [ -n "$blocked_ids" ]; then
   msg+="
 Bloqueados (top 10):
 \`$blocked_ids\`"
+fi
+
+if [ -n "$coverage_gaps" ]; then
+  msg+="
+Sin cobertura:
+\`${coverage_gaps%; }\`"
 fi
 
 # 5. Enviar a Telegram
