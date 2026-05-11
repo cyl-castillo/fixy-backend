@@ -259,17 +259,30 @@ function renderLeadCard(lead) {
   const statusOptions = statuses
     .map((status) => `<option value="${status}" ${lead.status === status ? "selected" : ""}>${status}</option>`)
     .join("");
-  const providerOptions = getKnownProviders(allLeads)
-    .map((provider) => `<option value="${escapeHtml(provider)}" ${lead.assignedProvider === provider ? "selected" : ""}>${escapeHtml(provider)}</option>`)
+  // El select envía el id del proveedor para que el backend resuelva el
+  // nombre canónico. Para legacy (lead asignado a un nombre que ya no está
+  // en el catálogo), agregamos una opción extra "mantener" con prefix "name:".
+  const catalogOptions = providerCatalog
+    .map((provider) => {
+      const matched = lead.assignedProviderId
+        ? provider.id === lead.assignedProviderId
+        : !lead.assignedProviderId && lead.assignedProvider === provider.name;
+      return `<option value="id:${provider.id}" ${matched ? "selected" : ""}>${escapeHtml(provider.name)}</option>`;
+    })
     .join("");
+  const legacyName = (lead.assignedProvider || "").trim();
+  const legacyOption = legacyName && !providerCatalog.some((p) => p.name === legacyName)
+    ? `<option value="name:${escapeHtml(legacyName)}" selected>(legacy) ${escapeHtml(legacyName)}</option>`
+    : "";
+  const providerOptions = legacyOption + catalogOptions;
   const suggestions = findSuggestedProviders(lead);
   const suggestionHtml = suggestions.length
-    ? `<div class="lead-suggestions"><strong>Sugeridos:</strong> ${suggestions.map((provider) => `<button class="suggestion-chip" type="button" data-provider="${escapeHtml(provider.name)}">${escapeHtml(provider.name)} · ${escapeHtml(provider.primaryZone || provider.zone || provider.city || "sin zona")}</button>`).join("")}</div>`
+    ? `<div class="lead-suggestions"><strong>Sugeridos:</strong> ${suggestions.map((provider) => `<button class="suggestion-chip" type="button" data-provider-id="${provider.id}" data-provider="${escapeHtml(provider.name)}">${escapeHtml(provider.name)} · ${escapeHtml(provider.primaryZone || provider.zone || provider.city || "sin zona")}</button>`).join("")}</div>`
     : '<div class="lead-suggestions"><strong>Sugeridos:</strong> <span class="empty-inline">Sin match claro</span></div>';
   const urgencyClass = lead.urgency === "alta" ? "urgent" : "";
 
   return `
-    <article class="lead-card" data-id="${lead.id}" data-suggested="${escapeHtml(suggestions[0]?.name || "")}">
+    <article class="lead-card" data-id="${lead.id}" data-suggested="${escapeHtml(suggestions[0]?.name || "")}" data-suggested-id="${suggestions[0]?.id ?? ""}">
       <div class="lead-top">
         <div><h3>#${lead.id} · ${escapeHtml(lead.name || "Sin nombre")}</h3></div>
         <div class="badges">
@@ -376,12 +389,29 @@ async function copyMagicLink(button) {
 async function saveLead(card, overrides = {}) {
   const id = card.dataset.id;
   const status = overrides.status ?? card.querySelector('.status-select').value;
-  const assignedProvider = overrides.assignedProvider ?? card.querySelector('.provider-select').value;
   const notes = overrides.notes ?? card.querySelector('.notes-input').value;
+
+  const payload = { status, notes };
+
+  if (overrides.assignedProviderId != null) {
+    payload.assignedProviderId = overrides.assignedProviderId;
+  } else if (overrides.assignedProvider != null) {
+    payload.assignedProvider = overrides.assignedProvider;
+  } else {
+    const rawValue = card.querySelector('.provider-select').value;
+    if (rawValue.startsWith('id:')) {
+      payload.assignedProviderId = Number(rawValue.slice(3));
+    } else if (rawValue.startsWith('name:')) {
+      payload.assignedProvider = rawValue.slice(5);
+    } else {
+      // "Sin asignar" → desasigna por nombre (compat con backend actual).
+      payload.assignedProvider = '';
+    }
+  }
 
   await request(`/api/leads/${id}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status, assignedProvider, notes }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -423,7 +453,13 @@ function bindSaveButtons() {
   document.querySelectorAll('.suggestion-chip').forEach((button) => {
     button.addEventListener('click', () => {
       const card = button.closest('.lead-card');
-      card.querySelector('.provider-select').value = button.dataset.provider;
+      const select = card.querySelector('.provider-select');
+      const providerId = button.dataset.providerId;
+      if (providerId) {
+        select.value = `id:${providerId}`;
+      } else {
+        select.value = `name:${button.dataset.provider}`;
+      }
     });
   });
 
@@ -432,6 +468,7 @@ function bindSaveButtons() {
       const card = button.closest('.lead-card');
       const action = button.dataset.action;
       const suggested = card.dataset.suggested || '';
+      const suggestedId = card.dataset.suggestedId ? Number(card.dataset.suggestedId) : null;
       const currentNotes = card.querySelector('.notes-input').value;
       const quickNotes = {
         review: currentNotes,
@@ -441,9 +478,13 @@ function bindSaveButtons() {
         cancel: currentNotes,
       };
 
+      const suggestedConfig = suggestedId
+        ? { status: 'ASSIGNED', assignedProviderId: suggestedId, notes: quickNotes.suggested }
+        : { status: 'ASSIGNED', assignedProvider: suggested, notes: quickNotes.suggested };
+
       const config = {
         review: { status: 'IN_REVIEW', notes: quickNotes.review },
-        suggested: { status: 'ASSIGNED', assignedProvider: suggested, notes: quickNotes.suggested },
+        suggested: suggestedConfig,
         progress: { status: 'IN_PROGRESS', notes: quickNotes.progress },
         complete: { status: 'COMPLETED', notes: quickNotes.complete },
         cancel: { status: 'CANCELLED', notes: quickNotes.cancel },
