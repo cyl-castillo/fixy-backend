@@ -59,20 +59,32 @@ public class ProviderSelfService {
   }
 
   public List<Lead> assignedLeadsFor(Provider provider) {
+    // Union: por ID (asignaciones nuevas) y por nombre (legacy).
+    List<Lead> byId = leadRepository.findByAssignedProviderIdOrderByCreatedAtDesc(provider.getId());
     if (provider.getName() == null || provider.getName().isBlank()) {
-      return List.of();
+      return byId;
     }
-    return leadRepository.findByAssignedProviderIgnoreCaseOrderByCreatedAtDesc(provider.getName());
+    List<Lead> byName = leadRepository.findByAssignedProviderIgnoreCaseOrderByCreatedAtDesc(provider.getName());
+    if (byId.isEmpty()) return byName;
+    if (byName.isEmpty()) return byId;
+    java.util.LinkedHashMap<Long, Lead> merged = new java.util.LinkedHashMap<>();
+    for (Lead l : byId) merged.put(l.getId(), l);
+    for (Lead l : byName) merged.putIfAbsent(l.getId(), l);
+    return new java.util.ArrayList<>(merged.values());
   }
 
   public Lead requireAssignedLead(Provider provider, Long leadId) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
-    String assigned = lead.getAssignedProvider();
-    if (assigned == null || !assigned.equalsIgnoreCase(provider.getName())) {
-      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "lead not assigned to this provider");
+    Long assignedId = lead.getAssignedProviderId();
+    if (assignedId != null && assignedId.equals(provider.getId())) {
+      return lead;
     }
-    return lead;
+    String assigned = lead.getAssignedProvider();
+    if (assigned != null && assigned.equalsIgnoreCase(provider.getName())) {
+      return lead;
+    }
+    throw new ResponseStatusException(HttpStatus.FORBIDDEN, "lead not assigned to this provider");
   }
 
   public Lead updateLeadStatus(Provider provider, Long leadId, LeadStatus newStatus) {

@@ -660,6 +660,66 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldAssignLeadToProviderByIdAndRouteToPanel() throws Exception {
+    MvcResult prov = mockMvc.perform(post("/api/providers")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Plomería FK",
+                  "phone": "099777888",
+                  "primaryZone": "Solymar",
+                  "city": "Ciudad de la Costa",
+                  "categories": "plomeria"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer providerId = JsonPath.read(prov.getResponse().getContentAsString(), "$.id");
+
+    MvcResult tk = mockMvc.perform(post("/api/providers/{id}/access-token", providerId)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String providerToken = JsonPath.read(tk.getResponse().getContentAsString(), "$.accessToken");
+
+    MvcResult leadRes = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "phone": "099221122",
+                  "problem": "Necesito plomero para verificacion FK",
+                  "channel": "web-app",
+                  "serviceCategory": "plomeria",
+                  "zone": "Solymar"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer leadId = JsonPath.read(leadRes.getResponse().getContentAsString(), "$.id");
+
+    // Asignar por ID (NO mando assignedProvider string).
+    mockMvc.perform(patch("/api/leads/{id}", leadId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "status": "ASSIGNED",
+                  "assignedProviderId": %d
+                }
+                """.formatted(providerId)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.assignedProvider").value("Plomería FK"));
+
+    // El provider lo ve en su panel (matcheo por id).
+    mockMvc.perform(get("/api/public/providers/{id}/me", providerId)
+            .param("token", providerToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.assignedLeads.length()").value(1))
+        .andExpect(jsonPath("$.assignedLeads[0].id").value(leadId));
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {
