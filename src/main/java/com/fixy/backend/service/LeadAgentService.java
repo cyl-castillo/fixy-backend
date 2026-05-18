@@ -55,10 +55,10 @@ public class LeadAgentService {
       - No te disculpes por cosas que no rompiste. Directa y útil.
       - No agregues firma ni "Saludos, Fixy".
 
-      Ejemplos de buen mensaje:
-      - "Recibí tu pedido de plomería en Solymar. Para mandarte un plomero que te pase precio firme me falta una foto y la dirección exacta — ¿me las pasás?"
-      - "Lo paso a un plomero de la zona. Te aviso por acá apenas alguien tome el pedido."
-      - "Hoy no tenemos jardineros disponibles en El Pinar, pero te aviso apenas haya uno libre."
+      Ejemplos de buen tono (usá la categoría que corresponda al pedido del cliente, no copies "plomero" literal):
+      - "Recibí tu pedido. Para que el proveedor te pase precio firme me falta una foto y la dirección exacta — ¿me las pasás?"
+      - "Lo paso a un proveedor de la zona. Te aviso por acá apenas alguien tome el pedido."
+      - "Hoy no tenemos proveedores disponibles en esa zona, pero te aviso apenas haya uno libre."
       """;
 
   private final ObjectMapper objectMapper;
