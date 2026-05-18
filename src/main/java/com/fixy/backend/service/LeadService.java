@@ -144,8 +144,20 @@ public class LeadService {
 
   public LeadMatchResponse generateMatches(Long id) {
     Lead lead = findLead(id);
-    IntakeResponse classification = classify(buildClassificationMessage(lead), lead.getName(), lead.getPhone(), lead.getChannel());
-    applyClassification(lead, classification);
+    // Si el lead ya viene clasificado (chat-first agentico, o lead enriquecido por updateContext)
+    // NO re-clasificar: respetar lo que ya tenemos para no perder datos. Solo (re)clasificar
+    // cuando todavia no hay categoria detectada confiable.
+    boolean alreadyClassified = hasText(lead.getDetectedCategory())
+        && !"otro".equalsIgnoreCase(lead.getDetectedCategory())
+        && hasText(lead.getLocation())
+        && !"sin definir".equalsIgnoreCase(lead.getLocation());
+    if (!alreadyClassified) {
+      IntakeResponse classification = classify(buildClassificationMessage(lead), lead.getName(), lead.getPhone(), lead.getChannel());
+      applyClassification(lead, classification);
+    } else {
+      // Aun asi recomputar campos derivados (missingFields, readyForMatching) en base al estado actual.
+      lead.setReadyForMatching(computeBlockingFields(lead).isEmpty());
+    }
 
     List<String> blockingFields = computeBlockingFields(lead);
 

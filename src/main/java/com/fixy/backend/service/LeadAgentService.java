@@ -354,7 +354,13 @@ public class LeadAgentService {
       if (lead == null) return;
       boolean changed = false;
       String cat = extracted.get("category");
-      if (cat != null && !cat.equalsIgnoreCase("otro") && (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank())) {
+      // Fallback heurístico: si el LLM devolvió "otro" o null, intentar detectar
+      // del último mensaje del cliente. Asi capturamos categorias obvias que el LLM duda.
+      if (cat == null || cat.equalsIgnoreCase("otro")) {
+        String heuristic = heuristicCategory(lead);
+        if (heuristic != null) cat = heuristic;
+      }
+      if (cat != null && !cat.equalsIgnoreCase("otro") && (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank() || "otro".equalsIgnoreCase(lead.getDetectedCategory()))) {
         lead.setDetectedCategory(cat.toLowerCase().trim());
         changed = true;
       }
@@ -399,11 +405,83 @@ public class LeadAgentService {
         }
       }
       if (changed) {
+        boolean wasReady = lead.isReadyForMatching();
+        // Recomputar readyForMatching con la lógica del LeadService.
+        boolean nowReady = hasMatchingRequirements(lead);
+        lead.setReadyForMatching(nowReady);
         leadRepository.save(lead);
+        // Si justo cruzó a "ready" en este turno, intentar matching automático.
+        if (!wasReady && nowReady) {
+          tryAutoMatch(lead);
+        }
       }
     } catch (Exception ex) {
       log.warn("applyExtractedFields failed for lead {}: {}", leadId, ex.getMessage());
     }
+  }
+
+  private boolean hasMatchingRequirements(Lead lead) {
+    String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
+    String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
+    if (cat.isBlank() || "otro".equals(cat) || !MVP_CATEGORIES.contains(cat)) return false;
+    if (loc.isBlank() || "sin definir".equals(loc) || !MVP_LOCATIONS.contains(loc)) return false;
+    return true;
+  }
+
+  /**
+   * Cuando el lead recién quedó matching-ready, busca proveedores y, si hay,
+   * postea un mensaje de Fixy diciendo a qué proveedor está contactando.
+   * Por ahora no envía WhatsApp automático — ese paso lo hace el ops humano
+   * con el link wa.me que va en la timeline.
+   */
+  private void tryAutoMatch(Lead lead) {
+    try {
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatches(
+          lead.getDetectedCategory(), lead.getLocation());
+      if (matches == null || matches.isEmpty()) {
+        leadMessageService.postFromAgent(lead.getId(),
+            "Por ahora no tengo proveedores libres en %s para %s. Te aviso por acá apenas alguien levante el pedido."
+                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory())));
+        return;
+      }
+      ProviderCatalogItem top = matches.get(0);
+      leadMessageService.postFromAgent(lead.getId(),
+          "Conseguí a %s para %s en %s. Lo voy a contactar ahora por WhatsApp y te aviso por acá cuando confirme."
+              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation()));
+    } catch (Exception ex) {
+      log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * Detecta categoría buscando keywords en el último mensaje del cliente y/o
+   * en el problema del lead. Fallback cuando el LLM duda y devuelve "otro".
+   */
+  private String heuristicCategory(Lead lead) {
+    StringBuilder text = new StringBuilder();
+    if (lead.getProblem() != null) text.append(lead.getProblem().toLowerCase()).append(' ');
+    try {
+      List<LeadMessage> msgs = leadMessageService.recentForAgent(lead.getId(), 4);
+      for (LeadMessage m : msgs) {
+        if ("customer".equals(m.getSender()) && m.getText() != null) {
+          text.append(m.getText().toLowerCase()).append(' ');
+        }
+      }
+    } catch (Exception ignored) {}
+    String t = text.toString();
+    if (t.contains("barometr") || t.contains("pozo") || t.contains("camara septica") || t.contains("cámara séptica")) {
+      return "barometrica";
+    }
+    if (t.contains("plomer") || t.contains("canilla") || t.contains("caño") || t.contains("cano ") || t.contains("perdida de agua") || t.contains("pierde agua") || t.contains("destap")) {
+      return "plomeria";
+    }
+    if (t.contains("jardin") || t.contains("jardín") || t.contains("pasto") || t.contains("cesped") || t.contains("césped") || t.contains("cortar el pasto")) {
+      return "jardineria";
+    }
+    if (t.contains("aire acondicionado") || t.contains("aire que no enfria") || t.contains("aire que no enfría") || t.contains("split") || t.contains("recarga de gas") || t.contains("no enfria") || t.contains("no enfría")) {
+      return "aires_acondicionados";
+    }
+    return null;
   }
 
   private String composeProblemFromExtracted(Map<String, String> extracted) {
