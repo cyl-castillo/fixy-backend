@@ -2,6 +2,7 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
+import com.fixy.backend.service.LeadAgentService;
 import com.fixy.backend.service.LeadMessageService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -20,9 +21,14 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicLeadMessageController {
 
   private final LeadMessageService messageService;
+  private final LeadAgentService agentService;
 
-  public PublicLeadMessageController(LeadMessageService messageService) {
+  public PublicLeadMessageController(
+      LeadMessageService messageService,
+      LeadAgentService agentService
+  ) {
     this.messageService = messageService;
+    this.agentService = agentService;
   }
 
   @GetMapping
@@ -44,6 +50,8 @@ public class PublicLeadMessageController {
       @RequestParam("token") String token,
       @Valid @RequestBody LeadMessageCreateRequest request
   ) {
-    return messageService.postFromCustomer(leadId, token, request.text());
+    LeadMessageResponse persisted = messageService.postFromCustomer(leadId, token, request.text());
+    agentService.respondToCustomerAsync(leadId);
+    return persisted;
   }
 }

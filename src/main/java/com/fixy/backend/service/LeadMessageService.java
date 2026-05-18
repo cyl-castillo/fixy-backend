@@ -84,6 +84,30 @@ public class LeadMessageService {
     return LeadMessageResponse.fromEntity(saved);
   }
 
+  /**
+   * Persiste un mensaje generado por el agente Fixy. Saltea las validaciones
+   * del cliente (rate limit, anti-link, anti-repetido) porque el agente las
+   * controla en su propio servicio.
+   */
+  public LeadMessageResponse postFromAgent(Long leadId, String rawText) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    String text = sanitize(rawText);
+    LeadMessage saved = persist(lead.getId(), "fixy", text);
+    timelineService.appendEvent(lead, "MESSAGE_FROM_FIXY", "agent",
+        text.length() > 80 ? text.substring(0, 80) + "…" : text);
+    return LeadMessageResponse.fromEntity(saved);
+  }
+
+  /** Últimos N mensajes del lead, en orden cronológico, para feed al agente. */
+  public List<LeadMessage> recentForAgent(Long leadId, int limit) {
+    List<LeadMessage> all = messageRepository.findByLeadIdOrderByCreatedAtAsc(leadId);
+    if (all.size() <= limit) {
+      return all;
+    }
+    return all.subList(all.size() - limit, all.size());
+  }
+
   public List<LeadMessageResponse> listForOps(Long leadId) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));

@@ -34,11 +34,15 @@ fixy:
   uploads:
     dir: ${FIXY_UPLOADS_DIR:./data/uploads}
     url-prefix: ${FIXY_UPLOADS_URL_PREFIX:/uploads}
-
-fixy:
   security:
     username: ${FIXY_OPS_USERNAME:ops}
     password: ${FIXY_OPS_PASSWORD:change-me}
   openai:
     api-key: ${OPENAI_API_KEY:}
     model: ${OPENAI_MODEL:gpt-4.1-mini}
+  ollama:
+    base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
+    model: ${OLLAMA_MODEL:qwen2.5:3b}
+  agent:
+    enabled: ${FIXY_AGENT_ENABLED:true}
+    provider: ${FIXY_AGENT_PROVIDER:openai}

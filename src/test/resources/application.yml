@@ -23,6 +23,8 @@ fixy:
   openai:
     api-key: ""
     model: gpt-4.1-mini
+  agent:
+    enabled: false
   abuse:
     max-requests-per-window: 200
     window-seconds: 60

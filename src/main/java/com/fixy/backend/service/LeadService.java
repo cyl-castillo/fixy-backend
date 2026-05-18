@@ -53,17 +53,20 @@ public class LeadService {
   private final AgentService agentService;
   private final ProviderCatalogService providerCatalogService;
   private final LeadTimelineService leadTimelineService;
+  private final LeadAgentService leadAgentService;
 
   public LeadService(
       LeadRepository leadRepository,
       AgentService agentService,
       ProviderCatalogService providerCatalogService,
-      LeadTimelineService leadTimelineService
+      LeadTimelineService leadTimelineService,
+      LeadAgentService leadAgentService
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
     this.providerCatalogService = providerCatalogService;
     this.leadTimelineService = leadTimelineService;
+    this.leadAgentService = leadAgentService;
   }
 
   public LeadResponse create(LeadCreateRequest request) {
@@ -84,6 +87,11 @@ public class LeadService {
     leadTimelineService.appendEvent(saved, "LEAD_CREATED", "user", "Lead creado desde %s".formatted(safe(request.channel())));
     leadTimelineService.appendEvent(saved, "INTAKE_CLASSIFIED", "agent", "Categoría %s | urgencia %s | siguiente paso %s"
         .formatted(safe(saved.getDetectedCategory()), safe(saved.getUrgency()), nextRecommendedAction(computeBlockingFields(saved))));
+    try {
+      leadAgentService.greet(saved);
+    } catch (Exception ex) {
+      // greet is best-effort; never block lead creation.
+    }
     return toResponse(saved, classification.suggestedReply(), classification.agentSource());
   }
 
