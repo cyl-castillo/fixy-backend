@@ -43,6 +43,10 @@ fixy:
   ollama:
     base-url: ${OLLAMA_BASE_URL:http://127.0.0.1:11434}
     model: ${OLLAMA_MODEL:qwen2.5:3b}
+  cloudflare:
+    account-id: ${CF_ACCOUNT_ID:}
+    api-token: ${CF_API_TOKEN:}
+    model: ${CF_MODEL:@cf/meta/llama-3.1-8b-instruct}
   agent:
     enabled: ${FIXY_AGENT_ENABLED:true}
     provider: ${FIXY_AGENT_PROVIDER:openai}

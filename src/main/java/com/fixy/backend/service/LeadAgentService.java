@@ -64,10 +64,14 @@ public class LeadAgentService {
   private final ObjectMapper objectMapper;
   private final WebClient openAiClient;
   private final WebClient ollamaClient;
+  private final WebClient cloudflareClient;
   private final String provider;
   private final String openAiApiKey;
   private final String openAiModel;
   private final String ollamaModel;
+  private final String cloudflareAccountId;
+  private final String cloudflareApiToken;
+  private final String cloudflareModel;
   private final boolean enabled;
   private final LeadMessageService leadMessageService;
   private final LeadRepository leadRepository;
@@ -83,7 +87,10 @@ public class LeadAgentService {
       @Value("${fixy.agent.enabled:true}") boolean enabled,
       @Value("${fixy.agent.provider:openai}") String provider,
       @Value("${fixy.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
-      @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel
+      @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel,
+      @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
+      @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel
   ) {
     this.objectMapper = objectMapper;
     this.leadMessageService = leadMessageService;
@@ -92,10 +99,13 @@ public class LeadAgentService {
     this.openAiApiKey = openAiApiKey;
     this.openAiModel = openAiModel;
     this.ollamaModel = ollamaModel;
+    this.cloudflareAccountId = cloudflareAccountId;
+    this.cloudflareApiToken = cloudflareApiToken;
+    this.cloudflareModel = cloudflareModel;
     this.enabled = enabled;
     this.provider = provider == null ? "openai" : provider.toLowerCase().trim();
-    log.info("LeadAgentService initialized: provider={} enabled={} ollamaModel={} ollamaBaseUrl={}",
-        this.provider, this.enabled, ollamaModel, ollamaBaseUrl);
+    log.info("LeadAgentService initialized: provider={} enabled={} cloudflareModel={} ollamaModel={}",
+        this.provider, this.enabled, cloudflareModel, ollamaModel);
     this.openAiClient = WebClient.builder()
         .baseUrl("https://api.openai.com/v1")
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -103,6 +113,11 @@ public class LeadAgentService {
     this.ollamaClient = WebClient.builder()
         .baseUrl(ollamaBaseUrl)
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+    this.cloudflareClient = WebClient.builder()
+        .baseUrl("https://api.cloudflare.com/client/v4")
+        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
         .build();
   }
 
@@ -163,10 +178,12 @@ public class LeadAgentService {
   }
 
   private String callLlm(String context, String instruction) {
-    String prompt = SYSTEM_PROMPT + "\n\n" + context + "\n\n" + instruction;
+    String userContent = context + "\n\n" + instruction;
+    String legacyPrompt = SYSTEM_PROMPT + "\n\n" + userContent;
     return switch (provider) {
-      case "ollama" -> callOllama(prompt);
-      default -> callOpenAi(prompt);
+      case "ollama" -> callOllama(legacyPrompt);
+      case "workersai" -> callWorkersAi(SYSTEM_PROMPT, userContent);
+      default -> callOpenAi(legacyPrompt);
     };
   }
 
@@ -209,6 +226,49 @@ public class LeadAgentService {
       return null;
     } catch (Exception ex) {
       log.warn("openai call failed: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  private String callWorkersAi(String systemContent, String userContent) {
+    if (cloudflareAccountId == null || cloudflareAccountId.isBlank()
+        || cloudflareApiToken == null || cloudflareApiToken.isBlank()) {
+      log.warn("workersai: missing CF_ACCOUNT_ID or CF_API_TOKEN");
+      return null;
+    }
+    try {
+      Map<String, Object> payload = Map.of(
+          "messages", List.of(
+              Map.of("role", "system", "content", systemContent),
+              Map.of("role", "user", "content", userContent)
+          ),
+          "max_tokens", 200,
+          "temperature", 0.4
+      );
+      String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
+      String raw = cloudflareClient.post()
+          .uri(uri)
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(30))
+          .block();
+      if (raw == null || raw.isBlank()) {
+        return null;
+      }
+      JsonNode root = objectMapper.readTree(raw);
+      if (!root.path("success").asBoolean(false)) {
+        log.warn("workersai non-success: {}", raw.length() > 300 ? raw.substring(0, 300) : raw);
+        return null;
+      }
+      JsonNode response = root.path("result").path("response");
+      if (response.isTextual() && !response.asText().isBlank()) {
+        return response.asText().trim();
+      }
+      return null;
+    } catch (Exception ex) {
+      log.warn("workersai call failed: {}", ex.getMessage());
       return null;
     }
   }
