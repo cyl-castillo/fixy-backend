@@ -1,0 +1,397 @@
+package com.fixy.backend.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.dto.ProviderCatalogItem;
+import com.fixy.backend.model.Lead;
+import com.fixy.backend.model.LeadMessage;
+import com.fixy.backend.repository.LeadRepository;
+import java.time.Duration;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.stereotype.Service;
+import org.springframework.web.reactive.function.client.WebClient;
+
+/**
+ * Genera mensajes conversacionales del agente Fixy en la conversación de un lead.
+ * Llama a OpenAI cuando hay credencial; si falla o no hay key, usa templates.
+ */
+@Service
+public class LeadAgentService {
+
+  private static final Logger log = LoggerFactory.getLogger(LeadAgentService.class);
+  private static final int HISTORY_LIMIT = 10;
+
+  private static final String SYSTEM_PROMPT = """
+      IDIOMA: ESPAÑOL RIOPLATENSE DE URUGUAY. NO USES PORTUGUÉS NUNCA.
+      VOSEO OBLIGATORIO: usá "vos", "tenés", "sos", "podés", "querés", "te aviso", "te ayudo".
+      PROHIBIDO: "tú", "tienes", "eres", "puedes", "quieres", "Olá", "endereço", "fornecedor".
+
+      NO MENCIONES METADATOS INTERNOS AL CLIENTE: no digas "pedido ID 67", "ID: 68", "categoría detectada", "servicio detectado".
+      El cliente no quiere ver ids ni etiquetas técnicas. Hablale como persona, no como ticket.
+
+      Sos Fixy, asistente conversacional del marketplace de servicios del hogar Fixy.
+      Operás primero en Ciudad de la Costa, Canelones, Uruguay.
+
+      Tu rol: ayudar al cliente a completar su pedido y avisarle cuándo un proveedor se hace cargo.
+      Servicios que cubrimos: plomería, barométrica, jardinería, aire acondicionado.
+      Zonas que cubrimos: Solymar, Lagomar, El Pinar, Shangrilá, Barra de Carrasco, Parque Miramar,
+      San José de Carrasco, Lomas de Solymar, Colinas de Solymar, Aeroparque, Ciudad de la Costa.
+
+      Reglas duras:
+      - Máximo 3 oraciones por mensaje. Sin listas, bullets ni viñetas.
+      - Si falta info clave (foto, dirección), pedila natural en UN mensaje, sin enumerar.
+      - Si no hay proveedores en la zona+categoría: decí que avisás cuando aparezca uno, sin alarmar.
+      - Si la zona está fuera de cobertura: decílo con honestidad, guardás el pedido igual.
+      - Nunca prometas tiempos exactos; usá "en minutos", "hoy", "esta semana" según la urgencia.
+      - Nunca pidas datos de pago; Fixy no le cobra al cliente.
+      - No te disculpes por cosas que no rompiste. Directa y útil.
+      - No agregues firma ni "Saludos, Fixy".
+
+      Ejemplos de buen mensaje:
+      - "Recibí tu pedido de plomería en Solymar. Para mandarte un plomero que te pase precio firme me falta una foto y la dirección exacta — ¿me las pasás?"
+      - "Lo paso a un plomero de la zona. Te aviso por acá apenas alguien tome el pedido."
+      - "Hoy no tenemos jardineros disponibles en El Pinar, pero te aviso apenas haya uno libre."
+      """;
+
+  private final ObjectMapper objectMapper;
+  private final WebClient openAiClient;
+  private final WebClient ollamaClient;
+  private final String provider;
+  private final String openAiApiKey;
+  private final String openAiModel;
+  private final String ollamaModel;
+  private final boolean enabled;
+  private final LeadMessageService leadMessageService;
+  private final LeadRepository leadRepository;
+  private final ProviderCatalogService providerCatalogService;
+
+  public LeadAgentService(
+      ObjectMapper objectMapper,
+      LeadMessageService leadMessageService,
+      LeadRepository leadRepository,
+      ProviderCatalogService providerCatalogService,
+      @Value("${fixy.openai.api-key:}") String openAiApiKey,
+      @Value("${fixy.openai.model:gpt-4.1-mini}") String openAiModel,
+      @Value("${fixy.agent.enabled:true}") boolean enabled,
+      @Value("${fixy.agent.provider:openai}") String provider,
+      @Value("${fixy.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
+      @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel
+  ) {
+    this.objectMapper = objectMapper;
+    this.leadMessageService = leadMessageService;
+    this.leadRepository = leadRepository;
+    this.providerCatalogService = providerCatalogService;
+    this.openAiApiKey = openAiApiKey;
+    this.openAiModel = openAiModel;
+    this.ollamaModel = ollamaModel;
+    this.enabled = enabled;
+    this.provider = provider == null ? "openai" : provider.toLowerCase().trim();
+    log.info("LeadAgentService initialized: provider={} enabled={} ollamaModel={} ollamaBaseUrl={}",
+        this.provider, this.enabled, ollamaModel, ollamaBaseUrl);
+    this.openAiClient = WebClient.builder()
+        .baseUrl("https://api.openai.com/v1")
+        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+    this.ollamaClient = WebClient.builder()
+        .baseUrl(ollamaBaseUrl)
+        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+  }
+
+  /** Mensaje inicial del agente cuando se crea un lead. Async — el POST no espera al LLM. */
+  @Async
+  public void greet(Lead lead) {
+    if (!enabled) return;
+    try {
+      String context = buildContext(lead);
+      String instruction = """
+          Es la primera vez que hablás con este cliente. Saludá brevemente,
+          confirmá el pedido en tus palabras y pediles lo que falte para
+          conseguir un proveedor. Si la zona o la categoría están fuera de
+          alcance, decílo con honestidad. Máximo 4 oraciones.
+          """;
+      String reply = callLlm(context, instruction);
+      if (reply == null || reply.isBlank()) {
+        reply = fallbackGreeting(lead);
+      }
+      leadMessageService.postFromAgent(lead.getId(), reply);
+    } catch (Exception ex) {
+      log.warn("greet failed for lead {}: {}", lead.getId(), ex.getMessage());
+      safePost(lead.getId(), fallbackGreeting(lead));
+    }
+  }
+
+  /**
+   * Genera la respuesta del agente al último mensaje del cliente. Async:
+   * el endpoint público no espera la respuesta, el frontend la recoge por polling.
+   */
+  @Async
+  public void respondToCustomerAsync(Long leadId) {
+    if (!enabled) return;
+    Lead lead = leadRepository.findById(leadId).orElse(null);
+    if (lead == null) {
+      log.warn("respondToCustomer: lead {} not found", leadId);
+      return;
+    }
+    try {
+      String context = buildContext(lead);
+      String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
+      String instruction = """
+          A continuación está el contexto del pedido y la conversación reciente.
+          Respondé al ÚLTIMO mensaje del cliente en español rioplatense, breve y útil.
+          Si el cliente acaba de pasar info (foto, dirección, detalles), agradecela
+          de forma natural y avanzá al siguiente paso. Si pregunta algo, contestá
+          claro. No repitas lo que ya dijiste antes.
+          """;
+      String reply = callLlm(context + "\n\nConversación reciente:\n" + history, instruction);
+      if (reply == null || reply.isBlank()) {
+        reply = fallbackResponse(lead);
+      }
+      leadMessageService.postFromAgent(leadId, reply);
+    } catch (Exception ex) {
+      log.warn("respondToCustomer failed for lead {}: {}", leadId, ex.getMessage());
+      safePost(leadId, fallbackResponse(lead));
+    }
+  }
+
+  private String callLlm(String context, String instruction) {
+    String prompt = SYSTEM_PROMPT + "\n\n" + context + "\n\n" + instruction;
+    return switch (provider) {
+      case "ollama" -> callOllama(prompt);
+      default -> callOpenAi(prompt);
+    };
+  }
+
+  private String callOpenAi(String prompt) {
+    if (openAiApiKey == null || openAiApiKey.isBlank()) {
+      return null;
+    }
+    try {
+      Map<String, Object> payload = Map.of(
+          "model", openAiModel,
+          "input", prompt
+      );
+      String raw = openAiClient.post()
+          .uri("/responses")
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(20))
+          .block();
+      if (raw == null || raw.isBlank()) {
+        return null;
+      }
+      JsonNode root = objectMapper.readTree(raw);
+      JsonNode outputText = root.path("output_text");
+      if (outputText.isTextual() && !outputText.asText().isBlank()) {
+        return outputText.asText().trim();
+      }
+      JsonNode output = root.path("output");
+      if (output.isArray() && output.size() > 0) {
+        JsonNode first = output.get(0);
+        if (first.has("content") && first.get("content").isArray()) {
+          for (JsonNode item : first.get("content")) {
+            if (item.has("text")) {
+              return item.get("text").asText().trim();
+            }
+          }
+        }
+      }
+      return null;
+    } catch (Exception ex) {
+      log.warn("openai call failed: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  private String callOllama(String prompt) {
+    try {
+      Map<String, Object> payload = Map.of(
+          "model", ollamaModel,
+          "prompt", prompt,
+          "stream", false,
+          "options", Map.of("temperature", 0.3, "num_predict", 150, "top_p", 0.9)
+      );
+      String raw = ollamaClient.post()
+          .uri("/api/generate")
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(120))
+          .block();
+      if (raw == null || raw.isBlank()) {
+        return null;
+      }
+      JsonNode root = objectMapper.readTree(raw);
+      JsonNode response = root.path("response");
+      if (response.isTextual() && !response.asText().isBlank()) {
+        return response.asText().trim();
+      }
+      return null;
+    } catch (Exception ex) {
+      log.warn("ollama call failed: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  private String buildContext(Lead lead) {
+    String category = humanCategory(safe(lead.getDetectedCategory(), "sin definir"));
+    String location = safe(lead.getLocation(), "sin definir");
+    String urgency = safe(lead.getUrgency(), "no especificada");
+    int providerCount = countProvidersInZone(category, location);
+    String missing = safe(lead.getMissingFields(), "").replace("||", ", ");
+    if (missing.isBlank()) missing = "ninguno";
+
+    String coverageHint = "";
+    String action = safe(deriveNextAction(lead), "");
+    if ("out_of_coverage_area".equals(action)) {
+      coverageHint = "\nINSTRUCCION DURA: la zona '" + location + "' NO ESTA EN COBERTURA. Decile al cliente con honestidad que todavia no operás ahí, que guardás el pedido y le avisás cuando llegues a esa zona. NO INVENTES otra zona ni le ofrezcas un proveedor.\n";
+    } else if ("out_of_scope_category".equals(action)) {
+      coverageHint = "\nINSTRUCCION DURA: el servicio '" + category + "' NO ESTA en la lista MVP. Decile que todavía no cubrís ese rubro y que guardás el pedido para cuando lo sumes. NO le ofrezcas un proveedor.\n";
+    } else if (providerCount == 0) {
+      coverageHint = "\nINSTRUCCION: ahora mismo no hay proveedores libres en '" + location + "' para " + category + ". Avisá que vas a contactar apenas aparezca uno. No alarmes.\n";
+    }
+
+    return """
+        Contexto del pedido (interno, NO compartir IDs al cliente):
+        - ID interno: %d
+        - Problema reportado: %s
+        - Servicio: %s
+        - Zona: %s
+        - Urgencia: %s
+        - Datos faltantes: %s
+        - Proveedores disponibles en esa zona+servicio: %d
+        %s
+        """.formatted(
+        lead.getId(),
+        safe(lead.getProblem(), ""),
+        category,
+        location,
+        urgency,
+        missing,
+        providerCount,
+        coverageHint
+    );
+  }
+
+  private static final java.util.Set<String> MVP_CATEGORIES =
+      java.util.Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados");
+  private static final java.util.Set<String> MVP_LOCATIONS = java.util.Set.of(
+      "ciudad de la costa", "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
+      "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
+      "lomas de solymar", "colinas de solymar", "aeroparque");
+
+  private String deriveNextAction(Lead lead) {
+    String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
+    String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
+    if (!cat.isBlank() && !"otro".equals(cat) && !MVP_CATEGORIES.contains(cat)) {
+      return "out_of_scope_category";
+    }
+    if (!loc.isBlank() && !"sin definir".equals(loc) && !MVP_LOCATIONS.contains(loc)) {
+      return "out_of_coverage_area";
+    }
+    return "ok";
+  }
+
+  private int countProvidersInZone(String category, String location) {
+    if (category == null || category.isBlank() || location == null || location.isBlank()) {
+      return 0;
+    }
+    try {
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatches(category, location);
+      return matches == null ? 0 : matches.size();
+    } catch (Exception ex) {
+      return 0;
+    }
+  }
+
+  private String renderHistory(List<LeadMessage> messages) {
+    if (messages == null || messages.isEmpty()) {
+      return "(sin mensajes previos)";
+    }
+    return messages.stream()
+        .map(m -> "[" + roleLabel(m.getSender()) + "] " + m.getText())
+        .collect(Collectors.joining("\n"));
+  }
+
+  private String roleLabel(String sender) {
+    return switch (sender == null ? "" : sender.toLowerCase()) {
+      case "customer" -> "cliente";
+      case "fixy" -> "fixy";
+      case "provider" -> "proveedor";
+      default -> sender;
+    };
+  }
+
+  private String fallbackGreeting(Lead lead) {
+    String category = humanCategory(safe(lead.getDetectedCategory(), "tu pedido"));
+    String location = safe(lead.getLocation(), "tu zona");
+    String missing = humanMissing(lead.getMissingFields());
+    if (!missing.isBlank()) {
+      return "Hola, soy Fixy. Recibí tu pedido de %s en %s. Para conseguirte un proveedor que pase precio firme me falta %s. ¿Me lo pasás por acá?"
+          .formatted(category, location, missing);
+    }
+    return "Hola, soy Fixy. Ya recibí tu pedido de %s en %s. Estoy buscando un proveedor disponible — te aviso por acá apenas alguien acepte.".formatted(category, location);
+  }
+
+  private String fallbackResponse(Lead lead) {
+    if (lead == null) {
+      return "Gracias, lo paso al proveedor.";
+    }
+    String missing = humanMissing(lead.getMissingFields());
+    if (!missing.isBlank()) {
+      return "Gracias por el dato. Todavía me falta %s para terminar de armar el caso.".formatted(missing);
+    }
+    return "Gracias, lo paso al proveedor. Te aviso por acá cuando alguien tome el pedido.";
+  }
+
+  private String humanCategory(String raw) {
+    return switch (raw == null ? "" : raw.toLowerCase().trim()) {
+      case "plomeria" -> "plomería";
+      case "barometrica" -> "barométrica";
+      case "jardineria" -> "jardinería";
+      case "aires_acondicionados" -> "aire acondicionado";
+      case "electricidad" -> "electricidad";
+      case "cerrajeria" -> "cerrajería";
+      case "reparaciones" -> "reparaciones";
+      default -> raw == null || raw.isBlank() ? "tu pedido" : raw;
+    };
+  }
+
+  private String humanMissing(String missingFieldsRaw) {
+    if (missingFieldsRaw == null || missingFieldsRaw.isBlank()) {
+      return "";
+    }
+    String[] parts = missingFieldsRaw.split("\\|\\|");
+    if (parts.length == 1) return parts[0];
+    if (parts.length == 2) return parts[0] + " y " + parts[1];
+    StringBuilder sb = new StringBuilder();
+    for (int i = 0; i < parts.length - 1; i++) {
+      if (i > 0) sb.append(", ");
+      sb.append(parts[i]);
+    }
+    sb.append(" y ").append(parts[parts.length - 1]);
+    return sb.toString();
+  }
+
+  private void safePost(Long leadId, String text) {
+    try {
+      leadMessageService.postFromAgent(leadId, text);
+    } catch (Exception ex) {
+      log.error("could not persist fallback agent message for lead {}: {}", leadId, ex.getMessage());
+    }
+  }
+
+  private String safe(String value, String fallback) {
+    return value == null || value.isBlank() ? fallback : value;
+  }
+}
