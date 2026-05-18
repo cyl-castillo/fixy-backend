@@ -4,6 +4,7 @@ import com.fixy.backend.dto.LeadCreateRequest;
 import com.fixy.backend.dto.LeadEventResponse;
 import com.fixy.backend.dto.LeadMatchResponse;
 import com.fixy.backend.dto.LeadResponse;
+import com.fixy.backend.dto.PublicChatStartRequest;
 import com.fixy.backend.dto.PublicLeadContextUpdateRequest;
 import com.fixy.backend.service.LeadService;
 import com.fixy.backend.service.LeadTimelineService;
@@ -44,6 +45,17 @@ public class PublicLeadController {
   public LeadResponse create(@Valid @RequestBody LeadCreateRequest request, HttpServletRequest httpRequest) {
     abuseProtectionService.validate(httpRequest.getRemoteAddr(), request.problem());
     return leadService.create(request);
+  }
+
+  /**
+   * Inicia una conversacion chat-first. Crea un lead vacio y devuelve
+   * leadId+accessToken. La conversacion arranca con un saludo del agente.
+   */
+  @PostMapping("/chats")
+  @ResponseStatus(HttpStatus.CREATED)
+  public LeadResponse startChat(@RequestBody(required = false) PublicChatStartRequest request, HttpServletRequest httpRequest) {
+    abuseProtectionService.validate(httpRequest.getRemoteAddr(), "(chat start)");
+    return leadService.createChat(request);
   }
 
   @GetMapping("/leads/{id}")

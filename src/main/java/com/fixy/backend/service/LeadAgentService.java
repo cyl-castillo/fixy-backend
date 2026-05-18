@@ -127,15 +127,26 @@ public class LeadAgentService {
     if (!enabled) return;
     try {
       String context = buildContext(lead);
-      String instruction = """
-          Es la primera vez que hablás con este cliente. Saludá brevemente,
-          confirmá el pedido en tus palabras y pediles lo que falte para
-          conseguir un proveedor. Si la zona o la categoría están fuera de
-          alcance, decílo con honestidad. Máximo 4 oraciones.
-          """;
+      String instruction;
+      boolean isChatFirst = lead.getDetectedCategory() == null
+          && (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem()));
+      if (isChatFirst) {
+        instruction = """
+            Es la primera vez que hablás con este cliente y todavía no sabés qué necesita.
+            Presentate brevemente y preguntale qué le pasa o qué necesita arreglar.
+            No menciones servicios específicos todavía. Máximo 2 oraciones.
+            """;
+      } else {
+        instruction = """
+            Es la primera vez que hablás con este cliente. Saludá brevemente,
+            confirmá el pedido en tus palabras y pediles lo que falte para
+            conseguir un proveedor. Si la zona o la categoría están fuera de
+            alcance, decílo con honestidad. Máximo 4 oraciones.
+            """;
+      }
       String reply = callLlm(context, instruction);
       if (reply == null || reply.isBlank()) {
-        reply = fallbackGreeting(lead);
+        reply = isChatFirst ? fallbackChatFirstGreeting() : fallbackGreeting(lead);
       }
       leadMessageService.postFromAgent(lead.getId(), reply);
     } catch (Exception ex) {
@@ -144,9 +155,15 @@ public class LeadAgentService {
     }
   }
 
+  private String fallbackChatFirstGreeting() {
+    return "Hola, soy Fixy. Contame qué necesitás arreglar o coordinar y te ayudo a conseguir un proveedor.";
+  }
+
   /**
-   * Genera la respuesta del agente al último mensaje del cliente. Async:
-   * el endpoint público no espera la respuesta, el frontend la recoge por polling.
+   * Genera la respuesta del agente al último mensaje del cliente Y extrae
+   * datos estructurados (categoría, zona, urgencia, teléfono, etc.) para
+   * actualizar el Lead progresivamente. Async — el frontend recoge la respuesta
+   * por polling.
    */
   @Async
   public void respondToCustomerAsync(Long leadId) {
@@ -159,22 +176,246 @@ public class LeadAgentService {
     try {
       String context = buildContext(lead);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
-      String instruction = """
-          A continuación está el contexto del pedido y la conversación reciente.
-          Respondé al ÚLTIMO mensaje del cliente en español rioplatense, breve y útil.
-          Si el cliente acaba de pasar info (foto, dirección, detalles), agradecela
-          de forma natural y avanzá al siguiente paso. Si pregunta algo, contestá
-          claro. No repitas lo que ya dijiste antes.
-          """;
-      String reply = callLlm(context + "\n\nConversación reciente:\n" + history, instruction);
-      if (reply == null || reply.isBlank()) {
-        reply = fallbackResponse(lead);
-      }
+      AgentTurnResult result = respondAndExtractTurn(lead, context, history);
+      String reply = (result == null || result.reply() == null || result.reply().isBlank())
+          ? fallbackResponse(lead)
+          : result.reply();
       leadMessageService.postFromAgent(leadId, reply);
+      if (result != null && result.extracted() != null && !result.extracted().isEmpty()) {
+        applyExtractedFields(leadId, result.extracted());
+      }
     } catch (Exception ex) {
       log.warn("respondToCustomer failed for lead {}: {}", leadId, ex.getMessage());
       safePost(leadId, fallbackResponse(lead));
     }
+  }
+
+  private record AgentTurnResult(String reply, Map<String, String> extracted) {}
+
+  private AgentTurnResult respondAndExtractTurn(Lead lead, String context, String history) {
+    String userContent = context + "\n\nConversación reciente:\n" + history + """
+
+
+        TAREA:
+        1) Respondé al ÚLTIMO mensaje del cliente en español rioplatense (voseo), breve y útil.
+           Si el cliente recién pasó info (foto, dirección, detalles), agradecela y avanzá.
+           No repitas lo que ya dijiste. Si todavía no sabés qué necesita, preguntá.
+        2) Extraé datos estructurados del cliente que aparezcan en la conversación.
+
+        FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta estructura:
+        {
+          "reply": "tu respuesta conversacional al cliente",
+          "extracted": {
+            "category": "plomeria|barometrica|jardineria|aires_acondicionados|otro|null",
+            "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
+            "urgency": "alta|media|baja|null",
+            "phone": "099XXXXXX o null",
+            "name": "nombre o null",
+            "address": "dirección exacta o null",
+            "details": "detalles relevantes o null"
+          }
+        }
+
+        Reglas para extracted:
+        - Usá null cuando el dato no aparezca en la conversación (no inventes).
+        - Sólo extraé valores que el cliente dijo explícitamente o son obvios del contexto.
+        - phone debe tener formato uruguayo: 8-9 dígitos empezando con 09 ó 9.
+        """;
+    String raw;
+    if ("workersai".equals(provider)) {
+      raw = callWorkersAiJson(SYSTEM_PROMPT, userContent);
+    } else if ("ollama".equals(provider)) {
+      raw = callOllama(SYSTEM_PROMPT + "\n\n" + userContent);
+    } else {
+      raw = callOpenAi(SYSTEM_PROMPT + "\n\n" + userContent);
+    }
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    return parseTurnJson(raw);
+  }
+
+  /** Llama Workers AI pidiendo JSON puro como response. */
+  private String callWorkersAiJson(String systemContent, String userContent) {
+    if (cloudflareAccountId == null || cloudflareAccountId.isBlank()
+        || cloudflareApiToken == null || cloudflareApiToken.isBlank()) {
+      return null;
+    }
+    try {
+      List<String> categoryEnum = List.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "otro");
+      List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
+          "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar",
+          "Aeroparque", "Ciudad de la Costa", "otro");
+      List<String> urgencyEnum = List.of("alta", "media", "baja");
+      Map<String, Object> turnSchema = Map.of(
+          "type", "object",
+          "properties", Map.of(
+              "reply", Map.of("type", "string"),
+              "extracted", Map.of(
+                  "type", "object",
+                  "properties", Map.of(
+                      "category", Map.of("type", "string", "enum", categoryEnum),
+                      "zone", Map.of("type", "string", "enum", zoneEnum),
+                      "urgency", Map.of("type", "string", "enum", urgencyEnum),
+                      "phone", Map.of("type", "string"),
+                      "name", Map.of("type", "string"),
+                      "address", Map.of("type", "string"),
+                      "details", Map.of("type", "string")
+                  )
+              )
+          ),
+          "required", List.of("reply", "extracted")
+      );
+      Map<String, Object> payload = Map.of(
+          "messages", List.of(
+              Map.of("role", "system", "content", systemContent),
+              Map.of("role", "user", "content", userContent)
+          ),
+          "max_tokens", 350,
+          "temperature", 0.3,
+          "response_format", Map.of("type", "json_schema", "json_schema", turnSchema)
+      );
+      String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
+      String raw = cloudflareClient.post()
+          .uri(uri)
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(30))
+          .block();
+      if (raw == null || raw.isBlank()) {
+        return null;
+      }
+      JsonNode root = objectMapper.readTree(raw);
+      if (!root.path("success").asBoolean(false)) {
+        log.warn("workersai-json non-success: {}", raw.length() > 300 ? raw.substring(0, 300) : raw);
+        return null;
+      }
+      JsonNode response = root.path("result").path("response");
+      if (response.isTextual()) {
+        return response.asText();
+      }
+      // Algunos modelos devuelven el objeto JSON directo en response.
+      if (response.isObject()) {
+        return response.toString();
+      }
+      return null;
+    } catch (Exception ex) {
+      log.warn("workersai-json call failed: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  private AgentTurnResult parseTurnJson(String raw) {
+    try {
+      String trimmed = raw.trim();
+      // Algunos modelos meten ```json ``` o texto extra. Buscar el primer { y último }.
+      int first = trimmed.indexOf('{');
+      int last = trimmed.lastIndexOf('}');
+      if (first < 0 || last <= first) {
+        log.warn("turn-json: no JSON object found in response (first={}, last={})", first, last);
+        return new AgentTurnResult(raw.trim(), java.util.Map.of());
+      }
+      String jsonOnly = trimmed.substring(first, last + 1);
+      JsonNode root = objectMapper.readTree(jsonOnly);
+      String reply = root.path("reply").asText("").trim();
+      JsonNode ext = root.path("extracted");
+      java.util.Map<String, String> extracted = new java.util.HashMap<>();
+      if (ext.isObject()) {
+        for (String key : List.of("category", "zone", "urgency", "phone", "name", "address", "details")) {
+          JsonNode v = ext.path(key);
+          if (v.isTextual()) {
+            String s = v.asText().trim();
+            if (!s.isEmpty() && !"null".equalsIgnoreCase(s)) {
+              extracted.put(key, s);
+            }
+          }
+        }
+      }
+      if (reply.isEmpty()) {
+        return new AgentTurnResult(null, extracted);
+      }
+      return new AgentTurnResult(reply, extracted);
+    } catch (Exception ex) {
+      log.warn("turn-json parse failed: {}", ex.getMessage());
+      // Fallback: tratar todo el raw como reply text (sin extracción).
+      return new AgentTurnResult(raw.trim(), java.util.Map.of());
+    }
+  }
+
+  /**
+   * Aplica campos extraídos al Lead. Solo escribe sobre campos vacíos
+   * para no sobrescribir info confirmada en turnos anteriores.
+   */
+  private void applyExtractedFields(Long leadId, Map<String, String> extracted) {
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null) return;
+      boolean changed = false;
+      String cat = extracted.get("category");
+      if (cat != null && !cat.equalsIgnoreCase("otro") && (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank())) {
+        lead.setDetectedCategory(cat.toLowerCase().trim());
+        changed = true;
+      }
+      String zone = extracted.get("zone");
+      if (zone != null && !zone.equalsIgnoreCase("otro") && (lead.getLocation() == null || lead.getLocation().isBlank())) {
+        lead.setLocation(zone.trim());
+        changed = true;
+      }
+      String urgency = extracted.get("urgency");
+      if (urgency != null && (lead.getUrgency() == null || lead.getUrgency().isBlank())) {
+        lead.setUrgency(urgency.toLowerCase().trim());
+        changed = true;
+      }
+      String phone = extracted.get("phone");
+      if (phone != null && (lead.getPhone() == null || lead.getPhone().isBlank())) {
+        lead.setPhone(phone.trim());
+        changed = true;
+      }
+      String name = extracted.get("name");
+      if (name != null && (lead.getName() == null || lead.getName().isBlank())) {
+        lead.setName(name.trim());
+        changed = true;
+      }
+      String address = extracted.get("address");
+      String details = extracted.get("details");
+      String currentNotes = lead.getNotes() == null ? "" : lead.getNotes();
+      if (address != null && !currentNotes.contains(address)) {
+        currentNotes = currentNotes.isBlank() ? ("Dirección: " + address) : (currentNotes + "\nDirección: " + address);
+        lead.setNotes(currentNotes);
+        changed = true;
+      }
+      if (details != null && !currentNotes.contains(details)) {
+        currentNotes = currentNotes.isBlank() ? details : (currentNotes + "\n" + details);
+        lead.setNotes(currentNotes);
+        changed = true;
+      }
+      if (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem())) {
+        String composed = composeProblemFromExtracted(extracted);
+        if (composed != null) {
+          lead.setProblem(composed);
+          changed = true;
+        }
+      }
+      if (changed) {
+        leadRepository.save(lead);
+      }
+    } catch (Exception ex) {
+      log.warn("applyExtractedFields failed for lead {}: {}", leadId, ex.getMessage());
+    }
+  }
+
+  private String composeProblemFromExtracted(Map<String, String> extracted) {
+    String cat = extracted.get("category");
+    String details = extracted.get("details");
+    if (details != null && !details.isBlank()) {
+      return details;
+    }
+    if (cat != null && !cat.isBlank() && !cat.equalsIgnoreCase("otro")) {
+      return "Pedido de " + humanCategory(cat);
+    }
+    return null;
   }
 
   private String callLlm(String context, String instruction) {

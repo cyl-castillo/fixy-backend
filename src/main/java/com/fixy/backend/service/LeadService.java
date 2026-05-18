@@ -69,6 +69,38 @@ public class LeadService {
     this.leadAgentService = leadAgentService;
   }
 
+  /**
+   * Crea un Lead en estado "draft" para chat-first. El cliente todavia no
+   * proporciono ni problema ni datos — la conversacion va a ir extrayendo
+   * categoria, zona, urgencia y telefono a lo largo de los turnos.
+   */
+  public LeadResponse createChat(com.fixy.backend.dto.PublicChatStartRequest request) {
+    Lead lead = new Lead();
+    lead.setName(request != null ? request.name() : null);
+    lead.setPhone(request != null ? request.phone() : null);
+    lead.setProblem("(pendiente)");
+    lead.setChannel(request != null && hasText(request.channel()) ? request.channel() : "chat");
+    lead.setDetectedCategory(null);
+    lead.setUrgency(null);
+    lead.setLocation(null);
+    lead.setSummary(null);
+    lead.setMissingFields("");
+    lead.setReadyForMatching(false);
+    lead.setStatus(LeadStatus.NEW);
+    lead.setNotes("");
+    lead.setHistory(buildHistoryEntry("Chat-first iniciado desde %s".formatted(lead.getChannel())));
+    lead.setAccessToken(java.util.UUID.randomUUID().toString().replace("-", ""));
+
+    Lead saved = leadRepository.save(lead);
+    leadTimelineService.appendEvent(saved, "CHAT_STARTED", "user", "Lead vacio iniciado desde chat-first");
+    try {
+      leadAgentService.greet(saved);
+    } catch (Exception ex) {
+      // greet is best-effort; never block lead creation.
+    }
+    return toResponse(saved, null, "chat");
+  }
+
   public LeadResponse create(LeadCreateRequest request) {
     IntakeResponse classification = classify(request);
 
