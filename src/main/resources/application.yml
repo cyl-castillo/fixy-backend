@@ -47,6 +47,13 @@ fixy:
     account-id: ${CF_ACCOUNT_ID:}
     api-token: ${CF_API_TOKEN:}
     model: ${CF_MODEL:@cf/meta/llama-3.1-8b-instruct}
+  whatsapp:
+    phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
+    access-token: ${WHATSAPP_ACCESS_TOKEN:}
+    api-version: ${WHATSAPP_API_VERSION:v21.0}
+    webhook-verify-token: ${WHATSAPP_WEBHOOK_VERIFY_TOKEN:}
+    template-name: ${WHATSAPP_TEMPLATE_NAME:provider_lead_notification}
+    template-lang: ${WHATSAPP_TEMPLATE_LANG:es}
   agent:
     enabled: ${FIXY_AGENT_ENABLED:true}
     provider: ${FIXY_AGENT_PROVIDER:openai}

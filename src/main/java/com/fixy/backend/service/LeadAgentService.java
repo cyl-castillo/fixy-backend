@@ -72,16 +72,24 @@ public class LeadAgentService {
   private final String cloudflareAccountId;
   private final String cloudflareApiToken;
   private final String cloudflareModel;
+  private final String whatsappTemplateName;
+  private final String whatsappTemplateLang;
   private final boolean enabled;
   private final LeadMessageService leadMessageService;
   private final LeadRepository leadRepository;
   private final ProviderCatalogService providerCatalogService;
+  private final WhatsAppService whatsappService;
+  private final com.fixy.backend.repository.ProviderRepository providerRepository;
+  private final LeadTimelineService leadTimelineService;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
       LeadMessageService leadMessageService,
       LeadRepository leadRepository,
       ProviderCatalogService providerCatalogService,
+      WhatsAppService whatsappService,
+      com.fixy.backend.repository.ProviderRepository providerRepository,
+      LeadTimelineService leadTimelineService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-4.1-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -90,8 +98,15 @@ public class LeadAgentService {
       @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel,
       @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
       @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
-      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel,
+      @Value("${fixy.whatsapp.template-name:provider_lead_notification}") String whatsappTemplateName,
+      @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang
   ) {
+    this.whatsappService = whatsappService;
+    this.providerRepository = providerRepository;
+    this.leadTimelineService = leadTimelineService;
+    this.whatsappTemplateName = whatsappTemplateName;
+    this.whatsappTemplateLang = whatsappTemplateLang;
     this.objectMapper = objectMapper;
     this.leadMessageService = leadMessageService;
     this.leadRepository = leadRepository;
@@ -445,9 +460,44 @@ public class LeadAgentService {
         return;
       }
       ProviderCatalogItem top = matches.get(0);
+      com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
+
+      // Marco el lead como "esperando respuesta del proveedor" para que el
+      // webhook pueda vincular las respuestas de WhatsApp al lead correcto.
+      lead.setAssignedProviderId(top.id());
+      lead.setAssignedProvider(top.name());
+      lead.setStatus(com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED);
+      leadRepository.save(lead);
+      leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
+          "Contactando a %s via WhatsApp".formatted(top.name()));
+
+      // Aviso conversacional al cliente.
       leadMessageService.postFromAgent(lead.getId(),
-          "Conseguí a %s para %s en %s. Lo voy a contactar ahora por WhatsApp y te aviso por acá cuando confirme."
+          "Conseguí a %s para %s en %s. Le estoy escribiendo ahora por WhatsApp y te aviso por acá cuando confirme."
               .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation()));
+
+      // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
+      // está configurado, WhatsAppService.sendTemplate retorna false y
+      // queda solo el aviso al cliente (legacy manual con wa.me).
+      if (providerEntity != null && whatsappService.isEnabled()) {
+        String to = providerEntity.getWhatsappNumber();
+        if (to == null || to.isBlank()) to = providerEntity.getPhone();
+        if (to != null && !to.isBlank()) {
+          boolean sent = whatsappService.sendTemplate(
+              to,
+              whatsappTemplateName,
+              whatsappTemplateLang,
+              List.of(
+                  humanCategory(lead.getDetectedCategory()),
+                  lead.getLocation() == null ? "" : lead.getLocation(),
+                  lead.getUrgency() == null ? "media" : lead.getUrgency()
+              )
+          );
+          if (!sent) {
+            log.warn("autoMatch: WhatsApp template send failed para lead {} provider {}", lead.getId(), top.id());
+          }
+        }
+      }
     } catch (Exception ex) {
       log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
     }
