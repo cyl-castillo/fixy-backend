@@ -70,6 +70,15 @@ unassigned=$(echo "$leads_json" | jq '[.[] | select((.assignedProvider // "") ==
 # Status nuevos / total
 new_count=$(echo "$leads_json" | jq '[.[] | select(.status=="NEW")] | length')
 
+# 3b. Métricas de negocio (P0-3, H3.1-H3.3) de los últimos 7 días.
+# NO se activa/programa como parte de esta épica (H3.4 solo deja el digest
+# preparado). Si falla, no debe romper el resto del digest.
+metrics_json="$(api_curl "$API_BASE/api/ops/metrics/daily" || echo '{}')"
+fill_rate="$(echo "$metrics_json" | jq -r 'if .fillRatePercentage then (.fillRatePercentage | tostring) else "?" end')"
+median_response_s="$(echo "$metrics_json" | jq -r '.medianTimeToFirstResponseSeconds // "sin datos"')"
+repeat_rate="$(echo "$metrics_json" | jq -r 'if .repeatRateAutodeclaredPercentage then (.repeatRateAutodeclaredPercentage | tostring) else "?" end')"
+metrics_total="$(echo "$metrics_json" | jq -r '.totalLeadsCreated // "?"')"
+
 # Coverage gaps: (categoria, zona) sin proveedores activos.
 CATEGORIES="plomeria jardineria barometrica aires_acondicionados"
 ZONES="Solymar Lagomar El%20Pinar Shangrilá Barra%20de%20Carrasco Ciudad%20de%20la%20Costa"
@@ -95,6 +104,11 @@ Sin proveedor asignado: $unassigned
 
 Healthcheck: $health_status | API publica: ${public_api:-?} | Web: ${public_web:-?}
 Memoria libre: ${free_mb} MB | Disco /: $disk_pct
+
+Métricas de negocio (últimos 7 días, $metrics_total leads):
+  Fill rate: ${fill_rate}%
+  Mediana 1a respuesta proveedor: ${median_response_s}s
+  Repeat rate (autodeclarado): ${repeat_rate}%
 \`\`\`"
 
 if [ -n "$blocked_ids" ]; then

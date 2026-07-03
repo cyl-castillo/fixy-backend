@@ -552,6 +552,52 @@ function bindProviderActions() {
   });
 }
 
+function formatPercentage(value) {
+  return `${Number(value ?? 0).toFixed(1)}%`;
+}
+
+function formatDurationSeconds(seconds) {
+  if (seconds == null) return "Sin datos";
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  const hours = (minutes / 60).toFixed(1);
+  return `${hours} h`;
+}
+
+function renderOpsMetrics(metrics) {
+  const opsMetricsBody = document.getElementById("opsMetricsBody");
+  const opsMetricsNote = document.getElementById("opsMetricsNote");
+  if (!opsMetricsBody) return;
+
+  opsMetricsBody.innerHTML = `
+    <tr>
+      <td><strong>${metrics.totalLeadsCreated}</strong></td>
+      <td><strong>${formatPercentage(metrics.fillRatePercentage)}</strong></td>
+      <td><strong>${formatDurationSeconds(metrics.medianTimeToFirstResponseSeconds)}</strong></td>
+      <td><strong>${formatPercentage(metrics.repeatRateAutodeclaredPercentage)}</strong></td>
+    </tr>
+  `;
+
+  if (opsMetricsNote) {
+    opsMetricsNote.textContent =
+      `Mediana calculada sobre ${metrics.leadsConsideredForResponseTime} lead(s) con respuesta registrada. `
+      + `Repeat rate autodeclarado sobre ${metrics.distinctClientsWithCompleted} cliente(s) con al menos un servicio completado `
+      + `(COMPLETED es autodeclaración del proveedor, sin confirmación del cliente todavía).`;
+  }
+}
+
+async function loadOpsMetrics() {
+  const opsMetricsBody = document.getElementById("opsMetricsBody");
+  try {
+    const metrics = await request('/api/ops/metrics/daily');
+    renderOpsMetrics(metrics);
+  } catch {
+    if (opsMetricsBody) {
+      opsMetricsBody.innerHTML = '<tr><td colspan="4">No pude cargar las métricas.</td></tr>';
+    }
+  }
+}
+
 async function loadLeads() {
   clearFeedback();
   leadsContainer.innerHTML = '<p class="empty">Cargando…</p>';
@@ -563,6 +609,7 @@ async function loadLeads() {
   allLeads = leads;
   fillProviderFilter(allLeads);
   render();
+  loadOpsMetrics();
 }
 
 createLeadForm.addEventListener('submit', async (event) => {

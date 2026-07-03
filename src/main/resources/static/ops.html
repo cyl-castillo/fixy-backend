@@ -145,6 +145,27 @@
         <div class="stats-grid" id="statsGrid"></div>
         <div id="feedback" class="feedback" hidden></div>
 
+        <div class="list-head">
+          <h2>Métricas de negocio (últimos 7 días)</h2>
+          <p>Fill rate, tiempo de respuesta de proveedores y repetición de clientes.</p>
+        </div>
+        <div class="metrics-table-wrap">
+          <table class="metrics-table">
+            <thead>
+              <tr>
+                <th>Leads creados</th>
+                <th>Fill rate</th>
+                <th>Mediana 1ª respuesta proveedor</th>
+                <th>Repeat rate (autodeclarado)</th>
+              </tr>
+            </thead>
+            <tbody id="opsMetricsBody">
+              <tr><td colspan="4">Cargando métricas…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="metrics-note" id="opsMetricsNote"></p>
+
         <div class="board-head">
           <h2>Tablero por estado</h2>
           <p>Vista rápida para operar sin perder contexto.</p>

@@ -32,7 +32,7 @@ public class SecurityConfig {
             .requestMatchers("/api/public/**").permitAll()
             .requestMatchers("/api/webhooks/**").permitAll()
             .requestMatchers("/uploads/**").permitAll()
-            .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**").authenticated()
+            .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**", "/api/ops/**").authenticated()
             .anyRequest().permitAll());
 
     return http.build();
