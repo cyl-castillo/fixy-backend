@@ -598,6 +598,58 @@ async function loadOpsMetrics() {
   }
 }
 
+function formatMoney(amount, currency) {
+  if (amount == null) return "—";
+  return `${escapeHtml(currency || "UYU")} ${Number(amount).toFixed(2)}`;
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  return new Date(value).toLocaleString();
+}
+
+function renderOpsPayments(payments) {
+  const opsPaymentsBody = document.getElementById("opsPaymentsBody");
+  if (!opsPaymentsBody) return;
+
+  if (!payments.length) {
+    opsPaymentsBody.innerHTML = '<tr><td colspan="8">No hay comisiones para este filtro.</td></tr>';
+    return;
+  }
+
+  opsPaymentsBody.innerHTML = payments.map((payment) => `
+    <tr>
+      <td>#${payment.leadId}</td>
+      <td>#${payment.providerId}</td>
+      <td>${formatMoney(payment.amountCharged, payment.currency)}</td>
+      <td>${formatMoney(payment.commissionAmount, payment.currency)}</td>
+      <td><span class="badge status">${escapeHtml(payment.commissionStatus)}</span></td>
+      <td>${payment.mpPaymentLink
+        ? `<a href="${escapeHtml(payment.mpPaymentLink)}" target="_blank" rel="noopener">Link</a>`
+        : "—"}</td>
+      <td>${formatDateTime(payment.createdAt)}</td>
+      <td>${formatDateTime(payment.paidAt)}</td>
+    </tr>
+  `).join("");
+}
+
+async function loadOpsPayments() {
+  const opsPaymentsBody = document.getElementById("opsPaymentsBody");
+  const statusFilterEl = document.getElementById("paymentsStatusFilter");
+  try {
+    const status = statusFilterEl?.value || "";
+    const query = status ? `?status=${encodeURIComponent(status)}` : "";
+    const payments = await request(`/api/ops/payments${query}`);
+    renderOpsPayments(payments);
+  } catch {
+    if (opsPaymentsBody) {
+      opsPaymentsBody.innerHTML = '<tr><td colspan="8">No pude cargar las comisiones.</td></tr>';
+    }
+  }
+}
+
+document.getElementById("paymentsStatusFilter")?.addEventListener("change", loadOpsPayments);
+
 async function loadLeads() {
   clearFeedback();
   leadsContainer.innerHTML = '<p class="empty">Cargando…</p>';
@@ -610,6 +662,7 @@ async function loadLeads() {
   fillProviderFilter(allLeads);
   render();
   loadOpsMetrics();
+  loadOpsPayments();
 }
 
 createLeadForm.addEventListener('submit', async (event) => {

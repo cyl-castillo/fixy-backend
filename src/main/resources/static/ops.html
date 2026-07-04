@@ -166,6 +166,42 @@
         </div>
         <p class="metrics-note" id="opsMetricsNote"></p>
 
+        <div class="list-head">
+          <h2>Comisiones (Mercado Pago)</h2>
+          <p>Comisión de Fixy por trabajo completado. Filtrá por estado de cobro.</p>
+        </div>
+        <div class="filter-stack">
+          <label>
+            Estado de comisión
+            <select id="paymentsStatusFilter">
+              <option value="">Todos</option>
+              <option value="PENDING">PENDING</option>
+              <option value="PAID">PAID</option>
+              <option value="WAIVED">WAIVED</option>
+              <option value="OVERDUE">OVERDUE</option>
+            </select>
+          </label>
+        </div>
+        <div class="metrics-table-wrap">
+          <table class="metrics-table">
+            <thead>
+              <tr>
+                <th>Lead</th>
+                <th>Proveedor</th>
+                <th>Monto cobrado</th>
+                <th>Comisión</th>
+                <th>Estado</th>
+                <th>Link de pago</th>
+                <th>Creada</th>
+                <th>Pagada</th>
+              </tr>
+            </thead>
+            <tbody id="opsPaymentsBody">
+              <tr><td colspan="8">Cargando comisiones…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
         <div class="board-head">
           <h2>Tablero por estado</h2>
           <p>Vista rápida para operar sin perder contexto.</p>
