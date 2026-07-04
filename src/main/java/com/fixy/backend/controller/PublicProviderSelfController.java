@@ -11,6 +11,7 @@ import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.ProviderSelfService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -57,7 +58,7 @@ public class PublicProviderSelfController {
       @Valid @RequestBody StatusUpdateRequest request
   ) {
     Provider provider = selfService.authenticate(providerId, token);
-    Lead updated = selfService.updateLeadStatus(provider, leadId, request.status());
+    Lead updated = selfService.updateLeadStatus(provider, leadId, request.status(), request.amountCharged());
     return ProviderAssignedLeadSummary.fromEntity(updated);
   }
 
@@ -90,6 +91,6 @@ public class PublicProviderSelfController {
     return messageService.postFromOps(leadId, "provider", request.text());
   }
 
-  public record StatusUpdateRequest(@NotNull LeadStatus status) {
+  public record StatusUpdateRequest(@NotNull LeadStatus status, BigDecimal amountCharged) {
   }
 }
