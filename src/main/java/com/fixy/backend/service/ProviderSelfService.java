@@ -5,10 +5,12 @@ import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -36,15 +38,21 @@ public class ProviderSelfService {
   private final ProviderRepository providerRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
+  private final CommissionService commissionService;
+  private final boolean paymentsEnabled;
 
   public ProviderSelfService(
       ProviderRepository providerRepository,
       LeadRepository leadRepository,
-      LeadTimelineService timelineService
+      LeadTimelineService timelineService,
+      CommissionService commissionService,
+      @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
   ) {
     this.providerRepository = providerRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
+    this.commissionService = commissionService;
+    this.paymentsEnabled = paymentsEnabled;
   }
 
   public Provider authenticate(Long providerId, String token) {
@@ -88,9 +96,26 @@ public class ProviderSelfService {
   }
 
   public Lead updateLeadStatus(Provider provider, Long leadId, LeadStatus newStatus) {
+    return updateLeadStatus(provider, leadId, newStatus, null);
+  }
+
+  /**
+   * @param amountCharged monto que el proveedor cobró al cliente. Con
+   *                       {@code fixy.payments.enabled=true}, es obligatorio
+   *                       (> 0) para transicionar a COMPLETED — dispara la
+   *                       creación de la comisión (H1.2/H1.3). Con el flag en
+   *                       false, se ignora y el comportamiento es el mismo de
+   *                       siempre (rollback seguro sin credenciales de MP).
+   */
+  public Lead updateLeadStatus(Provider provider, Long leadId, LeadStatus newStatus, BigDecimal amountCharged) {
     if (!PROVIDER_TRANSITIONS.contains(newStatus)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "status not allowed for provider self-service");
+    }
+    if (paymentsEnabled && newStatus == LeadStatus.COMPLETED
+        && (amountCharged == null || amountCharged.signum() <= 0)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "para marcar el trabajo como completado necesitamos el monto cobrado al cliente (mayor a 0)");
     }
     Lead lead = requireAssignedLead(provider, leadId);
     LeadStatus before = lead.getStatus();
@@ -108,6 +133,9 @@ public class ProviderSelfService {
       }
       leadRepository.save(lead);
       providerRepository.save(provider);
+      if (paymentsEnabled && newStatus == LeadStatus.COMPLETED) {
+        commissionService.createForCompletedLead(lead, provider, amountCharged);
+      }
     }
     return lead;
   }
