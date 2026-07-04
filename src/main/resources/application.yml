@@ -57,3 +57,8 @@ fixy:
   agent:
     enabled: ${FIXY_AGENT_ENABLED:true}
     provider: ${FIXY_AGENT_PROVIDER:openai}
+  payments:
+    enabled: ${FIXY_PAYMENTS_ENABLED:false}
+    commission-percent: ${FIXY_COMMISSION_PERCENT:10}
+    mp-access-token: ${MP_ACCESS_TOKEN:}
+    mp-webhook-secret: ${MP_WEBHOOK_SECRET:}
