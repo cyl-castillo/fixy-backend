@@ -112,22 +112,23 @@ public class MercadoPagoWebhookController {
 
     LeadPayment leadPayment = leadPaymentOpt.get();
 
-    // Idempotente: ya está PAID, no hacemos nada más (ni reemitimos evento).
-    if (leadPayment.getCommissionStatus() == CommissionStatus.PAID) {
-      log.info("mercadopago webhook: LeadPayment {} ya estaba PAID, notificación repetida ignorada", leadPaymentId);
-      return;
-    }
-
     if (!"approved".equals(payment.status())) {
       log.info("mercadopago webhook: paymentId={} status={} (no approved todavia) para LeadPayment {}",
           paymentId, payment.status(), leadPaymentId);
       return;
     }
 
-    leadPayment.setMpPaymentId(paymentId);
-    leadPayment.setCommissionStatus(CommissionStatus.PAID);
-    leadPayment.setPaidAt(OffsetDateTime.now());
-    leadPaymentRepository.save(leadPayment);
+    // Transición atómica en la base: MP puede mandar la misma notificación
+    // dos veces casi simultáneas y un check-then-act en memoria deja pasar a
+    // ambas (evento COMMISSION_PAID duplicado — visto en sandbox). Solo la
+    // invocación que efectivamente transiciona la fila (1 fila afectada)
+    // emite el evento.
+    int transitioned = leadPaymentRepository.markPaidIfNotAlready(
+        leadPaymentId, paymentId, OffsetDateTime.now(), CommissionStatus.PAID);
+    if (transitioned == 0) {
+      log.info("mercadopago webhook: LeadPayment {} ya estaba PAID, notificación repetida ignorada", leadPaymentId);
+      return;
+    }
 
     Lead lead = leadRepository.findById(leadPayment.getLeadId()).orElse(null);
     if (lead != null) {

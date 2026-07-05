@@ -2,9 +2,14 @@ package com.fixy.backend.repository;
 
 import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.LeadPayment;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 public interface LeadPaymentRepository extends JpaRepository<LeadPayment, Long> {
   List<LeadPayment> findByCommissionStatusOrderByCreatedAtDesc(CommissionStatus commissionStatus);
@@ -14,4 +19,22 @@ public interface LeadPaymentRepository extends JpaRepository<LeadPayment, Long> 
   Optional<LeadPayment> findByLeadId(Long leadId);
 
   List<LeadPayment> findByProviderIdOrderByCreatedAtDesc(Long providerId);
+
+  /**
+   * Transición atómica a PAID: solo escribe si el registro NO estaba ya PAID
+   * y devuelve cuántas filas tocó (1 = esta invocación ganó la transición,
+   * 0 = ya estaba pagado). Mercado Pago puede mandar la misma notificación
+   * dos veces casi simultáneas (visto en sandbox: 17 ms de diferencia) y un
+   * check-then-act en memoria deja pasar a ambas.
+   */
+  @Modifying(clearAutomatically = true)
+  @Transactional
+  @Query("update LeadPayment p set p.commissionStatus = :paid, p.paidAt = :paidAt, p.mpPaymentId = :mpPaymentId "
+      + "where p.id = :id and p.commissionStatus <> :paid")
+  int markPaidIfNotAlready(
+      @Param("id") Long id,
+      @Param("mpPaymentId") String mpPaymentId,
+      @Param("paidAt") OffsetDateTime paidAt,
+      @Param("paid") CommissionStatus paid
+  );
 }
