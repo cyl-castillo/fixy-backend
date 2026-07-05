@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -32,26 +33,59 @@ public class AgentService {
 
   private final ObjectMapper objectMapper;
   private final WebClient webClient;
+  private final WebClient cloudflareClient;
   private final String openAiApiKey;
   private final String openAiModel;
+  private final String provider;
+  private final String cloudflareAccountId;
+  private final String cloudflareApiToken;
+  private final String cloudflareModel;
 
+  /**
+   * Constructor legacy (3 args), usado por tests existentes que no necesitan multi-proveedor
+   * (siempre cayeron a heurística con apiKey=""). Mantiene compatibilidad binaria: equivale a
+   * provider="openai" sin credenciales de Cloudflare.
+   */
+  public AgentService(ObjectMapper objectMapper, String openAiApiKey, String openAiModel) {
+    this(objectMapper, openAiApiKey, openAiModel, "openai", "", "", "");
+  }
+
+  @Autowired
   public AgentService(
       ObjectMapper objectMapper,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
-      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel
+      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
+      @Value("${fixy.agent.provider:openai}") String provider,
+      @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
+      @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel
   ) {
     this.objectMapper = objectMapper;
     this.openAiApiKey = openAiApiKey;
     this.openAiModel = openAiModel;
+    this.provider = provider == null ? "openai" : provider.toLowerCase(Locale.ROOT).trim();
+    this.cloudflareAccountId = cloudflareAccountId;
+    this.cloudflareApiToken = cloudflareApiToken;
+    this.cloudflareModel = cloudflareModel;
     this.webClient = WebClient.builder()
         .baseUrl("https://api.openai.com/v1")
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+    this.cloudflareClient = WebClient.builder()
+        .baseUrl("https://api.cloudflare.com/client/v4")
+        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
         .build();
   }
 
   public IntakeResponse classify(IntakeRequest request) {
     IntakeResponse response = null;
-    if (!openAiApiKey.isBlank()) {
+    if ("workersai".equals(provider) && hasCloudflareCredentials()) {
+      response = classifyWithWorkersAi(request);
+      if (response == null) {
+        log.warn("workersai classify call failed or returned null, degrading to heuristic");
+      }
+    } else if (!openAiApiKey.isBlank()) {
       response = classifyWithOpenAi(request);
     }
 
@@ -60,6 +94,11 @@ public class AgentService {
     }
 
     return applyStructuredFields(request, response);
+  }
+
+  private boolean hasCloudflareCredentials() {
+    return cloudflareAccountId != null && !cloudflareAccountId.isBlank()
+        && cloudflareApiToken != null && !cloudflareApiToken.isBlank();
   }
 
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
@@ -117,6 +156,119 @@ public class AgentService {
       log.warn("openai classify call failed, degrading to heuristic: {}", ex.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Clasifica el intake vía Cloudflare Workers AI, pidiendo JSON estructurado con
+   * response_format json_schema (mismo contrato ya validado en producción por
+   * LeadAgentService.callWorkersAiJson). El schema espeja las mismas 7 claves que
+   * produce el prompt intake-classifier.md para OpenAI, así el resto del pipeline
+   * (applyStructuredFields, etc.) no distingue de dónde vino la respuesta.
+   */
+  private IntakeResponse classifyWithWorkersAi(IntakeRequest request) {
+    String prompt = INTAKE_PROMPT_TEMPLATE.formatted(
+        safe(request.contactName()),
+        safe(request.phone()),
+        safe(request.channel()),
+        safe(request.serviceCategory()),
+        safe(request.zone()),
+        safe(request.urgency()),
+        safe(request.address()),
+        safe(request.details()),
+        request.message()
+    );
+
+    try {
+      Map<String, Object> payload = Map.of(
+          "messages", List.of(Map.of("role", "user", "content", prompt)),
+          "max_tokens", 400,
+          "temperature", 0.3,
+          "response_format", Map.of("type", "json_schema", "json_schema", intakeJsonSchema())
+      );
+      String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
+      String raw = cloudflareClient.post()
+          .uri(uri)
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(30))
+          .block();
+
+      JsonNode result = parseWorkersAiResult(objectMapper, raw);
+      if (result == null) {
+        return null;
+      }
+
+      return new IntakeResponse(
+          result.path("leadType").asText("cliente"),
+          result.path("serviceCategory").asText("otro"),
+          result.path("area").asText(detectArea(request.message())),
+          result.path("urgency").asText("media"),
+          result.path("summary").asText(buildSummary(request, detectService(request.message()))),
+          readMissingFields(result.path("missingFields")),
+          result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
+          "workersai"
+      );
+    } catch (Exception ex) {
+      log.warn("workersai classify call failed, degrading to heuristic: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  /**
+   * Parsea el body crudo de la respuesta de Cloudflare Workers AI y devuelve el JsonNode con
+   * las 7 claves del contrato de intake, o null si la llamada fue no-exitosa / vacía / con
+   * forma inesperada. Extraído como estático (sin red) para poder testear el parseo de
+   * "response" como string (el caso normal con response_format json_schema) y como objeto
+   * (algunos modelos devuelven el JSON ya parseado) sin necesitar mockear WebClient.
+   */
+  static JsonNode parseWorkersAiResult(ObjectMapper mapper, String raw) throws Exception {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    JsonNode root = mapper.readTree(raw);
+    if (!root.path("success").asBoolean(false)) {
+      return null;
+    }
+    JsonNode response = root.path("result").path("response");
+    if (response.isTextual()) {
+      String text = response.asText();
+      if (text.isBlank()) {
+        return null;
+      }
+      return mapper.readTree(text);
+    }
+    if (response.isObject()) {
+      return response;
+    }
+    return null;
+  }
+
+  /**
+   * json_schema del contrato de salida del clasificador de intake, exigido por Cloudflare
+   * Workers AI vía response_format. Mismas 7 claves que devuelve el prompt intake-classifier.md.
+   */
+  static Map<String, Object> intakeJsonSchema() {
+    List<String> leadTypeEnum = List.of("cliente", "proveedor");
+    List<String> serviceCategoryEnum = List.of(
+        "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
+        "aires_acondicionados", "reparaciones", "otro"
+    );
+    List<String> urgencyEnum = List.of("alta", "media", "baja");
+    return Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "leadType", Map.of("type", "string", "enum", leadTypeEnum),
+            "serviceCategory", Map.of("type", "string", "enum", serviceCategoryEnum),
+            "area", Map.of("type", "string"),
+            "urgency", Map.of("type", "string", "enum", urgencyEnum),
+            "summary", Map.of("type", "string"),
+            "missingFields", Map.of("type", "array", "items", Map.of("type", "string")),
+            "suggestedReply", Map.of("type", "string")
+        ),
+        "required", List.of("leadType", "serviceCategory", "area", "urgency", "summary", "missingFields", "suggestedReply")
+    );
   }
 
   /**
