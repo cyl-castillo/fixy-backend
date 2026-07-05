@@ -1,0 +1,46 @@
+name: Uptime
+
+# Monitoreo externo de Fixy prod. Corre fuera del server a propósito:
+# cuando la instancia se congela (OOM 2026-07-04), cualquier monitor
+# interno muere con ella. Alerta a Telegram solo en fallo.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: API health
+        id: api
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.fixy.com.uy/api/health || echo "000")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = "200" ]
+        continue-on-error: true
+      - name: Frontend
+        id: web
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://www.fixy.com.uy/ || echo "000")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          [ "$code" = "200" ]
+        continue-on-error: true
+      - name: Alerta Telegram
+        if: steps.api.outcome == 'failure' || steps.web.outcome == 'failure'
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TOKEN" ] || [ -z "$CHAT" ]; then
+            echo "Secrets de Telegram sin configurar — no puedo alertar" >&2
+            exit 1
+          fi
+          msg="🔴 Fixy prod DOWN — api: ${{ steps.api.outputs.code }}, web: ${{ steps.web.outputs.code }} ($(date -u +%H:%M) UTC)"
+          curl -s --max-time 20 "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            -d chat_id="$CHAT" --data-urlencode text="$msg" > /dev/null
+          exit 1
+      - name: Estado final
+        if: steps.api.outcome == 'failure' || steps.web.outcome == 'failure'
+        run: exit 1
