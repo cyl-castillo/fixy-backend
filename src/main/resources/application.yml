@@ -62,3 +62,4 @@ fixy:
     commission-percent: ${FIXY_COMMISSION_PERCENT:10}
     mp-access-token: ${MP_ACCESS_TOKEN:}
     mp-webhook-secret: ${MP_WEBHOOK_SECRET:}
+    webhook-base-url: ${FIXY_WEBHOOK_BASE_URL:}
