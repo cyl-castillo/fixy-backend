@@ -289,6 +289,7 @@ function renderLeadCard(lead) {
           <span class="badge">${escapeHtml(lead.detectedCategory || "sin categoría")}</span>
           <span class="badge ${urgencyClass}">${escapeHtml(lead.urgency || "sin urgencia")}</span>
           <span class="badge status">${escapeHtml(lead.status)}</span>
+          ${lead.disputed ? '<span class="badge disputed">EN DISPUTA</span>' : ""}
         </div>
       </div>
       <div class="lead-meta">

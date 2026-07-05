@@ -39,6 +39,7 @@ public class ProviderSelfService {
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
+  private final LeadClosingService leadClosingService;
   private final boolean paymentsEnabled;
 
   public ProviderSelfService(
@@ -46,12 +47,14 @@ public class ProviderSelfService {
       LeadRepository leadRepository,
       LeadTimelineService timelineService,
       CommissionService commissionService,
+      LeadClosingService leadClosingService,
       @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
   ) {
     this.providerRepository = providerRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
+    this.leadClosingService = leadClosingService;
     this.paymentsEnabled = paymentsEnabled;
   }
 
@@ -135,6 +138,12 @@ public class ProviderSelfService {
       providerRepository.save(provider);
       if (paymentsEnabled && newStatus == LeadStatus.COMPLETED) {
         commissionService.createForCompletedLead(lead, provider, amountCharged);
+      }
+      if (newStatus == LeadStatus.COMPLETED) {
+        // Un solo mensaje: si payments está ON, createForCompletedLead ya
+        // mandó el aviso de comisión al proveedor (canal distinto, no
+        // pisa este). Este es al cliente, pidiendo confirmación/rating.
+        leadClosingService.notifyCustomerOfCompletion(lead);
       }
     }
     return lead;
