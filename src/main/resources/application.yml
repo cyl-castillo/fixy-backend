@@ -63,3 +63,7 @@ fixy:
     mp-access-token: ${MP_ACCESS_TOKEN:}
     mp-webhook-secret: ${MP_WEBHOOK_SECRET:}
     webhook-base-url: ${FIXY_WEBHOOK_BASE_URL:}
+  closing:
+    enabled: ${FIXY_CLOSING_ENABLED:true}
+    auto-confirm-hours: ${FIXY_CLOSING_AUTO_CONFIRM_HOURS:72}
+    scheduler-fixed-delay-ms: ${FIXY_CLOSING_SCHEDULER_FIXED_DELAY_MS:3600000}

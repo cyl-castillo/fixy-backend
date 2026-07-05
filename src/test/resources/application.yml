@@ -36,3 +36,7 @@ fixy:
     commission-percent: 10
     mp-access-token: ""
     mp-webhook-secret: ""
+  closing:
+    enabled: false
+    auto-confirm-hours: 72
+    scheduler-fixed-delay-ms: 3600000
