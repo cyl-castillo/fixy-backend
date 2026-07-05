@@ -13,6 +13,7 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
@@ -49,6 +50,9 @@ class MercadoPagoWebhookControllerTest {
 
   @Autowired
   private LeadPaymentRepository leadPaymentRepository;
+
+  @Autowired
+  private LeadEventRepository leadEventRepository;
 
   @MockitoBean
   private MercadoPagoService mercadoPagoService;
@@ -112,6 +116,49 @@ class MercadoPagoWebhookControllerTest {
     // siempre re-verifica), pero el efecto de negocio (marcar PAID) solo
     // ocurrió una vez, ya verificado arriba por paidAt sin cambios.
     verify(mercadoPagoService, times(2)).fetchPayment(anyString());
+  }
+
+  @Test
+  void shouldEmitCommissionPaidEventExactlyOnceAcrossRetries() throws Exception {
+    LeadPayment payment = createPendingLeadPayment();
+    String paymentId = "mp-payment-789";
+
+    when(mercadoPagoService.fetchPayment(anyString()))
+        .thenReturn(Optional.of(new MercadoPagoService.PaymentStatusResult(
+            paymentId, "approved", String.valueOf(payment.getId()))));
+
+    mockMvc.perform(post("/api/webhooks/mercadopago")
+            .param("type", "payment")
+            .param("data.id", paymentId))
+        .andExpect(status().isOk());
+    mockMvc.perform(post("/api/webhooks/mercadopago")
+            .param("type", "payment")
+            .param("data.id", paymentId))
+        .andExpect(status().isOk());
+
+    long commissionPaidEvents = leadEventRepository
+        .findByLeadIdOrderByCreatedAtAsc(payment.getLeadId()).stream()
+        .filter(event -> "COMMISSION_PAID".equals(event.getType()))
+        .count();
+    assertThat(commissionPaidEvents).isEqualTo(1);
+  }
+
+  @Test
+  void markPaidIfNotAlreadyTransitionsExactlyOnce() {
+    // Guardia real contra el webhook duplicado casi simultáneo de MP (visto
+    // en sandbox con 17 ms de diferencia): la transición es un UPDATE
+    // condicional en la base — solo una invocación puede afectar la fila.
+    LeadPayment payment = createPendingLeadPayment();
+    java.time.OffsetDateTime now = java.time.OffsetDateTime.now();
+
+    assertThat(leadPaymentRepository.markPaidIfNotAlready(
+        payment.getId(), "mp-race-1", now, CommissionStatus.PAID)).isEqualTo(1);
+    assertThat(leadPaymentRepository.markPaidIfNotAlready(
+        payment.getId(), "mp-race-2", now.plusSeconds(1), CommissionStatus.PAID)).isEqualTo(0);
+
+    LeadPayment reloaded = leadPaymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(reloaded.getCommissionStatus()).isEqualTo(CommissionStatus.PAID);
+    assertThat(reloaded.getMpPaymentId()).isEqualTo("mp-race-1");
   }
 
   @Test
