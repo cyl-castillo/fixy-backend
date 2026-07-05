@@ -1,0 +1,32 @@
+{"id": "c01", "message": "Se me rompio la canilla de la cocina y pierde agua sin parar, estoy en Solymar", "expectedCategory": "plomeria", "expectedArea": "Solymar", "expectedUrgency": "alta"}
+{"id": "c02", "message": "tengo el aire acondicionado que no enfria en lagomar", "expectedCategory": "aires_acondicionados", "expectedArea": "Lagomar", "expectedUrgency": "baja"}
+{"id": "c03", "message": "se corto la luz de toda la casa urgente, vivo en el pinar", "expectedCategory": "electricidad", "expectedArea": "El Pinar", "expectedUrgency": "alta"}
+{"id": "c04", "message": "necesito que me corten el pasto y poden los arboles, shangrila", "expectedCategory": "jardineria", "expectedArea": "Shangrilá", "expectedUrgency": "baja"}
+{"id": "c05", "message": "tengo que vaciar el pozo negro, estamos en barra de carrasco", "expectedCategory": "barometrica", "expectedArea": "Barra de Carrasco", "expectedUrgency": "baja"}
+{"id": "c06", "message": "me quede afuera de mi casa, perdi las llaves, parque miramar, es urgente", "expectedCategory": "cerrajeria", "expectedArea": "Parque Miramar", "expectedUrgency": "alta"}
+{"id": "c07", "message": "se rompio la ducha, pierde agua, solimar", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c08", "message": "hay una perdida de agua en el bano, aeroparque, dale que se inunda todo", "expectedCategory": "plomeria", "expectedArea": "Aeroparque", "expectedUrgency": "alta"}
+{"id": "c09", "message": "el aire no enfria nada, hace calor", "expectedCategory": "aires_acondicionados", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c10", "message": "necesito ayuda con algo en mi casa, san jose de carrasco", "expectedCategory": "otro", "expectedArea": "San José de Carrasco", "expectedUrgency": "baja"}
+{"id": "c11", "message": "se rompio un caño y pierde agua, vivo en pando", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c12", "message": "necesito instalar un split nuevo, colinas de solymar, no es urgente", "expectedCategory": "aires_acondicionados", "expectedArea": "Colinas de Solymar", "expectedUrgency": "baja"}
+{"id": "c13", "message": "se destapo mal el bano y pierde agua, lomas de solymar, ya no aguanto mas", "expectedCategory": "plomeria", "expectedArea": "Lomas de Solymar", "expectedUrgency": "baja"}
+{"id": "c14", "message": "salto el tablero y no tenemos luz, es una emergencia, ciudad de la costa", "expectedCategory": "electricidad", "expectedArea": "Ciudad de la Costa", "expectedUrgency": "baja"}
+{"id": "c15", "message": "necesito mantenimiento del jardin, cortar cesped, en canelones", "expectedCategory": "jardineria", "expectedArea": "Ciudad de la Costa", "expectedUrgency": "baja"}
+{"id": "c16", "message": "hola queria consultar por un servicio barometrico para mi casa en solymar", "expectedCategory": "barometrica", "expectedArea": "Solymar", "expectedUrgency": "baja"}
+{"id": "c17", "message": "se me trabo la cerradura de la puerta principal, lagomar, no puedo entrar ahora", "expectedCategory": "cerrajeria", "expectedArea": "Lagomar", "expectedUrgency": "alta"}
+{"id": "c18", "message": "quiero arreglar una persiana rota, el pinar", "expectedCategory": "reparaciones", "expectedArea": "El Pinar", "expectedUrgency": "baja"}
+{"id": "c19", "message": "tengo un problema pero no se bien que hacer, me pueden ayudar", "expectedCategory": "otro", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c20", "message": "hola soy plomero y quiero sumarme como proveedor de fixy", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c21", "message": "necesito el aire acondicionado con recarga de gas, shangrilá, hoy si es posible", "expectedCategory": "aires_acondicionados", "expectedArea": "Shangrilá", "expectedUrgency": "media"}
+{"id": "c22", "message": "tengo un corto circuito y salen chispas del tomacorriente, barra de carrasco, urgente ya", "expectedCategory": "electricidad", "expectedArea": "Barra de Carrasco", "expectedUrgency": "alta"}
+{"id": "c23", "message": "necesito poda de arboles grandes, aeroparque", "expectedCategory": "jardineria", "expectedArea": "Aeroparque", "expectedUrgency": "baja"}
+{"id": "c24", "message": "se me perdio la llave del auto no de casa, colinas de solymar", "expectedCategory": "cerrajeria", "expectedArea": "Colinas de Solymar", "expectedUrgency": "baja"}
+{"id": "c25", "message": "la camara septica esta desbordada, san jose de carrasco, es urgente", "expectedCategory": "barometrica", "expectedArea": "San José de Carrasco", "expectedUrgency": "alta"}
+{"id": "c26", "message": "necesito ayuda con un mueble que se rompio, lomas de solymar", "expectedCategory": "reparaciones", "expectedArea": "Lomas de Solymar", "expectedUrgency": "baja"}
+{"id": "c27", "message": "tngo perdida de agua en la ducha, urgente, solymar", "expectedCategory": "plomeria", "expectedArea": "Solymar", "expectedUrgency": "alta"}
+{"id": "c28", "message": "el jardin esta un desastre necesito mantenimiento exterior, lagomar", "expectedCategory": "jardineria", "expectedArea": "Lagomar", "expectedUrgency": "baja"}
+{"id": "c29", "message": "quiero cambiar la cerradura vieja de mi casa por seguridad, el pinar", "expectedCategory": "cerrajeria", "expectedArea": "El Pinar", "expectedUrgency": "baja"}
+{"id": "c30", "message": "necesito un electricista para revisar el tablero, no es nada urgente, shangrila", "expectedCategory": "electricidad", "expectedArea": "Shangrilá", "expectedUrgency": "baja"}
+{"id": "c31", "message": "hola buenas, necesito un servicio para mi casa en montevideo", "expectedCategory": "otro", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c32", "message": "el aire split no calienta, hace mucho frio, cuanto antes por favor, aeroparque", "expectedCategory": "aires_acondicionados", "expectedArea": "Aeroparque", "expectedUrgency": "media"}
