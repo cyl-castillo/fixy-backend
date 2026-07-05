@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -17,6 +19,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 public class AgentService {
+
+  private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
   private static final List<String> CIUDAD_DE_LA_COSTA_ZONES = List.of(
       "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
@@ -32,7 +36,7 @@ public class AgentService {
   public AgentService(
       ObjectMapper objectMapper,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
-      @Value("${fixy.openai.model:gpt-4.1-mini}") String openAiModel
+      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel
   ) {
     this.objectMapper = objectMapper;
     this.openAiApiKey = openAiApiKey;
@@ -91,10 +95,7 @@ public class AgentService {
     );
 
     try {
-      Map<String, Object> payload = Map.of(
-          "model", openAiModel,
-          "input", prompt
-      );
+      Map<String, Object> payload = buildResponsesPayload(openAiModel, prompt);
 
       String raw = webClient.post()
           .uri("/responses")
@@ -128,9 +129,34 @@ public class AgentService {
           result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
           "openai"
       );
-    } catch (Exception ignored) {
+    } catch (Exception ex) {
+      // Si esto falla en silencio, el sistema degrada al heurístico sin dejar rastro.
+      // WARN visible es la única señal de que OpenAI está rechazando la llamada (ej. 400 por
+      // parámetro no soportado en un modelo nuevo).
+      log.warn("openai classify call failed, degrading to heuristic: {}", ex.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Construye el body de /responses. Los modelos gpt-5 son reasoning models: por default
+   * usan "reasoning effort" medio, lo que agrega latencia de razonamiento invisible antes de
+   * responder. Para un intake conversacional de baja latencia fijamos "low" explícitamente.
+   * gpt-4.1 y anteriores ignoran/no tienen este campo si se omite, así que solo se agrega
+   * cuando el modelo es de la familia gpt-5.
+   */
+  static Map<String, Object> buildResponsesPayload(String model, String prompt) {
+    if (model != null && model.toLowerCase(Locale.ROOT).startsWith("gpt-5")) {
+      return Map.of(
+          "model", model,
+          "input", prompt,
+          "reasoning", Map.of("effort", "low")
+      );
+    }
+    return Map.of(
+        "model", model,
+        "input", prompt
+    );
   }
 
   private String extractText(JsonNode root, JsonNode firstOutput) {

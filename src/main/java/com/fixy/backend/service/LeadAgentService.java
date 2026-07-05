@@ -91,7 +91,7 @@ public class LeadAgentService {
       com.fixy.backend.repository.ProviderRepository providerRepository,
       LeadTimelineService leadTimelineService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
-      @Value("${fixy.openai.model:gpt-4.1-mini}") String openAiModel,
+      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
       @Value("${fixy.agent.provider:openai}") String provider,
       @Value("${fixy.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
@@ -561,10 +561,7 @@ public class LeadAgentService {
       return null;
     }
     try {
-      Map<String, Object> payload = Map.of(
-          "model", openAiModel,
-          "input", prompt
-      );
+      Map<String, Object> payload = AgentService.buildResponsesPayload(openAiModel, prompt);
       String raw = openAiClient.post()
           .uri("/responses")
           .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
