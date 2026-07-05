@@ -29,6 +29,16 @@ public class AgentService {
       "lomas de solymar", "colinas de solymar", "aeroparque", "ciudad de la costa"
   );
 
+  /**
+   * Valores canónicos de "area" (display) + "sin definir", usados como enum estricto en el
+   * json_schema de Cloudflare Workers AI para que el modelo no devuelva texto libre.
+   */
+  private static final List<String> CANONICAL_AREAS = List.of(
+      "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar",
+      "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Aeroparque",
+      "Ciudad de la Costa", "sin definir"
+  );
+
   private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.load("prompts/intake-classifier.md");
 
   private final ObjectMapper objectMapper;
@@ -186,6 +196,9 @@ public class AgentService {
           "response_format", Map.of("type", "json_schema", "json_schema", intakeJsonSchema())
       );
       String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
+      // 1 solo retry ante timeout/error transitorio (latencia de CF es variable). Si vuelve a
+      // fallar, el catch de abajo degrada a heurística — no vale la pena reintentar más veces
+      // para un intake conversacional de baja latencia.
       String raw = cloudflareClient.post()
           .uri(uri)
           .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
@@ -193,6 +206,7 @@ public class AgentService {
           .retrieve()
           .bodyToMono(String.class)
           .timeout(Duration.ofSeconds(30))
+          .retry(1)
           .block();
 
       JsonNode result = parseWorkersAiResult(objectMapper, raw);
@@ -203,7 +217,7 @@ public class AgentService {
       return new IntakeResponse(
           result.path("leadType").asText("cliente"),
           result.path("serviceCategory").asText("otro"),
-          result.path("area").asText(detectArea(request.message())),
+          normalizeAreaValue(result.path("area").asText(detectArea(request.message()))),
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),
           readMissingFields(result.path("missingFields")),
@@ -261,7 +275,7 @@ public class AgentService {
         "properties", Map.of(
             "leadType", Map.of("type", "string", "enum", leadTypeEnum),
             "serviceCategory", Map.of("type", "string", "enum", serviceCategoryEnum),
-            "area", Map.of("type", "string"),
+            "area", Map.of("type", "string", "enum", CANONICAL_AREAS),
             "urgency", Map.of("type", "string", "enum", urgencyEnum),
             "summary", Map.of("type", "string"),
             "missingFields", Map.of("type", "array", "items", Map.of("type", "string")),
@@ -269,6 +283,38 @@ public class AgentService {
         ),
         "required", List.of("leadType", "serviceCategory", "area", "urgency", "summary", "missingFields", "suggestedReply")
     );
+  }
+
+  /**
+   * Normaliza el valor de área devuelto por el LLM contra el catálogo canónico
+   * (case/tildes-insensitive), para el caso en que el modelo devuelva una variante fuera del
+   * enum del schema (ej. "san jose de carrasco" sin tilde, "SOLYMAR" en mayúsculas) pese a la
+   * instrucción del prompt. Defensa en profundidad: el schema + prompt ya restringen esto, pero
+   * un LLM puede igual desviarse. Si no matchea ningún valor canónico, cae a "sin definir" en vez
+   * de propagar texto libre no reconocido.
+   */
+  static String normalizeAreaValue(String rawArea) {
+    if (rawArea == null || rawArea.isBlank()) {
+      return "sin definir";
+    }
+    String normalized = stripAccents(rawArea.toLowerCase(Locale.ROOT).trim());
+    if ("sin definir".equals(normalized)) {
+      return "sin definir";
+    }
+    for (String zone : CIUDAD_DE_LA_COSTA_ZONES) {
+      if (stripAccents(zone).equals(normalized)) {
+        return toDisplayArea(zone);
+      }
+    }
+    if ("canelones".equals(normalized)) {
+      return "Ciudad de la Costa";
+    }
+    return "sin definir";
+  }
+
+  private static String stripAccents(String value) {
+    return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "");
   }
 
   /**
@@ -515,7 +561,7 @@ public class AgentService {
     return false;
   }
 
-  private String toDisplayArea(String zone) {
+  private static String toDisplayArea(String zone) {
     return switch (zone) {
       case "solymar" -> "Solymar";
       case "lagomar" -> "Lagomar";

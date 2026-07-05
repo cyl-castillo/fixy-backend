@@ -45,6 +45,40 @@ class AgentServiceWorkersAiPayloadTest {
     assertTrue(categoryEnum.containsAll(List.of("plomeria", "electricidad", "cerrajeria", "barometrica",
         "jardineria", "aires_acondicionados", "reparaciones", "otro")),
         "el enum debe cubrir las categorías reales del dominio (golden set), no solo las 5 del prompt md");
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> area = (Map<String, Object>) properties.get("area");
+    @SuppressWarnings("unchecked")
+    List<String> areaEnum = (List<String>) area.get("enum");
+    assertTrue(areaEnum.containsAll(List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá",
+        "Barra de Carrasco", "Parque Miramar", "San José de Carrasco", "Lomas de Solymar",
+        "Colinas de Solymar", "Aeroparque", "Ciudad de la Costa", "sin definir")),
+        "el enum de area debe restringir a los valores canónicos exactos del catálogo, para que "
+            + "el modelo no devuelva texto libre (zona sin acentar, generalizada, u otra ciudad)");
+  }
+
+  @Test
+  void normalizeAreaValueMatchesCanonicalCatalogCaseAndAccentInsensitive() {
+    assertEquals("Solymar", AgentService.normalizeAreaValue("solymar"));
+    assertEquals("Solymar", AgentService.normalizeAreaValue("SOLYMAR"));
+    assertEquals("Lomas de Solymar", AgentService.normalizeAreaValue("lomas de solymar"));
+    assertEquals("San José de Carrasco", AgentService.normalizeAreaValue("san jose de carrasco"));
+    assertEquals("Shangrilá", AgentService.normalizeAreaValue("shangrila"));
+  }
+
+  @Test
+  void normalizeAreaValueFallsBackToSinDefinirForUnknownOrOutOfCoverageZones() {
+    assertEquals("sin definir", AgentService.normalizeAreaValue(null));
+    assertEquals("sin definir", AgentService.normalizeAreaValue(""));
+    assertEquals("sin definir", AgentService.normalizeAreaValue("pando"));
+    assertEquals("sin definir", AgentService.normalizeAreaValue("montevideo"));
+    assertEquals("sin definir", AgentService.normalizeAreaValue("sin definir"));
+  }
+
+  @Test
+  void normalizeAreaValueGeneralizesOnlyExplicitCiudadDeLaCostaOrCanelones() {
+    assertEquals("Ciudad de la Costa", AgentService.normalizeAreaValue("ciudad de la costa"));
+    assertEquals("Ciudad de la Costa", AgentService.normalizeAreaValue("canelones"));
   }
 
   @Test

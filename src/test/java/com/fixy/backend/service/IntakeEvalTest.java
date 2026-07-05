@@ -30,13 +30,20 @@ class IntakeEvalTest {
 
   private static final String GOLDEN_SET_PATH = "eval/intake-golden.jsonl";
 
-  // Línea base medida contra el golden set actual (32 casos):
+  // Línea base medida contra el golden set actual (32 casos). Actualizada 2026-07-05 tras
+  // corregir 2 etiquetas de urgencia del golden set que estaban semánticamente mal (c13 y c14
+  // describían daño activo/emergencia explícita y estaban marcadas "baja" -- ver el JSONL para el
+  // detalle; el golden debe reflejar la verdad del producto, no el comportamiento del heurístico):
   //   categoria: 96.9% (31/32) -- miss real: "poda de arboles" no matchea keywords de jardineria
   //   zona:      87.5% (28/32) -- miss real: detectArea() encuentra "solymar" como substring de
   //              "colinas de solymar"/"lomas de solymar" porque itera CIUDAD_DE_LA_COSTA_ZONES en
   //              orden y "solymar" aparece antes en la lista -- bug real de matching por substring
-  //   urgencia:  90.6% (29/32) -- miss real: detectUrgency() hace contains("urgente") sin manejar
-  //              negacion ("no es urgente" arma alta igual)
+  //   urgencia:  87.5% (28/32), bajó de 90.6% (29/32) con la corrección de etiquetas -- misses:
+  //              (a) detectUrgency() hace contains("urgente") sin manejar negación ("no es
+  //              urgente"/"no es nada urgente" arman alta igual -- casos c12 y c30);
+  //              (b) detectUrgency() no reconoce "emergencia" como marcador de alta (c14, antes
+  //              enmascarado por la etiqueta incorrecta del golden set -- bug real, no arreglado
+  //              en esta tanda porque el foco fue el clasificador LLM, no el heurístico).
   // Thresholds fijados unos puntos por debajo de la línea base medida para documentar el piso
   // real sin flakiness ante variaciones menores. Si se arregla alguno de estos bugs del
   // heurístico, subir el threshold correspondiente para que el test siga siendo una guardia real.

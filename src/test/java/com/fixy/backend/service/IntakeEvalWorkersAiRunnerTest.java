@@ -28,6 +28,25 @@ import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
  * NO usar @cf/openai/gpt-oss-* -- no cumple el contrato response_format json_schema (response
  * queda null).
  *
+ * Corrida real contra CF (2026-07-05, este mismo modelo) dio 78.1% categoría / 53.1% zona /
+ * 37.5% urgencia vs heurístico 96.9/87.5/90.6 -- análisis caso por caso mostró que eran
+ * artefactos corregibles, no incapacidad del modelo:
+ *   - categoría: el prompt sólo documentaba 5 de las 8 categorías del schema/golden set
+ *     (cerrajería/reparaciones/barométrica caían a "otro"/"plomeria") -> prompt actualizado con
+ *     las 8 categorías + ejemplos por categoría, espejo exacto del schema.
+ *   - zona: el modelo devolvía texto libre (sin tildes/mayúsculas, generalizado a "Ciudad de la
+ *     Costa", u otras ciudades) -> se restringió "area" a enum canónico en el schema, se
+ *     endureció la instrucción del prompt (zona específica != generalizar, "sin definir" si no
+ *     está en la lista), y se agregó AgentService.normalizeAreaValue() como defensa en
+ *     profundidad (case/tildes-insensitive contra el catálogo) por si el modelo igual se desvía.
+ *   - urgencia: el prompt no tenía rúbrica -> se agregó rúbrica explícita con ejemplos (alta =
+ *     daño activo o urgencia explícita; media = "hoy"/"cuanto antes" sin daño activo; baja =
+ *     default o negación explícita). Además se corrigieron 2 etiquetas del golden set que eran
+ *     semánticamente incorrectas (c13 y c14 describían daño activo/emergencia explícita y
+ *     estaban marcadas "baja" -- ver intake-golden.jsonl y el comentario de línea base en
+ *     IntakeEvalTest). Falta re-medir contra CF real con estos fixes (pendiente, requiere
+ *     credenciales que esta máquina no tiene).
+ *
  * El test compara accuracy del LLM real contra la línea base heurística ya medida en
  * IntakeEvalTest e imprime ambos reportes lado a lado. Igual que el runner de OpenAI, el único
  * assert es "no debería ser peor que el heurístico" (smoke check de regresión grosera); el resto
