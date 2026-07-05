@@ -25,6 +25,7 @@ public record LeadResponse(
     String agentSource,
     String accessToken,
     OffsetDateTime createdAt,
-    OffsetDateTime updatedAt
+    OffsetDateTime updatedAt,
+    boolean disputed
 ) {
 }

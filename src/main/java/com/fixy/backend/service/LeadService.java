@@ -564,7 +564,8 @@ public class LeadService {
         agentSource,
         lead.getAccessToken(),
         lead.getCreatedAt(),
-        lead.getUpdatedAt()
+        lead.getUpdatedAt(),
+        lead.isDisputed()
     );
   }
 

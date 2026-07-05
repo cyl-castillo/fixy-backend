@@ -81,6 +81,7 @@ textarea { resize: vertical; }
 .badge { display: inline-flex; padding: 0.35rem 0.65rem; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.8rem; font-weight: 800; }
 .badge.status { background: #ecfdf3; color: #047857; }
 .badge.urgent { background: #fff7ed; color: var(--warning); }
+.badge.disputed { background: #fef2f2; color: var(--danger); }
 .lead-problem { margin-bottom: 0.9rem; line-height: 1.5; }
 
 .provider-actions {
