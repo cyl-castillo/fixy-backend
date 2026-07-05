@@ -69,6 +69,17 @@ public class Lead {
   @Column(nullable = false)
   private OffsetDateTime updatedAt;
 
+  /** H2.6: el cliente reportó que el trabajo no se hizo o hubo un problema
+   * al confirmar completado. No reemplaza {@link #status} (sigue
+   * COMPLETED) — es una señal ortogonal para la cola manual de ops. */
+  @Column(nullable = false)
+  private boolean disputed;
+
+  /** H2.4: momento en que el scheduler de auto-confirmación (72h sin
+   * respuesta del cliente) emitió el evento. Null = todavía no corrió.
+   * Se usa para idempotencia: si ya tiene valor, no se re-procesa. */
+  private OffsetDateTime closingAutoConfirmedAt;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -120,4 +131,8 @@ public class Lead {
   public void setAccessToken(String accessToken) { this.accessToken = accessToken; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
+  public boolean isDisputed() { return disputed; }
+  public void setDisputed(boolean disputed) { this.disputed = disputed; }
+  public OffsetDateTime getClosingAutoConfirmedAt() { return closingAutoConfirmedAt; }
+  public void setClosingAutoConfirmedAt(OffsetDateTime closingAutoConfirmedAt) { this.closingAutoConfirmedAt = closingAutoConfirmedAt; }
 }
