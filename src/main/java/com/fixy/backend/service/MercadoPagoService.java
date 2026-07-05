@@ -22,7 +22,11 @@ import org.springframework.web.reactive.function.client.WebClient;
  * que Carlos cargue las credenciales de Mercado Pago.
  *
  * Config requerida:
- *   fixy.payments.mp-access-token   (access token de MP, sandbox o prod)
+ *   fixy.payments.mp-access-token    (access token de MP, sandbox o prod)
+ *   fixy.payments.webhook-base-url   (base pública del backend, ej.
+ *                                     https://api.fixy.com.uy — si está vacía
+ *                                     las preferences se crean SIN
+ *                                     notification_url y MP no notifica pagos)
  *
  * Doc de referencia: https://www.mercadopago.com.uy/developers/es/reference/preferences/_checkout_preferences/post
  */
@@ -31,23 +35,45 @@ public class MercadoPagoService {
 
   private static final Logger log = LoggerFactory.getLogger(MercadoPagoService.class);
 
+  static final String WEBHOOK_PATH = "/api/webhooks/mercadopago";
+
   private final WebClient client;
   private final ObjectMapper objectMapper;
   private final String accessToken;
   private final boolean enabled;
+  private final String notificationUrl;
 
   public MercadoPagoService(
       ObjectMapper objectMapper,
-      @Value("${fixy.payments.mp-access-token:}") String accessToken
+      @Value("${fixy.payments.mp-access-token:}") String accessToken,
+      @Value("${fixy.payments.webhook-base-url:}") String webhookBaseUrl
   ) {
     this.objectMapper = objectMapper;
     this.accessToken = accessToken;
     this.enabled = accessToken != null && !accessToken.isBlank();
+    this.notificationUrl = buildNotificationUrl(webhookBaseUrl);
     this.client = WebClient.builder()
         .baseUrl("https://api.mercadopago.com")
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
         .build();
-    log.info("MercadoPagoService initialized: enabled={}", enabled);
+    log.info("MercadoPagoService initialized: enabled={} notificationUrl={}",
+        enabled, notificationUrl != null ? notificationUrl : "(sin configurar)");
+  }
+
+  /** Base pública + path del webhook; null si no hay base configurada. */
+  static String buildNotificationUrl(String webhookBaseUrl) {
+    if (webhookBaseUrl == null || webhookBaseUrl.isBlank()) {
+      return null;
+    }
+    String base = webhookBaseUrl.trim();
+    while (base.endsWith("/")) {
+      base = base.substring(0, base.length() - 1);
+    }
+    return base + WEBHOOK_PATH;
+  }
+
+  String notificationUrl() {
+    return notificationUrl;
   }
 
   public boolean isEnabled() {
@@ -79,11 +105,18 @@ public class MercadoPagoService {
         "currency_id", currency,
         "unit_price", commissionAmount.doubleValue()
     );
-    Map<String, Object> body = Map.of(
-        "items", List.of(item),
-        "external_reference", externalReference,
-        "notification_url", "" // Carlos completa la URL pública real al configurar el webhook en prod.
-    );
+    Map<String, Object> body = notificationUrl != null
+        ? Map.of(
+            "items", List.of(item),
+            "external_reference", externalReference,
+            "notification_url", notificationUrl)
+        : Map.of(
+            "items", List.of(item),
+            "external_reference", externalReference);
+    if (notificationUrl == null) {
+      log.warn("mercadopago preference sin notification_url (fixy.payments.webhook-base-url vacia) "
+          + "leadPayment={}: MP no va a notificar este pago", leadPaymentId);
+    }
     try {
       String response = client.post()
           .uri("/checkout/preferences")
