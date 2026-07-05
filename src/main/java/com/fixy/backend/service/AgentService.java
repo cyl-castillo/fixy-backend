@@ -11,6 +11,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -28,30 +29,73 @@ public class AgentService {
       "lomas de solymar", "colinas de solymar", "aeroparque", "ciudad de la costa"
   );
 
+  /**
+   * Valores canónicos de "area" (display) + "sin definir", usados como enum estricto en el
+   * json_schema de Cloudflare Workers AI para que el modelo no devuelva texto libre.
+   */
+  private static final List<String> CANONICAL_AREAS = List.of(
+      "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar",
+      "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Aeroparque",
+      "Ciudad de la Costa", "sin definir"
+  );
+
   private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.load("prompts/intake-classifier.md");
 
   private final ObjectMapper objectMapper;
   private final WebClient webClient;
+  private final WebClient cloudflareClient;
   private final String openAiApiKey;
   private final String openAiModel;
+  private final String provider;
+  private final String cloudflareAccountId;
+  private final String cloudflareApiToken;
+  private final String cloudflareModel;
 
+  /**
+   * Constructor legacy (3 args), usado por tests existentes que no necesitan multi-proveedor
+   * (siempre cayeron a heurística con apiKey=""). Mantiene compatibilidad binaria: equivale a
+   * provider="openai" sin credenciales de Cloudflare.
+   */
+  public AgentService(ObjectMapper objectMapper, String openAiApiKey, String openAiModel) {
+    this(objectMapper, openAiApiKey, openAiModel, "openai", "", "", "");
+  }
+
+  @Autowired
   public AgentService(
       ObjectMapper objectMapper,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
-      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel
+      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
+      @Value("${fixy.agent.provider:openai}") String provider,
+      @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
+      @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel
   ) {
     this.objectMapper = objectMapper;
     this.openAiApiKey = openAiApiKey;
     this.openAiModel = openAiModel;
+    this.provider = provider == null ? "openai" : provider.toLowerCase(Locale.ROOT).trim();
+    this.cloudflareAccountId = cloudflareAccountId;
+    this.cloudflareApiToken = cloudflareApiToken;
+    this.cloudflareModel = cloudflareModel;
     this.webClient = WebClient.builder()
         .baseUrl("https://api.openai.com/v1")
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+    this.cloudflareClient = WebClient.builder()
+        .baseUrl("https://api.cloudflare.com/client/v4")
+        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
         .build();
   }
 
   public IntakeResponse classify(IntakeRequest request) {
     IntakeResponse response = null;
-    if (!openAiApiKey.isBlank()) {
+    if ("workersai".equals(provider) && hasCloudflareCredentials()) {
+      response = classifyWithWorkersAi(request);
+      if (response == null) {
+        log.warn("workersai classify call failed or returned null, degrading to heuristic");
+      }
+    } else if (!openAiApiKey.isBlank()) {
       response = classifyWithOpenAi(request);
     }
 
@@ -60,6 +104,11 @@ public class AgentService {
     }
 
     return applyStructuredFields(request, response);
+  }
+
+  private boolean hasCloudflareCredentials() {
+    return cloudflareAccountId != null && !cloudflareAccountId.isBlank()
+        && cloudflareApiToken != null && !cloudflareApiToken.isBlank();
   }
 
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
@@ -117,6 +166,155 @@ public class AgentService {
       log.warn("openai classify call failed, degrading to heuristic: {}", ex.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Clasifica el intake vía Cloudflare Workers AI, pidiendo JSON estructurado con
+   * response_format json_schema (mismo contrato ya validado en producción por
+   * LeadAgentService.callWorkersAiJson). El schema espeja las mismas 7 claves que
+   * produce el prompt intake-classifier.md para OpenAI, así el resto del pipeline
+   * (applyStructuredFields, etc.) no distingue de dónde vino la respuesta.
+   */
+  private IntakeResponse classifyWithWorkersAi(IntakeRequest request) {
+    String prompt = INTAKE_PROMPT_TEMPLATE.formatted(
+        safe(request.contactName()),
+        safe(request.phone()),
+        safe(request.channel()),
+        safe(request.serviceCategory()),
+        safe(request.zone()),
+        safe(request.urgency()),
+        safe(request.address()),
+        safe(request.details()),
+        request.message()
+    );
+
+    try {
+      Map<String, Object> payload = Map.of(
+          "messages", List.of(Map.of("role", "user", "content", prompt)),
+          "max_tokens", 400,
+          "temperature", 0.3,
+          "response_format", Map.of("type", "json_schema", "json_schema", intakeJsonSchema())
+      );
+      String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
+      // 1 solo retry ante timeout/error transitorio (latencia de CF es variable). Si vuelve a
+      // fallar, el catch de abajo degrada a heurística — no vale la pena reintentar más veces
+      // para un intake conversacional de baja latencia.
+      String raw = cloudflareClient.post()
+          .uri(uri)
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
+          .bodyValue(payload)
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(30))
+          .retry(1)
+          .block();
+
+      JsonNode result = parseWorkersAiResult(objectMapper, raw);
+      if (result == null) {
+        return null;
+      }
+
+      return new IntakeResponse(
+          result.path("leadType").asText("cliente"),
+          result.path("serviceCategory").asText("otro"),
+          normalizeAreaValue(result.path("area").asText(detectArea(request.message()))),
+          result.path("urgency").asText("media"),
+          result.path("summary").asText(buildSummary(request, detectService(request.message()))),
+          readMissingFields(result.path("missingFields")),
+          result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
+          "workersai"
+      );
+    } catch (Exception ex) {
+      log.warn("workersai classify call failed, degrading to heuristic: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  /**
+   * Parsea el body crudo de la respuesta de Cloudflare Workers AI y devuelve el JsonNode con
+   * las 7 claves del contrato de intake, o null si la llamada fue no-exitosa / vacía / con
+   * forma inesperada. Extraído como estático (sin red) para poder testear el parseo de
+   * "response" como string (el caso normal con response_format json_schema) y como objeto
+   * (algunos modelos devuelven el JSON ya parseado) sin necesitar mockear WebClient.
+   */
+  static JsonNode parseWorkersAiResult(ObjectMapper mapper, String raw) throws Exception {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    JsonNode root = mapper.readTree(raw);
+    if (!root.path("success").asBoolean(false)) {
+      return null;
+    }
+    JsonNode response = root.path("result").path("response");
+    if (response.isTextual()) {
+      String text = response.asText();
+      if (text.isBlank()) {
+        return null;
+      }
+      return mapper.readTree(text);
+    }
+    if (response.isObject()) {
+      return response;
+    }
+    return null;
+  }
+
+  /**
+   * json_schema del contrato de salida del clasificador de intake, exigido por Cloudflare
+   * Workers AI vía response_format. Mismas 7 claves que devuelve el prompt intake-classifier.md.
+   */
+  static Map<String, Object> intakeJsonSchema() {
+    List<String> leadTypeEnum = List.of("cliente", "proveedor");
+    List<String> serviceCategoryEnum = List.of(
+        "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
+        "aires_acondicionados", "reparaciones", "otro"
+    );
+    List<String> urgencyEnum = List.of("alta", "media", "baja");
+    return Map.of(
+        "type", "object",
+        "properties", Map.of(
+            "leadType", Map.of("type", "string", "enum", leadTypeEnum),
+            "serviceCategory", Map.of("type", "string", "enum", serviceCategoryEnum),
+            "area", Map.of("type", "string", "enum", CANONICAL_AREAS),
+            "urgency", Map.of("type", "string", "enum", urgencyEnum),
+            "summary", Map.of("type", "string"),
+            "missingFields", Map.of("type", "array", "items", Map.of("type", "string")),
+            "suggestedReply", Map.of("type", "string")
+        ),
+        "required", List.of("leadType", "serviceCategory", "area", "urgency", "summary", "missingFields", "suggestedReply")
+    );
+  }
+
+  /**
+   * Normaliza el valor de área devuelto por el LLM contra el catálogo canónico
+   * (case/tildes-insensitive), para el caso en que el modelo devuelva una variante fuera del
+   * enum del schema (ej. "san jose de carrasco" sin tilde, "SOLYMAR" en mayúsculas) pese a la
+   * instrucción del prompt. Defensa en profundidad: el schema + prompt ya restringen esto, pero
+   * un LLM puede igual desviarse. Si no matchea ningún valor canónico, cae a "sin definir" en vez
+   * de propagar texto libre no reconocido.
+   */
+  static String normalizeAreaValue(String rawArea) {
+    if (rawArea == null || rawArea.isBlank()) {
+      return "sin definir";
+    }
+    String normalized = stripAccents(rawArea.toLowerCase(Locale.ROOT).trim());
+    if ("sin definir".equals(normalized)) {
+      return "sin definir";
+    }
+    for (String zone : CIUDAD_DE_LA_COSTA_ZONES) {
+      if (stripAccents(zone).equals(normalized)) {
+        return toDisplayArea(zone);
+      }
+    }
+    if ("canelones".equals(normalized)) {
+      return "Ciudad de la Costa";
+    }
+    return "sin definir";
+  }
+
+  private static String stripAccents(String value) {
+    return java.text.Normalizer.normalize(value, java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "");
   }
 
   /**
@@ -363,7 +561,7 @@ public class AgentService {
     return false;
   }
 
-  private String toDisplayArea(String zone) {
+  private static String toDisplayArea(String zone) {
     return switch (zone) {
       case "solymar" -> "Solymar";
       case "lagomar" -> "Lagomar";

@@ -4,14 +4,14 @@
 {"id": "c04", "message": "necesito que me corten el pasto y poden los arboles, shangrila", "expectedCategory": "jardineria", "expectedArea": "Shangrilá", "expectedUrgency": "baja"}
 {"id": "c05", "message": "tengo que vaciar el pozo negro, estamos en barra de carrasco", "expectedCategory": "barometrica", "expectedArea": "Barra de Carrasco", "expectedUrgency": "baja"}
 {"id": "c06", "message": "me quede afuera de mi casa, perdi las llaves, parque miramar, es urgente", "expectedCategory": "cerrajeria", "expectedArea": "Parque Miramar", "expectedUrgency": "alta"}
-{"id": "c07", "message": "se rompio la ducha, pierde agua, solimar", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c07", "message": "se rompio la ducha, pierde agua, solimar", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "alta"}
 {"id": "c08", "message": "hay una perdida de agua en el bano, aeroparque, dale que se inunda todo", "expectedCategory": "plomeria", "expectedArea": "Aeroparque", "expectedUrgency": "alta"}
 {"id": "c09", "message": "el aire no enfria nada, hace calor", "expectedCategory": "aires_acondicionados", "expectedArea": "sin definir", "expectedUrgency": "baja"}
 {"id": "c10", "message": "necesito ayuda con algo en mi casa, san jose de carrasco", "expectedCategory": "otro", "expectedArea": "San José de Carrasco", "expectedUrgency": "baja"}
-{"id": "c11", "message": "se rompio un caño y pierde agua, vivo en pando", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "baja"}
+{"id": "c11", "message": "se rompio un caño y pierde agua, vivo en pando", "expectedCategory": "plomeria", "expectedArea": "sin definir", "expectedUrgency": "alta"}
 {"id": "c12", "message": "necesito instalar un split nuevo, colinas de solymar, no es urgente", "expectedCategory": "aires_acondicionados", "expectedArea": "Colinas de Solymar", "expectedUrgency": "baja"}
-{"id": "c13", "message": "se destapo mal el bano y pierde agua, lomas de solymar, ya no aguanto mas", "expectedCategory": "plomeria", "expectedArea": "Lomas de Solymar", "expectedUrgency": "baja"}
-{"id": "c14", "message": "salto el tablero y no tenemos luz, es una emergencia, ciudad de la costa", "expectedCategory": "electricidad", "expectedArea": "Ciudad de la Costa", "expectedUrgency": "baja"}
+{"id": "c13", "message": "se destapo mal el bano y pierde agua, lomas de solymar, ya no aguanto mas", "expectedCategory": "plomeria", "expectedArea": "Lomas de Solymar", "expectedUrgency": "alta"}
+{"id": "c14", "message": "salto el tablero y no tenemos luz, es una emergencia, ciudad de la costa", "expectedCategory": "electricidad", "expectedArea": "Ciudad de la Costa", "expectedUrgency": "alta"}
 {"id": "c15", "message": "necesito mantenimiento del jardin, cortar cesped, en canelones", "expectedCategory": "jardineria", "expectedArea": "Ciudad de la Costa", "expectedUrgency": "baja"}
 {"id": "c16", "message": "hola queria consultar por un servicio barometrico para mi casa en solymar", "expectedCategory": "barometrica", "expectedArea": "Solymar", "expectedUrgency": "baja"}
 {"id": "c17", "message": "se me trabo la cerradura de la puerta principal, lagomar, no puedo entrar ahora", "expectedCategory": "cerrajeria", "expectedArea": "Lagomar", "expectedUrgency": "alta"}
