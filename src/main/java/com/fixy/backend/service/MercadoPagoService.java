@@ -61,7 +61,7 @@ public class MercadoPagoService {
   }
 
   /** Base pública + path del webhook; null si no hay base configurada. */
-  static String buildNotificationUrl(String webhookBaseUrl) {
+  public static String buildNotificationUrl(String webhookBaseUrl) {
     if (webhookBaseUrl == null || webhookBaseUrl.isBlank()) {
       return null;
     }
