@@ -64,7 +64,28 @@ public class LeadPhotoService {
   public LeadPhotoResponse uploadAsProvider(Long leadId, Long providerId, MultipartFile file, String caption) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    return store(lead, providerId, file, caption, "PROVIDER_PHOTO_UPLOADED", "provider");
+  }
 
+  /** Cliente sube una foto autenticado con el accessToken del lead (mismo patrón que los mensajes). */
+  public LeadPhotoResponse uploadAsCustomer(Long leadId, String token, MultipartFile file, String caption) {
+    Lead lead = requireLeadAndToken(leadId, token);
+    return store(lead, null, file, caption, "CUSTOMER_PHOTO_UPLOADED", "customer");
+  }
+
+  private Lead requireLeadAndToken(Long leadId, String token) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    if (lead.getAccessToken() == null || token == null || !lead.getAccessToken().equals(token)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid token");
+    }
+    return lead;
+  }
+
+  private LeadPhotoResponse store(
+      Lead lead, Long providerId, MultipartFile file, String caption, String eventType, String eventActor
+  ) {
+    Long leadId = lead.getId();
     validate(file);
     if (photoRepository.countByLeadId(leadId) >= MAX_PER_LEAD) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -99,7 +120,7 @@ public class LeadPhotoService {
     photo.setCaption(caption != null ? caption.trim() : null);
     LeadPhoto saved = photoRepository.save(photo);
 
-    timelineService.appendEvent(lead, "PROVIDER_PHOTO_UPLOADED", "provider",
+    timelineService.appendEvent(lead, eventType, eventActor,
         "Foto agregada (%d bytes)".formatted(file.getSize()));
 
     return LeadPhotoResponse.fromEntity(saved, urlPrefix);
