@@ -798,6 +798,80 @@ class LeadControllerTest {
   }
 
   @Test
+  void shouldLetCustomerUploadPhotoAndBeVisibleInPublicGet() throws Exception {
+    MvcResult leadRes = mockMvc.perform(post("/api/public/leads")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "phone": "099778811",
+                  "problem": "Necesito mandar foto de la perdida de agua",
+                  "channel": "web-app",
+                  "serviceCategory": "plomeria",
+                  "zone": "Solymar"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer leadId = JsonPath.read(leadRes.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(leadRes.getResponse().getContentAsString(), "$.accessToken");
+
+    byte[] jpegBytes = new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0x00, 0x10, 'J','F','I','F',0,1,1,0,0,1,0,1,0,0, (byte)0xFF, (byte)0xD9};
+    org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+        "file", "perdida.jpg", "image/jpeg", jpegBytes);
+
+    // Token invalido -> 403
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/leads/{id}/photos", leadId)
+            .file(file)
+            .param("token", "wrong"))
+        .andExpect(status().isForbidden());
+
+    // Upload de cliente OK
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/leads/{id}/photos", leadId)
+            .file(file)
+            .param("token", leadToken)
+            .param("caption", "asi esta goteando"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.url").value(org.hamcrest.Matchers.containsString("/uploads/lead-" + leadId + "/")))
+        .andExpect(jsonPath("$.providerId").doesNotExist())
+        .andExpect(jsonPath("$.caption").value("asi esta goteando"));
+
+    // Visible en el GET publico
+    mockMvc.perform(get("/api/public/leads/{id}/photos", leadId)
+            .param("token", leadToken))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].caption").value("asi esta goteando"));
+
+    // Tipo invalido -> 400
+    org.springframework.mock.web.MockMultipartFile bad = new org.springframework.mock.web.MockMultipartFile(
+        "file", "doc.pdf", "application/pdf", new byte[]{0x25, 0x50, 0x44, 0x46});
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/leads/{id}/photos", leadId)
+            .file(bad)
+            .param("token", leadToken))
+        .andExpect(status().isBadRequest());
+
+    // Limite de fotos por lead -> 400 (ya hay 1, completamos hasta 12 y la 13 debe fallar)
+    for (int i = 0; i < 11; i++) {
+      mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+              .multipart("/api/public/leads/{id}/photos", leadId)
+              .file(new org.springframework.mock.web.MockMultipartFile(
+                  "file", "foto" + i + ".jpg", "image/jpeg", jpegBytes))
+              .param("token", leadToken))
+          .andExpect(status().isCreated());
+    }
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .multipart("/api/public/leads/{id}/photos", leadId)
+            .file(new org.springframework.mock.web.MockMultipartFile(
+                "file", "foto-de-mas.jpg", "image/jpeg", jpegBytes))
+            .param("token", leadToken))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.message").value(org.hamcrest.Matchers.containsString("maximo")));
+  }
+
+  @Test
   void shouldReturnStructuredErrorsForPublicValidation() throws Exception {
     String invalidPayload = """
         {

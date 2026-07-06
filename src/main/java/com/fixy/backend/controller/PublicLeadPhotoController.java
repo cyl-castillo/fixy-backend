@@ -8,12 +8,15 @@ import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
-/** Cliente lee las fotos de su lead, autenticado con el lead accessToken. */
+/** Cliente lee y sube fotos de su lead, autenticado con el lead accessToken. */
 @RestController
 @RequestMapping("/api/public/leads/{leadId}/photos")
 public class PublicLeadPhotoController {
@@ -37,5 +40,16 @@ public class PublicLeadPhotoController {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid token");
     }
     return photoService.listForLead(leadId);
+  }
+
+  @PostMapping
+  @ResponseStatus(HttpStatus.CREATED)
+  public LeadPhotoResponse upload(
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @RequestParam("file") MultipartFile file,
+      @RequestParam(value = "caption", required = false) String caption
+  ) {
+    return photoService.uploadAsCustomer(leadId, token, file, caption);
   }
 }
