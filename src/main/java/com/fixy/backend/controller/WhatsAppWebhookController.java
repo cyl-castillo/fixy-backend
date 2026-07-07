@@ -7,6 +7,7 @@ import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import com.fixy.backend.service.LeadAssignmentService;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadTimelineService;
 import com.fixy.backend.service.WhatsAppService;
@@ -15,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,6 +49,7 @@ public class WhatsAppWebhookController {
   private final LeadMessageService leadMessageService;
   private final LeadTimelineService leadTimelineService;
   private final WhatsAppService whatsappService;
+  private final LeadAssignmentService leadAssignmentService;
 
   public WhatsAppWebhookController(
       ObjectMapper objectMapper,
@@ -55,6 +58,7 @@ public class WhatsAppWebhookController {
       LeadMessageService leadMessageService,
       LeadTimelineService leadTimelineService,
       WhatsAppService whatsappService,
+      LeadAssignmentService leadAssignmentService,
       @Value("${fixy.whatsapp.webhook-verify-token:}") String verifyToken
   ) {
     this.objectMapper = objectMapper;
@@ -63,6 +67,7 @@ public class WhatsAppWebhookController {
     this.leadMessageService = leadMessageService;
     this.leadTimelineService = leadTimelineService;
     this.whatsappService = whatsappService;
+    this.leadAssignmentService = leadAssignmentService;
     this.verifyToken = verifyToken;
   }
 
@@ -199,19 +204,21 @@ public class WhatsAppWebhookController {
   }
 
   private void acceptLead(Lead lead, Provider provider, String originalText) {
-    lead.setStatus(LeadStatus.ASSIGNED);
-    lead.setAssignedProvider(provider.getName());
-    lead.setAssignedProviderId(provider.getId());
-    leadRepository.save(lead);
-    leadTimelineService.appendEvent(lead, "PROVIDER_ACCEPTED", "provider",
-        provider.getName() + " aceptó por WhatsApp: " + truncate(originalText, 100));
-    leadMessageService.postFromOps(lead.getId(), "fixy",
-        "%s aceptó tu pedido. Te contacta al %s en minutos."
-            .formatted(provider.getName(), lead.getPhone() == null ? "tel registrado" : lead.getPhone()));
-    // Aviso al proveedor: confirmación de recibido.
+    Lead assigned;
+    try {
+      assigned = leadAssignmentService.acceptForProvider(lead.getId(), provider,
+          provider.getName() + " aceptó por WhatsApp: " + truncate(originalText, 100));
+    } catch (ResponseStatusException ex) {
+      // Otro canal (bandeja u otro proveedor) ya se quedó con el lead entre
+      // que WhatsApp mandó el mensaje y que lo procesamos acá.
+      whatsappService.sendText(provider.getWhatsappNumber(),
+          "Ese trabajo ya fue tomado, gracias igual.");
+      return;
+    }
+    // Aviso al proveedor: confirmación de recibido (canal específico de WhatsApp).
     whatsappService.sendText(provider.getWhatsappNumber(),
-        "Listo, ya le avisamos al cliente. Su tel: " + lead.getPhone()
-            + (lead.getNotes() != null && !lead.getNotes().isBlank() ? "\nNotas: " + lead.getNotes() : ""));
+        "Listo, ya le avisamos al cliente. Su tel: " + assigned.getPhone()
+            + (assigned.getNotes() != null && !assigned.getNotes().isBlank() ? "\nNotas: " + assigned.getNotes() : ""));
   }
 
   private void rejectLead(Lead lead, Provider provider, String originalText) {

@@ -130,6 +130,17 @@ public class ProviderCatalogService {
         .toList();
   }
 
+  /**
+   * Reverso de {@link #findMatches}: dado un provider ya cargado, ¿le sirve
+   * este (categoría, zona)? Reusa la misma normalización y las mismas reglas
+   * de matching (zona = primaryZone, coverageZones o city) para que
+   * "¿qué leads le sirven a este proveedor?" (bandeja de oportunidades) no
+   * diverja de "¿qué proveedores le sirven a este lead?" (matching de leads).
+   */
+  public boolean matchesProvider(Provider provider, String category, String location) {
+    return matchesCategory(provider, normalize(category)) && matchesLocation(provider, normalize(location));
+  }
+
   private boolean matchesCategory(Provider provider, String category) {
     if (category.isBlank()) {
       return true;

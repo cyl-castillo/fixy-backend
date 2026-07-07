@@ -3,11 +3,13 @@ package com.fixy.backend.controller;
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
+import com.fixy.backend.dto.ProviderOpportunitySummary;
 import com.fixy.backend.dto.ProviderSelfResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.LeadMessageService;
+import com.fixy.backend.service.ProviderOpportunityService;
 import com.fixy.backend.service.ProviderSelfService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -29,13 +31,46 @@ public class PublicProviderSelfController {
 
   private final ProviderSelfService selfService;
   private final LeadMessageService messageService;
+  private final ProviderOpportunityService opportunityService;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
-      LeadMessageService messageService
+      LeadMessageService messageService,
+      ProviderOpportunityService opportunityService
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
+    this.opportunityService = opportunityService;
+  }
+
+  @GetMapping("/opportunities")
+  public List<ProviderOpportunitySummary> opportunities(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    return opportunityService.listFor(provider);
+  }
+
+  @PostMapping("/opportunities/{leadId}/accept")
+  public ProviderAssignedLeadSummary acceptOpportunity(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    return opportunityService.accept(provider, leadId);
+  }
+
+  @PostMapping("/opportunities/{leadId}/decline")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void declineOpportunity(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    opportunityService.decline(provider, leadId);
   }
 
   @GetMapping("/me")
