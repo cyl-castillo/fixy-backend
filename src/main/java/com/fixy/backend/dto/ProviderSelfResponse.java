@@ -15,9 +15,15 @@ public record ProviderSelfResponse(
     Integer completedJobsCount,
     Integer rejectedJobsCount,
     String status,
+    Double ratingAverage,
+    Integer ratingCount,
     List<ProviderAssignedLeadSummary> assignedLeads
 ) {
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
+    Integer ratingCount = provider.getRatingCount() == null ? 0 : provider.getRatingCount();
+    // Sin calificaciones todavía: no forzar 0.0, que el front distinga
+    // "nuevo en Fixy" de una nota real de 0.
+    Double ratingAverage = ratingCount == 0 ? null : provider.getRatingAverage();
     return new ProviderSelfResponse(
         provider.getId(),
         provider.getName(),
@@ -30,6 +36,8 @@ public record ProviderSelfResponse(
         provider.getCompletedJobsCount(),
         provider.getRejectedJobsCount(),
         provider.getStatus() == null ? null : provider.getStatus().name(),
+        ratingAverage,
+        ratingCount,
         leads
     );
   }
