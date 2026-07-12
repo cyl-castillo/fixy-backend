@@ -117,6 +117,16 @@ public class ProviderCatalogService {
     return new com.fixy.backend.dto.ProviderPublicPreview(matched.size(), sample);
   }
 
+  /**
+   * Prior neutro para proveedores sin calificaciones (cold-start). Un
+   * proveedor con ratingCount == 0 no tiene todavía señal real de calidad,
+   * pero tampoco es "malo": si lo mandamos al fondo de la lista para
+   * siempre, nunca junta su primer trabajo y la oferta nueva muere ahí.
+   * Se lo trata como una nota decente (equivalente a 4.0), intercalado con
+   * proveedores calificados en ese rango — ni privilegiado, ni enterrado.
+   */
+  private static final double NEW_PROVIDER_RATING_PRIOR = 4.0;
+
   public List<ProviderCatalogItem> findMatches(String category, String location) {
     String normalizedCategory = normalize(category);
     String normalizedLocation = normalize(location);
@@ -126,8 +136,23 @@ public class ProviderCatalogService {
         .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
+        .sorted((a, b) -> Double.compare(rankingScore(b), rankingScore(a)))
         .map(provider -> toCatalogItem(provider, normalizedCategory))
         .toList();
+  }
+
+  /**
+   * Score de orden por reputación (reorder-only, sin exclusividad ni
+   * ventaja temporal — H_A). Proveedores sin calificaciones usan
+   * {@link #NEW_PROVIDER_RATING_PRIOR} en vez de 0, para no quedar
+   * enterrados al fondo por no tener historial todavía.
+   */
+  private double rankingScore(Provider provider) {
+    Integer ratingCount = provider.getRatingCount();
+    if (ratingCount == null || ratingCount == 0 || provider.getRatingAverage() == null) {
+      return NEW_PROVIDER_RATING_PRIOR;
+    }
+    return provider.getRatingAverage();
   }
 
   /**
