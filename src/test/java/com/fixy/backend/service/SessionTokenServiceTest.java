@@ -24,9 +24,16 @@ class SessionTokenServiceTest {
     SessionTokenService service = new SessionTokenService(SECRET);
     String token = service.issue(42L);
 
-    // Manipulamos el payload (segunda sección del JWT) sin resignar.
+    // Manipulamos el payload (segunda sección del JWT) sin resignar, de forma
+    // DETERMINISTA: cambiamos el primer carácter por otro garantizado distinto.
+    // (Antes se usaba replace('A','B'), que era un no-op cuando el payload
+    // base64url no contenía ninguna 'A' — y eso depende de los timestamps
+    // embebidos, lo que hacía el test flaky: a veces el "token manipulado"
+    // quedaba idéntico al válido y la aserción fallaba.)
     String[] parts = token.split("\\.");
-    String tamperedPayload = parts[1].replace('A', 'B');
+    char first = parts[1].charAt(0);
+    char flipped = first == 'A' ? 'B' : 'A';
+    String tamperedPayload = flipped + parts[1].substring(1);
     String tampered = parts[0] + "." + tamperedPayload + "." + parts[2];
 
     assertThat(service.validate(tampered)).isEmpty();
