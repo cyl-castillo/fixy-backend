@@ -3,12 +3,14 @@ package com.fixy.backend.controller;
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
+import com.fixy.backend.dto.ProviderCommissionSummary;
 import com.fixy.backend.dto.ProviderOpportunitySummary;
 import com.fixy.backend.dto.ProviderSelfResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.LeadMessageService;
+import com.fixy.backend.service.LeadPaymentQueryService;
 import com.fixy.backend.service.ProviderOpportunityService;
 import com.fixy.backend.service.ProviderSelfService;
 import jakarta.validation.Valid;
@@ -32,15 +34,18 @@ public class PublicProviderSelfController {
   private final ProviderSelfService selfService;
   private final LeadMessageService messageService;
   private final ProviderOpportunityService opportunityService;
+  private final LeadPaymentQueryService leadPaymentQueryService;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
       LeadMessageService messageService,
-      ProviderOpportunityService opportunityService
+      ProviderOpportunityService opportunityService,
+      LeadPaymentQueryService leadPaymentQueryService
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
     this.opportunityService = opportunityService;
+    this.leadPaymentQueryService = leadPaymentQueryService;
   }
 
   @GetMapping("/opportunities")
@@ -83,6 +88,15 @@ public class PublicProviderSelfController {
         .map(ProviderAssignedLeadSummary::fromEntity)
         .toList();
     return ProviderSelfResponse.fromEntity(provider, leads);
+  }
+
+  @GetMapping("/commissions")
+  public ProviderCommissionSummary commissions(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token
+  ) {
+    selfService.authenticate(providerId, token);
+    return leadPaymentQueryService.summaryFor(providerId);
   }
 
   @PostMapping("/leads/{leadId}/status")
