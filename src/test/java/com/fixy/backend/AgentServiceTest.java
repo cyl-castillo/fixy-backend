@@ -48,6 +48,24 @@ class AgentServiceTest {
   }
 
   @Test
+  void shouldClassifyElectricianCase() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "Se corto la luz en toda la casa, salto el tablero en El Pinar",
+        "Sofia",
+        "098765432",
+        "whatsapp"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("cliente", response.leadType());
+    assertEquals("electricidad", response.serviceCategory());
+    assertEquals("El Pinar", response.area());
+    assertEquals("alta", response.urgency());
+  }
+
+  @Test
   void shouldUseStructuredIntakeFieldsWhenProvided() {
     AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
     IntakeRequest request = new IntakeRequest(
