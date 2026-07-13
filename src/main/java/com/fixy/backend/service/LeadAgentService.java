@@ -2,6 +2,8 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.dto.IntakeRequest;
+import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
@@ -51,6 +53,7 @@ public class LeadAgentService {
   private final WhatsAppService whatsappService;
   private final com.fixy.backend.repository.ProviderRepository providerRepository;
   private final LeadTimelineService leadTimelineService;
+  private final AgentService agentService;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -60,6 +63,7 @@ public class LeadAgentService {
       WhatsAppService whatsappService,
       com.fixy.backend.repository.ProviderRepository providerRepository,
       LeadTimelineService leadTimelineService,
+      AgentService agentService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -75,6 +79,7 @@ public class LeadAgentService {
     this.whatsappService = whatsappService;
     this.providerRepository = providerRepository;
     this.leadTimelineService = leadTimelineService;
+    this.agentService = agentService;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.objectMapper = objectMapper;
@@ -162,17 +167,131 @@ public class LeadAgentService {
       String context = buildContext(lead);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
       AgentTurnResult result = respondAndExtractTurn(lead, context, history);
-      String reply = (result == null || result.reply() == null || result.reply().isBlank())
-          ? fallbackResponse(lead)
-          : result.reply();
-      leadMessageService.postFromAgent(leadId, reply);
-      if (result != null && result.extracted() != null && !result.extracted().isEmpty()) {
+      if (result == null || result.reply() == null || result.reply().isBlank()) {
+        // El LLM falló, hizo timeout, o está deshabilitado: procesamos el
+        // mensaje del cliente igual con la heurística (no un enlatado ciego).
+        respondWithHeuristicFallback(leadId, lead);
+        return;
+      }
+      leadMessageService.postFromAgent(leadId, result.reply());
+      if (result.extracted() != null && !result.extracted().isEmpty()) {
         applyExtractedFields(leadId, result.extracted());
       }
     } catch (Exception ex) {
       log.warn("respondToCustomer failed for lead {}: {}", leadId, ex.getMessage());
-      safePost(leadId, fallbackResponse(lead));
+      try {
+        respondWithHeuristicFallback(leadId, lead);
+      } catch (Exception fallbackEx) {
+        log.error("heuristic fallback also failed for lead {}: {}", leadId, fallbackEx.getMessage());
+        safePost(leadId, "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?");
+      }
     }
+  }
+
+  /**
+   * Fallback determinista cuando el LLM no está disponible: reutiliza el
+   * clasificador heurístico de AgentService (mismo que usa el intake inicial)
+   * sobre el último mensaje del cliente, actualiza el lead con lo que se pudo
+   * extraer, y arma una respuesta que reconoce esos datos y pide solo lo que
+   * falta. Nunca promete matching de proveedor sin chequear disponibilidad real.
+   */
+  private void respondWithHeuristicFallback(Long leadId, Lead lead) {
+    String lastCustomerMessage = lastCustomerMessage(leadId);
+    boolean autoMatchAlreadyPosted = false;
+    if (lastCustomerMessage != null && !lastCustomerMessage.isBlank()) {
+      IntakeRequest intakeRequest = new IntakeRequest(
+          lastCustomerMessage,
+          lead.getName(),
+          lead.getPhone(),
+          "chat",
+          lead.getDetectedCategory(),
+          lead.getLocation(),
+          lead.getUrgency(),
+          null,
+          null
+      );
+      IntakeResponse classified = agentService.classify(intakeRequest);
+      Map<String, String> extracted = new java.util.HashMap<>();
+      if (classified.serviceCategory() != null && !"otro".equalsIgnoreCase(classified.serviceCategory())) {
+        extracted.put("category", classified.serviceCategory());
+      }
+      if (classified.area() != null && !"sin definir".equalsIgnoreCase(classified.area())) {
+        extracted.put("zone", classified.area());
+      }
+      if (classified.urgency() != null) {
+        extracted.put("urgency", classified.urgency());
+      }
+      if (!extracted.isEmpty()) {
+        autoMatchAlreadyPosted = applyExtractedFieldsAndReport(leadId, extracted);
+      }
+    }
+    if (autoMatchAlreadyPosted) {
+      // tryAutoMatch ya posteó el aviso de matching (con o sin proveedor
+      // disponible) — postear otro mensaje de reconocimiento sería redundante.
+      return;
+    }
+    // Releer el lead: applyExtractedFields pudo haber actualizado categoría/zona.
+    Lead refreshed = leadRepository.findById(leadId).orElse(lead);
+    leadMessageService.postFromAgent(leadId, heuristicFallbackReply(refreshed));
+  }
+
+  private String lastCustomerMessage(Long leadId) {
+    List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
+    for (int i = recent.size() - 1; i >= 0; i--) {
+      LeadMessage m = recent.get(i);
+      if ("customer".equals(m.getSender()) && m.getText() != null && !m.getText().isBlank()) {
+        return m.getText();
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Construye la respuesta del fallback determinista según lo que el lead
+   * tiene confirmado tras la heurística. Reconoce categoría/zona si están, y
+   * pide solo el dato que falta — nunca repregunta genérico si ya hay info.
+   */
+  private String heuristicFallbackReply(Lead lead) {
+    boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
+        && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
+    boolean hasZone = lead.getLocation() != null && !lead.getLocation().isBlank()
+        && !"sin definir".equalsIgnoreCase(lead.getLocation());
+    boolean hasUrgency = lead.getUrgency() != null && !lead.getUrgency().isBlank();
+
+    if (!hasCategory && !hasZone) {
+      // Mensaje vacío/ambiguo ("hola", "??"): no hay nada que reconocer, repregunta honesta.
+      return "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
+    }
+
+    if (lead.isReadyForMatching()) {
+      int providerCount = countProvidersInZone(lead.getDetectedCategory(), lead.getLocation());
+      String category = humanCategory(lead.getDetectedCategory());
+      if (providerCount > 0) {
+        return "Anotado: problema de %s en %s. Ya tengo proveedores disponibles en tu zona, estoy buscando uno para vos."
+            .formatted(category, lead.getLocation());
+      }
+      return "Anotado: problema de %s en %s. Por ahora no tenemos un proveedor de %s en tu zona, te avisamos por acá apenas haya."
+          .formatted(category, lead.getLocation(), category);
+    }
+
+    StringBuilder ack = new StringBuilder("Anotado: ");
+    if (hasCategory && hasZone) {
+      ack.append("problema de ").append(humanCategory(lead.getDetectedCategory()))
+          .append(" en ").append(lead.getLocation()).append(". ");
+    } else if (hasCategory) {
+      ack.append("problema de ").append(humanCategory(lead.getDetectedCategory())).append(". ");
+    } else {
+      ack.append("tu pedido en ").append(lead.getLocation()).append(". ");
+    }
+
+    if (!hasZone) {
+      ack.append("¿En qué zona estás?");
+    } else if (!hasUrgency) {
+      ack.append("¿Es urgente o puede esperar unos días?");
+    } else {
+      ack.append("¿Me pasás la dirección exacta para coordinar?");
+    }
+    return ack.toString();
   }
 
   private record AgentTurnResult(String reply, Map<String, String> extracted) {}
@@ -335,9 +454,20 @@ public class LeadAgentService {
    * para no sobrescribir info confirmada en turnos anteriores.
    */
   private void applyExtractedFields(Long leadId, Map<String, String> extracted) {
+    applyExtractedFieldsAndReport(leadId, extracted);
+  }
+
+  /**
+   * Igual que {@link #applyExtractedFields}, pero informa si el lead justo
+   * cruzó a readyForMatching en esta llamada (y por lo tanto tryAutoMatch ya
+   * posteó un mensaje al cliente sobre el resultado del matching). Los
+   * llamadores que van a postear su propio mensaje de reconocimiento usan
+   * este dato para no duplicar el aviso de matching.
+   */
+  private boolean applyExtractedFieldsAndReport(Long leadId, Map<String, String> extracted) {
     try {
       Lead lead = leadRepository.findById(leadId).orElse(null);
-      if (lead == null) return;
+      if (lead == null) return false;
       boolean changed = false;
       String cat = extracted.get("category");
       // Fallback heurístico: si el LLM devolvió "otro" o null, intentar detectar
@@ -399,10 +529,13 @@ public class LeadAgentService {
         // Si justo cruzó a "ready" en este turno, intentar matching automático.
         if (!wasReady && nowReady) {
           tryAutoMatch(lead);
+          return true;
         }
       }
+      return false;
     } catch (Exception ex) {
       log.warn("applyExtractedFields failed for lead {}: {}", leadId, ex.getMessage());
+      return false;
     }
   }
 
@@ -739,20 +872,6 @@ public class LeadAgentService {
           .formatted(category, location, missing);
     }
     return "Hola, soy Fixy. Ya recibí tu pedido de %s en %s. Estoy buscando un proveedor disponible — te aviso por acá apenas alguien acepte.".formatted(category, location);
-  }
-
-  private String fallbackResponse(Lead lead) {
-    // Sin categoría detectada el caso todavía no existe: NUNCA prometer
-    // contacto con proveedor (bug visto en prod: "hola" + timeout del LLM
-    // respondía "lo paso al proveedor").
-    if (lead == null || lead.getDetectedCategory() == null) {
-      return "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
-    }
-    String missing = humanMissing(lead.getMissingFields());
-    if (!missing.isBlank()) {
-      return "Gracias por el dato. Todavía me falta %s para terminar de armar el caso.".formatted(missing);
-    }
-    return "Gracias, lo paso al proveedor. Te aviso por acá cuando alguien tome el pedido.";
   }
 
   private String humanCategory(String raw) {
