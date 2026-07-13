@@ -66,6 +66,18 @@ class ProviderOpportunityControllerTest {
     return JsonPath.read(result.getResponse().getContentAsString(), "$.accessToken");
   }
 
+
+  /** Token público del lead, vía ops (los endpoints públicos por-lead ahora lo exigen). */
+  private String leadAccessTokenFor(Integer leadId) throws Exception {
+    MvcResult result = mockMvc.perform(get("/api/leads")
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    java.util.List<?> tokens = JsonPath.read(result.getResponse().getContentAsString(),
+        "$[?(@.id == %d)].accessToken".formatted(leadId));
+    return tokens.get(0).toString();
+  }
+
   private Integer createReadyLead(String phone, String problem, String category, String zone, String urgency)
       throws Exception {
     String payload = leadPayload(phone, problem, category, zone, urgency);
@@ -220,7 +232,7 @@ class ProviderOpportunityControllerTest {
         .andExpect(jsonPath("$.length()").value(0));
 
     // Evento de timeline PROVIDER_ACCEPTED presente.
-    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId))
+    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId).param("token", leadAccessTokenFor(leadId)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[?(@.type=='PROVIDER_ACCEPTED')]").isNotEmpty());
   }
@@ -256,7 +268,7 @@ class ProviderOpportunityControllerTest {
         .andExpect(jsonPath("$.length()").value(1))
         .andExpect(jsonPath("$[0].leadId").value(leadId));
 
-    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId))
+    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId).param("token", leadAccessTokenFor(leadId)))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[?(@.type=='PROVIDER_DECLINED')]").isNotEmpty());
   }

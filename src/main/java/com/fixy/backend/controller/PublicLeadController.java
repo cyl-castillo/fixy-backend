@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -58,23 +59,30 @@ public class PublicLeadController {
     return leadService.createChat(request);
   }
 
+  // Los endpoints por-lead exigen el accessToken del lead (query param, mismo
+  // patrón que /messages, /photos y /confirm-completion). Sin token no hay
+  // lectura ni mutación: los IDs son secuenciales y adivinables (IDOR).
+
   @GetMapping("/leads/{id}")
-  public LeadResponse get(@PathVariable Long id) {
+  public LeadResponse get(@PathVariable Long id, @RequestParam("token") String token) {
+    leadService.requirePublicToken(id, token);
     return leadService.get(id);
   }
 
   @GetMapping("/leads/{id}/timeline")
-  public List<LeadEventResponse> timeline(@PathVariable Long id) {
-    leadService.get(id);
+  public List<LeadEventResponse> timeline(@PathVariable Long id, @RequestParam("token") String token) {
+    leadService.requirePublicToken(id, token);
     return leadTimelineService.listForLead(id);
   }
 
   @PatchMapping("/leads/{id}/context")
   public LeadResponse updateContext(
       @PathVariable Long id,
+      @RequestParam("token") String token,
       @RequestBody PublicLeadContextUpdateRequest request,
       HttpServletRequest httpRequest
   ) {
+    leadService.requirePublicToken(id, token);
     abuseProtectionService.validateContextUpdate(
         httpRequest.getRemoteAddr(),
         request.problem(),
@@ -85,7 +93,8 @@ public class PublicLeadController {
   }
 
   @PostMapping("/leads/{id}/matches")
-  public LeadMatchResponse generateMatches(@PathVariable Long id) {
+  public LeadMatchResponse generateMatches(@PathVariable Long id, @RequestParam("token") String token) {
+    leadService.requirePublicToken(id, token);
     return leadService.generateMatches(id);
   }
 }

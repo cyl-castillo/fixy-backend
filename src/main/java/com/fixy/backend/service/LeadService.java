@@ -142,6 +142,19 @@ public class LeadService {
     return toResponse(lead, null, null);
   }
 
+  /**
+   * Valida el token público del lead (mismo patrón que LeadMessageService /
+   * LeadClosingService: token del LEAD, no del proveedor). Los endpoints
+   * públicos por-lead DEBEN pasar por acá antes de leer o mutar: sin esto,
+   * cualquiera que itere IDs ve/edita datos de contacto ajenos (IDOR).
+   */
+  public void requirePublicToken(Long id, String token) {
+    Lead lead = findLead(id);
+    if (lead.getAccessToken() == null || token == null || !lead.getAccessToken().equals(token)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid token");
+    }
+  }
+
   public LeadMatchResponse generateMatches(Long id) {
     Lead lead = findLead(id);
     // Si el lead ya viene clasificado (chat-first agentico, o lead enriquecido por updateContext)

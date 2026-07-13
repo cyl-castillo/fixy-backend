@@ -127,8 +127,9 @@ class LeadControllerTest {
         .andReturn();
 
     Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(createResult.getResponse().getContentAsString(), "$.accessToken");
 
-    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.matches").isArray())
         .andExpect(jsonPath("$.matches.length()").value(0))
@@ -142,7 +143,7 @@ class LeadControllerTest {
         }
         """;
 
-    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId)
+    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId).param("token", leadToken)
             .contentType(MediaType.APPLICATION_JSON)
             .content(enrichPayload))
         .andExpect(status().isOk())
@@ -152,19 +153,19 @@ class LeadControllerTest {
         .andExpect(jsonPath("$.blockingFields.length()").value(0))
         .andExpect(jsonPath("$.nextRecommendedAction").value("generate_matches"));
 
-    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.matches[0].name").value("Jardines del Este"))
         .andExpect(jsonPath("$.matches[0].score").value(100))
         .andExpect(jsonPath("$.matches[0].reasons[0]").value("categoria_coincide"))
         .andExpect(jsonPath("$.nextRecommendedAction").value("present_matches"));
 
-    mockMvc.perform(get("/api/public/leads/{id}", leadId))
+    mockMvc.perform(get("/api/public/leads/{id}", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.location").value("Lagomar"))
         .andExpect(jsonPath("$.summary").exists());
 
-    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId))
+    mockMvc.perform(get("/api/public/leads/{id}/timeline", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$[0].type").value("LEAD_CREATED"))
         .andExpect(jsonPath("$[1].type").value("INTAKE_CLASSIFIED"))
@@ -173,7 +174,7 @@ class LeadControllerTest {
         .andExpect(jsonPath("$[4].type").value("INTAKE_CLASSIFIED"))
         .andExpect(jsonPath("$[5].type").value("MATCH_GENERATED"));
 
-    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.lead.location").value("Lagomar"))
         .andExpect(jsonPath("$.lead.readyForMatching").value(true));
@@ -222,8 +223,9 @@ class LeadControllerTest {
         .andReturn();
 
     Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(createResult.getResponse().getContentAsString(), "$.accessToken");
 
-    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.matches[0].category").value("aires_acondicionados"))
         .andExpect(jsonPath("$.matches[0].reasons[0]").value("categoria_coincide"))
@@ -256,8 +258,9 @@ class LeadControllerTest {
         .andReturn();
 
     Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(createResult.getResponse().getContentAsString(), "$.accessToken");
 
-    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId))
+    mockMvc.perform(post("/api/public/leads/{id}/matches", leadId).param("token", leadToken))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.matches.length()").value(0))
         .andExpect(jsonPath("$.blockingFields[0]").value("categoria_fuera_de_alcance"))
@@ -337,6 +340,7 @@ class LeadControllerTest {
         .andReturn();
 
     Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(createResult.getResponse().getContentAsString(), "$.accessToken");
 
     String enrichPayload = """
         {
@@ -348,7 +352,7 @@ class LeadControllerTest {
         }
         """;
 
-    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId)
+    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId).param("token", leadToken)
             .contentType(MediaType.APPLICATION_JSON)
             .content(enrichPayload))
         .andExpect(status().isOk())
@@ -381,6 +385,7 @@ class LeadControllerTest {
         .andReturn();
 
     Integer leadId = JsonPath.read(createResult.getResponse().getContentAsString(), "$.id");
+    String leadToken = JsonPath.read(createResult.getResponse().getContentAsString(), "$.accessToken");
 
     String waitlistPayload = """
         {
@@ -388,7 +393,7 @@ class LeadControllerTest {
         }
         """;
 
-    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId)
+    mockMvc.perform(patch("/api/public/leads/{id}/context", leadId).param("token", leadToken)
             .contentType(MediaType.APPLICATION_JSON)
             .content(waitlistPayload))
         .andExpect(status().isOk())
