@@ -10,8 +10,14 @@ import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.LeadAssignmentService;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadTimelineService;
+import com.fixy.backend.service.WhatsAppInboundService;
 import com.fixy.backend.service.WhatsAppService;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
 import java.util.List;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -20,6 +26,7 @@ import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -35,6 +42,20 @@ import org.springframework.web.bind.annotation.RestController;
  *  - "NO" / "NO PUEDO" → libera el lead y posiblemente busca otro proveedor.
  *  - Texto libre → persiste como LeadMessage del proveedor; el cliente lo
  *    ve por polling en su chat web.
+ *
+ * Cuando llega un mensaje de un número que NO es un proveedor conocido, se
+ * trata como CLIENTE: se delega a WhatsAppInboundService, que usa el mismo
+ * cerebro agéntico (LeadAgentService) que atiende el chat web.
+ *
+ * Ventana de servicio de Meta (24h): solo podemos mandar texto libre en
+ * respuesta a un mensaje que el usuario nos mandó dentro de las últimas 24h
+ * (user-initiated). Todo lo que implementamos acá es user-initiated: el
+ * cliente/proveedor escribe primero, nosotros respondemos. Mensajes
+ * business-initiated (nosotros escribiendo primero fuera de esa ventana,
+ * ej. avisarle a un proveedor de un lead nuevo sin que nos haya escrito)
+ * requieren un template pre-aprobado por Meta (ver sendTemplate en
+ * WhatsAppService) — no está cableado en el flujo de intake de este MVP,
+ * queda para fase 2 (ver WhatsAppInboundService y FIXY_WHATSAPP_SETUP.md).
  */
 @RestController
 @RequestMapping("/api/webhooks/whatsapp")
@@ -44,11 +65,13 @@ public class WhatsAppWebhookController {
 
   private final ObjectMapper objectMapper;
   private final String verifyToken;
+  private final String appSecret;
   private final ProviderRepository providerRepository;
   private final LeadRepository leadRepository;
   private final LeadMessageService leadMessageService;
   private final LeadTimelineService leadTimelineService;
   private final WhatsAppService whatsappService;
+  private final WhatsAppInboundService whatsappInboundService;
   private final LeadAssignmentService leadAssignmentService;
 
   public WhatsAppWebhookController(
@@ -58,8 +81,10 @@ public class WhatsAppWebhookController {
       LeadMessageService leadMessageService,
       LeadTimelineService leadTimelineService,
       WhatsAppService whatsappService,
+      WhatsAppInboundService whatsappInboundService,
       LeadAssignmentService leadAssignmentService,
-      @Value("${fixy.whatsapp.webhook-verify-token:}") String verifyToken
+      @Value("${fixy.whatsapp.webhook-verify-token:}") String verifyToken,
+      @Value("${fixy.whatsapp.app-secret:}") String appSecret
   ) {
     this.objectMapper = objectMapper;
     this.providerRepository = providerRepository;
@@ -67,8 +92,10 @@ public class WhatsAppWebhookController {
     this.leadMessageService = leadMessageService;
     this.leadTimelineService = leadTimelineService;
     this.whatsappService = whatsappService;
+    this.whatsappInboundService = whatsappInboundService;
     this.leadAssignmentService = leadAssignmentService;
     this.verifyToken = verifyToken;
+    this.appSecret = appSecret;
   }
 
   @GetMapping
@@ -88,7 +115,14 @@ public class WhatsAppWebhookController {
   }
 
   @PostMapping
-  public ResponseEntity<String> receive(@RequestBody String rawBody) {
+  public ResponseEntity<String> receive(
+      @RequestBody String rawBody,
+      @RequestHeader(value = "X-Hub-Signature-256", required = false) String signature
+  ) {
+    if (!appSecret.isBlank() && !isValidSignature(rawBody, signature)) {
+      log.warn("whatsapp webhook: firma invalida, se descarta el payload");
+      return ResponseEntity.status(403).body("invalid signature");
+    }
     // Devolvemos 200 siempre para que Meta no reintente. Procesamos best-effort.
     try {
       JsonNode root = objectMapper.readTree(rawBody);
@@ -132,8 +166,9 @@ public class WhatsAppWebhookController {
         .or(() -> providerRepository.findByContactNumber(from))
         .orElse(null);
     if (provider == null) {
-      log.info("whatsapp incoming from desconocido {}: {}", from, truncate(text, 60));
-      // TODO: cuando habilitemos clientes-via-whatsapp, mapear por phone del lead.
+      // No es un proveedor conocido: lo tratamos como CLIENTE conversando
+      // con el agente (mismo cerebro que el chat web).
+      whatsappInboundService.handleCustomerMessage(from, text);
       return;
     }
 
@@ -238,5 +273,29 @@ public class WhatsAppWebhookController {
   private String truncate(String text, int max) {
     if (text == null) return "";
     return text.length() > max ? text.substring(0, max) + "…" : text;
+  }
+
+  /**
+   * Valida X-Hub-Signature-256: Meta firma el body raw con HMAC-SHA256 usando
+   * el App Secret, formato header "sha256=<hex>". Comparación en tiempo
+   * constante para evitar timing attacks.
+   */
+  private boolean isValidSignature(String rawBody, String signatureHeader) {
+    if (signatureHeader == null || !signatureHeader.startsWith("sha256=")) {
+      return false;
+    }
+    String expectedHex = signatureHeader.substring("sha256=".length());
+    try {
+      Mac mac = Mac.getInstance("HmacSHA256");
+      mac.init(new SecretKeySpec(appSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+      byte[] computed = mac.doFinal(rawBody.getBytes(StandardCharsets.UTF_8));
+      String computedHex = HexFormat.of().formatHex(computed);
+      return MessageDigest.isEqual(
+          computedHex.getBytes(StandardCharsets.UTF_8),
+          expectedHex.getBytes(StandardCharsets.UTF_8));
+    } catch (Exception ex) {
+      log.warn("whatsapp webhook: fallo validando firma: {}", ex.getMessage());
+      return false;
+    }
   }
 }

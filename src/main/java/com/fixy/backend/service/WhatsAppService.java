@@ -43,7 +43,8 @@ public class WhatsAppService {
       ObjectMapper objectMapper,
       @Value("${fixy.whatsapp.phone-number-id:}") String phoneNumberId,
       @Value("${fixy.whatsapp.access-token:}") String accessToken,
-      @Value("${fixy.whatsapp.api-version:v21.0}") String apiVersion
+      @Value("${fixy.whatsapp.api-version:v21.0}") String apiVersion,
+      @Value("${fixy.whatsapp.base-url:https://graph.facebook.com}") String baseUrl
   ) {
     this.objectMapper = objectMapper;
     this.phoneNumberId = phoneNumberId;
@@ -52,7 +53,7 @@ public class WhatsAppService {
     this.enabled = phoneNumberId != null && !phoneNumberId.isBlank()
         && accessToken != null && !accessToken.isBlank();
     this.client = WebClient.builder()
-        .baseUrl("https://graph.facebook.com")
+        .baseUrl(baseUrl)
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
         .build();
     log.info("WhatsAppService initialized: enabled={} apiVersion={}", enabled, apiVersion);
