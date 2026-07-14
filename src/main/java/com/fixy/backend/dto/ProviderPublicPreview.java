@@ -16,7 +16,8 @@ public record ProviderPublicPreview(
       String primaryZone,
       String categories,
       Integer completedJobsCount,
-      Double ratingAverage
+      Double ratingAverage,
+      Integer ratingCount
   ) {
   }
 }

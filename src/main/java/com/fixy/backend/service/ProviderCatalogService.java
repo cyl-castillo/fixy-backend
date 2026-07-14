@@ -105,13 +105,21 @@ public class ProviderCatalogService {
 
     List<com.fixy.backend.dto.ProviderPublicPreview.Item> sample = matched.stream()
         .limit(limit)
-        .map(p -> new com.fixy.backend.dto.ProviderPublicPreview.Item(
-            p.getName(),
-            p.getPrimaryZone(),
-            p.getCategories(),
-            p.getCompletedJobsCount(),
-            p.getRatingAverage()
-        ))
+        .map(p -> {
+          // Honestidad en reputación: el prior de ranking (NEW_PROVIDER_RATING_PRIOR)
+          // es solo para ordenar el matching internamente y nunca debe llegar acá.
+          // Si no hay calificaciones reales, no exponer un promedio al cliente.
+          int ratingCount = p.getRatingCount() == null ? 0 : p.getRatingCount();
+          Double ratingAverage = ratingCount == 0 ? null : p.getRatingAverage();
+          return new com.fixy.backend.dto.ProviderPublicPreview.Item(
+              p.getName(),
+              p.getPrimaryZone(),
+              p.getCategories(),
+              p.getCompletedJobsCount(),
+              ratingAverage,
+              ratingCount
+          );
+        })
         .toList();
 
     return new com.fixy.backend.dto.ProviderPublicPreview(matched.size(), sample);

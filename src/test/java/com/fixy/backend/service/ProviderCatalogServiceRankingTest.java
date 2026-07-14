@@ -85,4 +85,41 @@ class ProviderCatalogServiceRankingTest {
     assertThat(matches).extracting(ProviderCatalogItem::id)
         .containsExactlyInAnyOrder(1L, 2L);
   }
+
+  /**
+   * Honestidad en reputación: el prior 4.0 de {@code rankingScore} es solo
+   * para ordenar el matching internamente. El preview público cliente-facing
+   * nunca debe mostrar un promedio a un proveedor con ratingCount == 0 — el
+   * front decide "Nuevo en Fixy" en base a ratingCount, así que el DTO debe
+   * exponerlo.
+   */
+  @Test
+  void previewPublicoNoExponeRatingInfladoParaProveedorSinCalificaciones() {
+    service = new ProviderCatalogService(providerRepository);
+    Provider nuevo = provider(1L, "Nuevo", null, 0);
+
+    when(providerRepository.findAll()).thenReturn(List.of(nuevo));
+
+    var preview = service.publicPreview("plomeria", "Pocitos", 3);
+
+    assertThat(preview.count()).isEqualTo(1);
+    assertThat(preview.sample()).hasSize(1);
+    var item = preview.sample().get(0);
+    assertThat(item.ratingAverage()).isNull();
+    assertThat(item.ratingCount()).isZero();
+  }
+
+  @Test
+  void previewPublicoExponeElRatingRealParaProveedorConCalificaciones() {
+    service = new ProviderCatalogService(providerRepository);
+    Provider calificado = provider(1L, "Calificado", 4.8, 12);
+
+    when(providerRepository.findAll()).thenReturn(List.of(calificado));
+
+    var preview = service.publicPreview("plomeria", "Pocitos", 3);
+
+    var item = preview.sample().get(0);
+    assertThat(item.ratingAverage()).isEqualTo(4.8);
+    assertThat(item.ratingCount()).isEqualTo(12);
+  }
 }
