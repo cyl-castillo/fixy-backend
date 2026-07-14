@@ -267,7 +267,7 @@ public class AgentService {
     List<String> leadTypeEnum = List.of("cliente", "proveedor");
     List<String> serviceCategoryEnum = List.of(
         "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-        "aires_acondicionados", "reparaciones", "otro"
+        "aires_acondicionados", "reparaciones", "pasteleria", "otro"
     );
     List<String> urgencyEnum = List.of("alta", "media", "baja");
     return Map.of(
@@ -438,6 +438,9 @@ public class AgentService {
     if (containsAny(message, "arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana")) {
       return "reparaciones";
     }
+    if (containsAny(message, "torta", "tortas", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres", "candy bar")) {
+      return "pasteleria";
+    }
     return "otro";
   }
 
@@ -596,6 +599,9 @@ public class AgentService {
     }
     if (containsAny(normalized, "aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización", "refrigeracion", "refrigeración")) {
       return "aires_acondicionados";
+    }
+    if (containsAny(normalized, "torta", "cumpleaños", "cumpleanos", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería")) {
+      return "pasteleria";
     }
     return normalized.isBlank() ? "otro" : normalized;
   }

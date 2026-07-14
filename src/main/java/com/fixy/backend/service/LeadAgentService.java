@@ -310,7 +310,7 @@ public class LeadAgentService {
         {
           "reply": "tu respuesta conversacional al cliente",
           "extracted": {
-            "category": "plomeria|barometrica|jardineria|aires_acondicionados|otro|null",
+            "category": "plomeria|barometrica|jardineria|aires_acondicionados|pasteleria|otro|null",
             "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
             "urgency": "alta|media|baja|null",
             "phone": "099XXXXXX o null",
@@ -324,6 +324,8 @@ public class LeadAgentService {
         - Usá null cuando el dato no aparezca en la conversación (no inventes).
         - Sólo extraé valores que el cliente dijo explícitamente o son obvios del contexto.
         - phone debe tener formato uruguayo: 8-9 dígitos empezando con 09 ó 9.
+        - Si category es "pasteleria", incluí en "details" lo que el cliente haya dicho sobre
+          fecha del evento, cantidad de personas o porciones, y temática/tipo de torta.
         """;
     String raw;
     if ("workersai".equals(provider)) {
@@ -346,7 +348,7 @@ public class LeadAgentService {
       return null;
     }
     try {
-      List<String> categoryEnum = List.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "otro");
+      List<String> categoryEnum = List.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria", "otro");
       List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
           "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar",
           "Aeroparque", "Ciudad de la Costa", "otro");
@@ -635,6 +637,9 @@ public class LeadAgentService {
     if (t.contains("aire acondicionado") || t.contains("aire que no enfria") || t.contains("aire que no enfría") || t.contains("split") || t.contains("recarga de gas") || t.contains("no enfria") || t.contains("no enfría")) {
       return "aires_acondicionados";
     }
+    if (t.contains("torta") || t.contains("tortas") || t.contains("cumpleaños") || t.contains("cumpleanos") || t.contains("cumple ") || t.contains("mesa dulce") || t.contains("cupcake") || t.contains("pasteleria") || t.contains("pastelería") || t.contains("reposteria") || t.contains("repostería") || t.contains("postre") || t.contains("postres") || t.contains("shots dulces") || t.contains("candy bar")) {
+      return "pasteleria";
+    }
     return null;
   }
 
@@ -815,7 +820,7 @@ public class LeadAgentService {
   }
 
   private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados");
+      java.util.Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria");
   private static final java.util.Set<String> MVP_LOCATIONS = java.util.Set.of(
       "ciudad de la costa", "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
       "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
@@ -883,6 +888,7 @@ public class LeadAgentService {
       case "electricidad" -> "electricidad";
       case "cerrajeria" -> "cerrajería";
       case "reparaciones" -> "reparaciones";
+      case "pasteleria" -> "pastelería";
       default -> raw == null || raw.isBlank() ? "tu pedido" : raw;
     };
   }
