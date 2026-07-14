@@ -17,6 +17,13 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
   List<Lead> findByAssignedProviderIdOrderByCreatedAtDesc(Long assignedProviderId);
   List<Lead> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(OffsetDateTime from, OffsetDateTime to);
 
+  /**
+   * Leads de un canal+telefono dado, mas nuevos primero. Usado por el intake
+   * de WhatsApp para decidir si un mensaje entrante continua una conversacion
+   * abierta (mismo phone+channel, status no terminal) o inicia una nueva.
+   */
+  List<Lead> findByPhoneAndChannelOrderByCreatedAtDesc(String phone, String channel);
+
   /** H2.4: candidatos a auto-confirmación — completados, sin disputa y sin
    * haber corrido ya el scheduler. El filtro de "sin rating" y de las 72h
    * desde el evento de completado se aplica en el servicio (requiere leer

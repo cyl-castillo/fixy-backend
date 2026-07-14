@@ -35,6 +35,7 @@ public class LeadMessageService {
   private final LeadMessageRepository messageRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
+  private final WhatsAppService whatsappService;
 
   private final int maxMessagesPerWindow;
   private final Duration messageWindow;
@@ -45,12 +46,14 @@ public class LeadMessageService {
       LeadMessageRepository messageRepository,
       LeadRepository leadRepository,
       LeadTimelineService timelineService,
+      WhatsAppService whatsappService,
       @Value("${fixy.chat.max-messages-per-window:10}") int maxMessagesPerWindow,
       @Value("${fixy.chat.window-seconds:60}") long windowSeconds
   ) {
     this.messageRepository = messageRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
+    this.whatsappService = whatsappService;
     this.maxMessagesPerWindow = maxMessagesPerWindow;
     this.messageWindow = Duration.ofSeconds(windowSeconds);
   }
@@ -88,6 +91,11 @@ public class LeadMessageService {
    * Persiste un mensaje generado por el agente Fixy. Saltea las validaciones
    * del cliente (rate limit, anti-link, anti-repetido) porque el agente las
    * controla en su propio servicio.
+   *
+   * Si el lead vino por WhatsApp (channel="whatsapp"), ademas envia el texto
+   * al cliente por Cloud API. Es el unico punto donde el agente persiste sus
+   * respuestas, asi que es el lugar correcto para el side-effect de salida —
+   * evita duplicar el envio en cada call-site de LeadAgentService.
    */
   public LeadMessageResponse postFromAgent(Long leadId, String rawText) {
     Lead lead = leadRepository.findById(leadId)
@@ -95,6 +103,30 @@ public class LeadMessageService {
     String text = sanitize(rawText);
     LeadMessage saved = persist(lead.getId(), "fixy", text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_FIXY", "agent",
+        text.length() > 80 ? text.substring(0, 80) + "…" : text);
+    if ("whatsapp".equals(lead.getChannel()) && lead.getPhone() != null && !lead.getPhone().isBlank()) {
+      whatsappService.sendText(lead.getPhone(), text);
+    }
+    return LeadMessageResponse.fromEntity(saved);
+  }
+
+  /**
+   * Persiste un mensaje entrante de un cliente que escribe por WhatsApp.
+   * Analogo a {@link #postFromCustomer} pero sin accessToken (la identidad
+   * la da el numero verificado por Meta, no un token de sesion del navegador)
+   * y sin el anti-link (en WhatsApp es normal que un cliente mande una
+   * direccion o un link de ubicacion; el anti-link es una proteccion del
+   * chat web contra spam de bots).
+   */
+  public LeadMessageResponse postFromWhatsAppCustomer(Long leadId, String rawText) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    String text = sanitize(rawText);
+    rejectIfRepeatedFromCustomer(lead.getId(), text);
+    enforceCustomerRateLimit(lead.getId());
+    LeadMessage saved = persist(lead.getId(), "customer", text);
+    lastTextByLead.put(lead.getId(), text);
+    timelineService.appendEvent(lead, "MESSAGE_FROM_CUSTOMER", "user",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
     return LeadMessageResponse.fromEntity(saved);
   }
