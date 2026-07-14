@@ -152,8 +152,28 @@ public class ProviderSelfService {
   public Provider regenerateAccessToken(Long providerId) {
     Provider provider = providerRepository.findById(providerId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));
-    provider.setAccessToken(UUID.randomUUID().toString().replace("-", ""));
+    provider.setAccessToken(newAccessToken());
     return providerRepository.save(provider);
+  }
+
+  /**
+   * Devuelve el provider con accessToken garantizado: si ya tiene uno, lo
+   * deja intacto (no rota el link que ops ya pudo haber compartido); si es
+   * null, genera uno nuevo. Usado por avisos automáticos (Telegram) que
+   * necesitan el link de panel sin invalidar tokens ya entregados.
+   */
+  public Provider ensureAccessToken(Long providerId) {
+    Provider provider = providerRepository.findById(providerId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));
+    if (provider.getAccessToken() == null || provider.getAccessToken().isBlank()) {
+      provider.setAccessToken(newAccessToken());
+      return providerRepository.save(provider);
+    }
+    return provider;
+  }
+
+  private String newAccessToken() {
+    return UUID.randomUUID().toString().replace("-", "");
   }
 
   private int safeInc(Integer value) {

@@ -54,6 +54,7 @@ public class LeadAgentService {
   private final com.fixy.backend.repository.ProviderRepository providerRepository;
   private final LeadTimelineService leadTimelineService;
   private final AgentService agentService;
+  private final TelegramNotifyService telegramNotifyService;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -64,6 +65,7 @@ public class LeadAgentService {
       com.fixy.backend.repository.ProviderRepository providerRepository,
       LeadTimelineService leadTimelineService,
       AgentService agentService,
+      TelegramNotifyService telegramNotifyService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -80,6 +82,7 @@ public class LeadAgentService {
     this.providerRepository = providerRepository;
     this.leadTimelineService = leadTimelineService;
     this.agentService = agentService;
+    this.telegramNotifyService = telegramNotifyService;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.objectMapper = objectMapper;
@@ -563,8 +566,10 @@ public class LeadAgentService {
         leadMessageService.postFromAgent(lead.getId(),
             "Por ahora no tengo proveedores libres en %s para %s. Te aviso por acá apenas alguien levante el pedido."
                 .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory())));
+        safeTelegramNotifyDemandWithoutSupply(lead);
         return;
       }
+      safeTelegramNotifyOpportunity(lead, matches);
       ProviderCatalogItem top = matches.get(0);
       com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
 
@@ -606,6 +611,24 @@ public class LeadAgentService {
       }
     } catch (Exception ex) {
       log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  /** Nunca debe interrumpir tryAutoMatch: TelegramNotifyService ya se protege
+   *  internamente, pero esto es una segunda red de seguridad barata. */
+  private void safeTelegramNotifyOpportunity(Lead lead, List<ProviderCatalogItem> matches) {
+    try {
+      telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
+    } catch (Exception ex) {
+      log.warn("telegram notifyOpportunity failed for lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  private void safeTelegramNotifyDemandWithoutSupply(Lead lead) {
+    try {
+      telegramNotifyService.notifyDemandWithoutSupply(lead);
+    } catch (Exception ex) {
+      log.warn("telegram notifyDemandWithoutSupply failed for lead {}: {}", lead.getId(), ex.getMessage());
     }
   }
 

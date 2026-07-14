@@ -54,19 +54,22 @@ public class LeadService {
   private final ProviderCatalogService providerCatalogService;
   private final LeadTimelineService leadTimelineService;
   private final LeadAgentService leadAgentService;
+  private final TelegramNotifyService telegramNotifyService;
 
   public LeadService(
       LeadRepository leadRepository,
       AgentService agentService,
       ProviderCatalogService providerCatalogService,
       LeadTimelineService leadTimelineService,
-      LeadAgentService leadAgentService
+      LeadAgentService leadAgentService,
+      TelegramNotifyService telegramNotifyService
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
     this.providerCatalogService = providerCatalogService;
     this.leadTimelineService = leadTimelineService;
     this.leadAgentService = leadAgentService;
+    this.telegramNotifyService = telegramNotifyService;
   }
 
   /**
@@ -187,7 +190,8 @@ public class LeadService {
       );
     }
 
-    List<ProviderMatchItem> matches = providerCatalogService.findMatches(lead.getDetectedCategory(), lead.getLocation()).stream()
+    List<ProviderCatalogItem> catalogMatches = providerCatalogService.findMatches(lead.getDetectedCategory(), lead.getLocation());
+    List<ProviderMatchItem> matches = catalogMatches.stream()
         .map(provider -> toProviderMatch(provider, lead))
         .sorted((a, b) -> Integer.compare(b.score(), a.score()))
         .toList();
@@ -196,6 +200,7 @@ public class LeadService {
     lead.setHistory(appendHistory(lead.getHistory(), message));
     Lead saved = leadRepository.save(lead);
     leadTimelineService.appendEvent(saved, "MATCH_GENERATED", "system", message);
+    notifyOpsOfOpportunity(saved, catalogMatches);
 
     return new LeadMatchResponse(
         toResponse(saved, null, null),
@@ -453,6 +458,24 @@ public class LeadService {
       return "ask_location";
     }
     return "generate_matches";
+  }
+
+  /**
+   * Aviso a Carlos por Telegram (parche interino hasta credenciales Meta de
+   * proveedor). notifyOpportunityWithMatches/notifyDemandWithoutSupply son
+   * @Async y ya tienen catch-all interno; este try/catch es una segunda red
+   * de seguridad para que un fallo nunca tumbe la respuesta del matching.
+   */
+  private void notifyOpsOfOpportunity(Lead lead, List<ProviderCatalogItem> matches) {
+    try {
+      if (matches.isEmpty()) {
+        telegramNotifyService.notifyDemandWithoutSupply(lead);
+      } else {
+        telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
+      }
+    } catch (Exception ex) {
+      // best-effort, nunca romper generateMatches
+    }
   }
 
   private ProviderMatchItem toProviderMatch(ProviderCatalogItem provider, Lead lead) {
