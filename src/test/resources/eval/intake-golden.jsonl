@@ -30,3 +30,6 @@
 {"id": "c30", "message": "necesito un electricista para revisar el tablero, no es nada urgente, shangrila", "expectedCategory": "electricidad", "expectedArea": "Shangrilá", "expectedUrgency": "baja"}
 {"id": "c31", "message": "hola buenas, necesito un servicio para mi casa en montevideo", "expectedCategory": "otro", "expectedArea": "sin definir", "expectedUrgency": "baja"}
 {"id": "c32", "message": "el aire split no calienta, hace mucho frio, cuanto antes por favor, aeroparque", "expectedCategory": "aires_acondicionados", "expectedArea": "Aeroparque", "expectedUrgency": "media"}
+{"id": "c33", "message": "quiero una torta de cumpleaños tematica de princesas para mi hija, estoy en shangrila", "expectedCategory": "pasteleria", "expectedArea": "Shangrilá", "expectedUrgency": "baja"}
+{"id": "c34", "message": "necesito una mesa dulce con cupcakes para un cumpleaños de 15, lagomar, es para el sabado", "expectedCategory": "pasteleria", "expectedArea": "Lagomar", "expectedUrgency": "baja"}
+{"id": "c35", "message": "hola queria consultar por pasteleria para un catering de evento en solymar", "expectedCategory": "pasteleria", "expectedArea": "Solymar", "expectedUrgency": "baja"}

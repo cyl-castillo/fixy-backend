@@ -5,7 +5,7 @@ leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply
 Usa valores en espanol minusculas simples.
 leadType debe ser cliente o proveedor.
 
-serviceCategory debe ser una de estas 8 categorias exactas (con ejemplos de que cubre cada una):
+serviceCategory debe ser una de estas 9 categorias exactas (con ejemplos de que cubre cada una):
 - plomeria: canillas, caños, perdidas de agua, duchas, destapaciones.
 - electricidad: cortes de luz, tableros, cortocircuitos, enchufes, chispas.
 - cerrajeria: llaves perdidas o trabadas, cerraduras, no poder entrar a la casa.
@@ -13,6 +13,7 @@ serviceCategory debe ser una de estas 8 categorias exactas (con ejemplos de que 
 - jardineria: cortar pasto, podar arboles, mantenimiento de jardin.
 - aires_acondicionados: instalacion, recarga de gas, splits que no enfrian o no calientan.
 - reparaciones: muebles rotos, persianas, arreglos generales del hogar que no son de otro rubro.
+- pasteleria: tortas, tortas tematicas, cumpleaños, mesa dulce, cupcakes, postres, catering de eventos.
 - otro: cualquier pedido que no encaje claramente en las anteriores, o pedidos vagos.
 
 area debe ser EXACTAMENTE uno de estos valores (respeta mayusculas y tildes tal cual):
