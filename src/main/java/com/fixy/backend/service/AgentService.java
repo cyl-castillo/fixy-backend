@@ -265,10 +265,8 @@ public class AgentService {
    */
   static Map<String, Object> intakeJsonSchema() {
     List<String> leadTypeEnum = List.of("cliente", "proveedor");
-    List<String> serviceCategoryEnum = List.of(
-        "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-        "aires_acondicionados", "reparaciones", "pasteleria", "otro"
-    );
+    // Fuente única: com.fixy.backend.model.ServiceCategory (MVP + legacy no-MVP + "otro").
+    List<String> serviceCategoryEnum = com.fixy.backend.model.ServiceCategory.ALL_IDS_INCLUDING_OTRO;
     List<String> urgencyEnum = List.of("alta", "media", "baja");
     return Map.of(
         "type", "object",
@@ -416,32 +414,11 @@ public class AgentService {
     return "cliente";
   }
 
+  /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
   private String detectService(String message) {
-    if (containsAny(message, "agua", "canilla", "ducha", "caño", "cano", "perdida", "pierde", "plomer")) {
-      return "plomeria";
-    }
-    if (containsAny(message, "luz", "corriente", "enchufe", "tablero", "corto", "electric")) {
-      return "electricidad";
-    }
-    if (containsAny(message, "llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj")) {
-      return "cerrajeria";
-    }
-    if (containsAny(message, "pozo", "barometr", "camara septica", "cámara séptica")) {
-      return "barometrica";
-    }
-    if (containsAny(message, "jardin", "jardín", "pasto", "cesped", "césped", "cortar pasto", "mantenimiento exterior", "jardiner")) {
-      return "jardineria";
-    }
-    if (containsAny(message, "aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización", "no enfria", "no enfría", "no calienta", "recarga de gas", "mantenimiento de aire")) {
-      return "aires_acondicionados";
-    }
-    if (containsAny(message, "arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana")) {
-      return "reparaciones";
-    }
-    if (containsAny(message, "torta", "tortas", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres", "candy bar")) {
-      return "pasteleria";
-    }
-    return "otro";
+    return com.fixy.backend.model.ServiceCategory.detectFromText(message)
+        .map(com.fixy.backend.model.ServiceCategory::id)
+        .orElse("otro");
   }
 
   private String resolvedService(IntakeRequest request, String message) {

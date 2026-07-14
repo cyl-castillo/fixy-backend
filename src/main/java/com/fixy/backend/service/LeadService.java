@@ -32,7 +32,8 @@ import org.springframework.web.server.ResponseStatusException;
 public class LeadService {
 
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-  private static final Set<String> MVP_CATEGORIES = Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria");
+  /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
+  private static final Set<String> MVP_CATEGORIES = Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
   private static final Set<String> MVP_LOCATIONS = Set.of(
       "ciudad de la costa",
       "solymar",

@@ -309,6 +309,9 @@ public class LeadAgentService {
   private record AgentTurnResult(String reply, Map<String, String> extracted) {}
 
   private AgentTurnResult respondAndExtractTurn(Lead lead, String context, String history) {
+    // Catálogo derivado de ServiceCategory.MVP_IDS (fuente única) — antes era
+    // una lista "plomeria|barometrica|..." fija a mano acá.
+    String categoryOptions = String.join("|", com.fixy.backend.model.ServiceCategory.MVP_IDS) + "|otro|null";
     String userContent = context + "\n\nConversación reciente:\n" + history + """
 
 
@@ -322,7 +325,7 @@ public class LeadAgentService {
         {
           "reply": "tu respuesta conversacional al cliente",
           "extracted": {
-            "category": "plomeria|barometrica|jardineria|aires_acondicionados|pasteleria|otro|null",
+            "category": "%s",
             "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
             "urgency": "alta|media|baja|null",
             "phone": "099XXXXXX o null",
@@ -338,7 +341,7 @@ public class LeadAgentService {
         - phone debe tener formato uruguayo: 8-9 dígitos empezando con 09 ó 9.
         - Si category es "pasteleria", incluí en "details" lo que el cliente haya dicho sobre
           fecha del evento, cantidad de personas o porciones, y temática/tipo de torta.
-        """;
+        """.formatted(categoryOptions);
     String raw;
     if ("workersai".equals(provider)) {
       raw = callWorkersAiJson(SYSTEM_PROMPT, userContent);
@@ -360,7 +363,10 @@ public class LeadAgentService {
       return null;
     }
     try {
-      List<String> categoryEnum = List.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria", "otro");
+      // Fuente única: com.fixy.backend.model.ServiceCategory.MVP_IDS. El turno
+      // conversacional solo pide categorías MVP (matching real) + "otro".
+      List<String> categoryEnum = java.util.stream.Stream.concat(
+          com.fixy.backend.model.ServiceCategory.MVP_IDS.stream(), java.util.stream.Stream.of("otro")).toList();
       List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
           "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar",
           "Aeroparque", "Ciudad de la Costa", "otro");
@@ -591,9 +597,12 @@ public class LeadAgentService {
       leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
           "Contactando a %s via WhatsApp".formatted(top.name()));
 
-      // Aviso conversacional al cliente.
+      // Aviso conversacional al cliente: contactando, NO "conseguido" — todavía
+      // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
+      // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
+      // que le mintieron.
       leadMessageService.postFromAgent(lead.getId(),
-          "Conseguí a %s para %s en %s. Le estoy escribiendo ahora por WhatsApp y te aviso por acá cuando confirme."
+          "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
               .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation()));
 
       // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
@@ -644,6 +653,8 @@ public class LeadAgentService {
   /**
    * Detecta categoría buscando keywords en el último mensaje del cliente y/o
    * en el problema del lead. Fallback cuando el LLM duda y devuelve "otro".
+   * Deriva del catálogo único ServiceCategory (ver su javadoc) — antes esta
+   * lista de keywords estaba duplicada a mano acá y en AgentService.detectService.
    */
   private String heuristicCategory(Lead lead) {
     StringBuilder text = new StringBuilder();
@@ -656,23 +667,9 @@ public class LeadAgentService {
         }
       }
     } catch (Exception ignored) {}
-    String t = text.toString();
-    if (t.contains("barometr") || t.contains("pozo") || t.contains("camara septica") || t.contains("cámara séptica")) {
-      return "barometrica";
-    }
-    if (t.contains("plomer") || t.contains("canilla") || t.contains("caño") || t.contains("cano ") || t.contains("perdida de agua") || t.contains("pierde agua") || t.contains("destap")) {
-      return "plomeria";
-    }
-    if (t.contains("jardin") || t.contains("jardín") || t.contains("pasto") || t.contains("cesped") || t.contains("césped") || t.contains("cortar el pasto")) {
-      return "jardineria";
-    }
-    if (t.contains("aire acondicionado") || t.contains("aire que no enfria") || t.contains("aire que no enfría") || t.contains("split") || t.contains("recarga de gas") || t.contains("no enfria") || t.contains("no enfría")) {
-      return "aires_acondicionados";
-    }
-    if (t.contains("torta") || t.contains("tortas") || t.contains("cumpleaños") || t.contains("cumpleanos") || t.contains("cumple ") || t.contains("mesa dulce") || t.contains("cupcake") || t.contains("pasteleria") || t.contains("pastelería") || t.contains("reposteria") || t.contains("repostería") || t.contains("postre") || t.contains("postres") || t.contains("shots dulces") || t.contains("candy bar")) {
-      return "pasteleria";
-    }
-    return null;
+    return com.fixy.backend.model.ServiceCategory.detectFromText(text.toString())
+        .map(com.fixy.backend.model.ServiceCategory::id)
+        .orElse(null);
   }
 
   private String composeProblemFromExtracted(Map<String, String> extracted) {
@@ -914,8 +911,9 @@ public class LeadAgentService {
     };
   }
 
+  /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
   private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.of("plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria");
+      java.util.Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
   private static final java.util.Set<String> MVP_LOCATIONS = java.util.Set.of(
       "ciudad de la costa", "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
       "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
@@ -974,18 +972,9 @@ public class LeadAgentService {
     return "Hola, soy Fixy. Ya recibí tu pedido de %s en %s. Estoy buscando un proveedor disponible — te aviso por acá apenas alguien acepte.".formatted(category, location);
   }
 
+  /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
   private String humanCategory(String raw) {
-    return switch (raw == null ? "" : raw.toLowerCase().trim()) {
-      case "plomeria" -> "plomería";
-      case "barometrica" -> "barométrica";
-      case "jardineria" -> "jardinería";
-      case "aires_acondicionados" -> "aire acondicionado";
-      case "electricidad" -> "electricidad";
-      case "cerrajeria" -> "cerrajería";
-      case "reparaciones" -> "reparaciones";
-      case "pasteleria" -> "pastelería";
-      default -> raw == null || raw.isBlank() ? "tu pedido" : raw;
-    };
+    return com.fixy.backend.model.ServiceCategory.humanLabel(raw);
   }
 
   private String humanMissing(String missingFieldsRaw) {
