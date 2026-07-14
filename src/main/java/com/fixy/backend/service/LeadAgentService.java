@@ -7,7 +7,9 @@ import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
+import com.fixy.backend.model.UserLead;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.UserLeadRepository;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +32,10 @@ public class LeadAgentService {
 
   private static final Logger log = LoggerFactory.getLogger(LeadAgentService.class);
   private static final int HISTORY_LIMIT = 10;
+  /** Salto 1 de memoria de cliente (PLAN_SUPERAPP_CLIENTE.md): cuántos leads
+   * previos del mismo AppUser se resumen e inyectan al contexto. Mantenido
+   * chico a propósito — es un resumen, no un volcado de historial. */
+  private static final int CUSTOMER_MEMORY_LEAD_LIMIT = 3;
 
   private static final String SYSTEM_PROMPT = PromptLoader.load("prompts/lead-agent-system.md");
 
@@ -49,6 +55,7 @@ public class LeadAgentService {
   private final boolean enabled;
   private final LeadMessageService leadMessageService;
   private final LeadRepository leadRepository;
+  private final UserLeadRepository userLeadRepository;
   private final ProviderCatalogService providerCatalogService;
   private final WhatsAppService whatsappService;
   private final com.fixy.backend.repository.ProviderRepository providerRepository;
@@ -60,6 +67,7 @@ public class LeadAgentService {
       ObjectMapper objectMapper,
       LeadMessageService leadMessageService,
       LeadRepository leadRepository,
+      UserLeadRepository userLeadRepository,
       ProviderCatalogService providerCatalogService,
       WhatsAppService whatsappService,
       com.fixy.backend.repository.ProviderRepository providerRepository,
@@ -88,6 +96,7 @@ public class LeadAgentService {
     this.objectMapper = objectMapper;
     this.leadMessageService = leadMessageService;
     this.leadRepository = leadRepository;
+    this.userLeadRepository = userLeadRepository;
     this.providerCatalogService = providerCatalogService;
     this.openAiApiKey = openAiApiKey;
     this.openAiModel = openAiModel;
@@ -802,7 +811,7 @@ public class LeadAgentService {
     }
   }
 
-  private String buildContext(Lead lead) {
+  String buildContext(Lead lead) {
     String category = humanCategory(safe(lead.getDetectedCategory(), "sin definir"));
     String location = safe(lead.getLocation(), "sin definir");
     String urgency = safe(lead.getUrgency(), "no especificada");
@@ -820,6 +829,8 @@ public class LeadAgentService {
       coverageHint = "\nINSTRUCCION: ahora mismo no hay proveedores libres en '" + location + "' para " + category + ". Avisá que vas a contactar apenas aparezca uno. No alarmes.\n";
     }
 
+    String customerMemory = buildCustomerMemorySection(lead);
+
     return """
         Contexto del pedido (interno, NO compartir IDs al cliente):
         - ID interno: %d
@@ -829,7 +840,7 @@ public class LeadAgentService {
         - Urgencia: %s
         - Datos faltantes: %s
         - Proveedores disponibles en esa zona+servicio: %d
-        %s
+        %s%s
         """.formatted(
         lead.getId(),
         safe(lead.getProblem(), ""),
@@ -838,8 +849,69 @@ public class LeadAgentService {
         urgency,
         missing,
         providerCount,
-        coverageHint
+        coverageHint,
+        customerMemory
     );
+  }
+
+  /**
+   * Salto 1 de memoria de cliente (PLAN_SUPERAPP_CLIENTE.md / ARQUITECTURA_SUPERAPP.md
+   * §1 "Salto 1"). Si este lead está vinculado a un AppUser logueado
+   * (via UserLead — ver UserLeadService), arma un resumen compacto de sus
+   * últimos N pedidos previos (categoría, zona, estado, si tuvo proveedor)
+   * para que el agente pueda personalizar sin inventar. Cliente anónimo (sin
+   * AppUser) => string vacío, cero costo extra de tokens, cero cambio de
+   * comportamiento respecto a hoy.
+   */
+  private String buildCustomerMemorySection(Lead lead) {
+    try {
+      Long userId = findLinkedUserId(lead.getId());
+      if (userId == null) {
+        return "";
+      }
+      List<Lead> previous = userLeadRepository.findByUserIdOrderByCreatedAtDesc(userId).stream()
+          .map(UserLead::getLeadId)
+          .filter(id -> !id.equals(lead.getId()))
+          .map(id -> leadRepository.findById(id).orElse(null))
+          .filter(java.util.Objects::nonNull)
+          .limit(CUSTOMER_MEMORY_LEAD_LIMIT)
+          .toList();
+      if (previous.isEmpty()) {
+        return "";
+      }
+      StringBuilder sb = new StringBuilder("\nHistorial con este cliente (ya logueado, usalo para personalizar SIN inventar datos que no están acá):\n");
+      for (Lead p : previous) {
+        sb.append("- ").append(humanCategory(safe(p.getDetectedCategory(), "servicio sin definir")))
+            .append(" en ").append(safe(p.getLocation(), "zona sin definir"))
+            .append(", estado ").append(humanStatus(p.getStatus()));
+        if (p.getAssignedProvider() != null && !p.getAssignedProvider().isBlank()) {
+          sb.append(", con el proveedor ").append(p.getAssignedProvider());
+        }
+        sb.append(".\n");
+      }
+      return sb.toString();
+    } catch (Exception ex) {
+      log.warn("buildCustomerMemorySection failed for lead {}: {}", lead.getId(), ex.getMessage());
+      return "";
+    }
+  }
+
+  /** Busca el userId de AppUser vinculado a este lead, si existe. */
+  private Long findLinkedUserId(Long leadId) {
+    return userLeadRepository.findUserIdByLeadId(leadId).orElse(null);
+  }
+
+  private String humanStatus(com.fixy.backend.model.LeadStatus status) {
+    if (status == null) return "desconocido";
+    return switch (status) {
+      case NEW -> "recién creado";
+      case IN_REVIEW -> "en revisión";
+      case PROVIDER_CONTACTED -> "contactando proveedor";
+      case ASSIGNED -> "proveedor asignado";
+      case IN_PROGRESS -> "en curso";
+      case COMPLETED -> "completado";
+      case CANCELLED -> "cancelado";
+    };
   }
 
   private static final java.util.Set<String> MVP_CATEGORIES =
