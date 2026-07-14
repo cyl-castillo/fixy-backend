@@ -89,7 +89,11 @@ class ProviderCommissionsEndpointTest {
         .andExpect(jsonPath("$.pendingCount").value(0))
         .andExpect(jsonPath("$.paidAmount").value(0))
         .andExpect(jsonPath("$.paidCount").value(0))
-        .andExpect(jsonPath("$.currency").value("UYU"));
+        .andExpect(jsonPath("$.currency").value("UYU"))
+        .andExpect(jsonPath("$.earningsThisMonth").value(0))
+        .andExpect(jsonPath("$.earningsThisMonthCount").value(0))
+        .andExpect(jsonPath("$.earningsTotal").value(0))
+        .andExpect(jsonPath("$.earningsTotalCount").value(0));
   }
 
   @Test
@@ -108,6 +112,28 @@ class ProviderCommissionsEndpointTest {
         .andExpect(jsonPath("$.pendingCount").value(1))
         .andExpect(jsonPath("$.paidCount").value(0))
         .andExpect(jsonPath("$.pendingAmount").value(org.hamcrest.Matchers.greaterThan(0.0)));
+  }
+
+  @Test
+  void proveedorVeIngresosPropiosTrasCompletarLead() throws Exception {
+    ProviderAndLead ctx = createAssignedLead("099800004", "099800104");
+
+    mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/status", ctx.providerId(), ctx.leadId())
+            .param("token", ctx.providerToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\": \"COMPLETED\", \"amountCharged\": 3000.00}"))
+        .andExpect(status().isOk());
+
+    // Lo que el proveedor GANÓ (amountCharged) es distinto y mayor a lo que
+    // le debe a Fixy (10% de comisión) — no deben confundirse en la
+    // respuesta del endpoint.
+    mockMvc.perform(get("/api/public/providers/{id}/commissions", ctx.providerId())
+            .param("token", ctx.providerToken()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.earningsThisMonth").value(3000.0))
+        .andExpect(jsonPath("$.earningsThisMonthCount").value(1))
+        .andExpect(jsonPath("$.earningsTotal").value(3000.0))
+        .andExpect(jsonPath("$.earningsTotalCount").value(1));
   }
 
   @Test

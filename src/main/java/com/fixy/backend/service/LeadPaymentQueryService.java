@@ -6,6 +6,8 @@ import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -17,9 +19,11 @@ import org.springframework.stereotype.Service;
 public class LeadPaymentQueryService {
 
   private final LeadPaymentRepository leadPaymentRepository;
+  private final Clock clock;
 
-  public LeadPaymentQueryService(LeadPaymentRepository leadPaymentRepository) {
+  public LeadPaymentQueryService(LeadPaymentRepository leadPaymentRepository, Clock clock) {
     this.leadPaymentRepository = leadPaymentRepository;
+    this.clock = clock;
   }
 
   public List<LeadPaymentSummary> list(CommissionStatus statusFilter) {
@@ -49,6 +53,12 @@ public class LeadPaymentQueryService {
     int paidCount = 0;
     String currency = payments.get(0).getCurrency();
 
+    BigDecimal earningsThisMonth = BigDecimal.ZERO;
+    int earningsThisMonthCount = 0;
+    BigDecimal earningsTotal = BigDecimal.ZERO;
+    int earningsTotalCount = 0;
+    OffsetDateTime now = OffsetDateTime.now(clock);
+
     for (LeadPayment payment : payments) {
       if (payment.getCommissionStatus() == CommissionStatus.PAID) {
         paid = paid.add(payment.getCommissionAmount());
@@ -59,8 +69,24 @@ public class LeadPaymentQueryService {
         pendingCount++;
       }
       // WAIVED no suma a ninguno de los dos totales: Fixy decidió no cobrarla.
+
+      // Ingresos propios (lo que el proveedor GANÓ, no lo que le debe a
+      // Fixy): todo LeadPayment representa un lead COMPLETED con monto
+      // cobrado real, sin importar el estado de la comisión.
+      earningsTotal = earningsTotal.add(payment.getAmountCharged());
+      earningsTotalCount++;
+      if (isSameMonth(payment.getCreatedAt(), now)) {
+        earningsThisMonth = earningsThisMonth.add(payment.getAmountCharged());
+        earningsThisMonthCount++;
+      }
     }
 
-    return new ProviderCommissionSummary(pending, pendingCount, paid, paidCount, currency);
+    return new ProviderCommissionSummary(
+        pending, pendingCount, paid, paidCount, currency,
+        earningsThisMonth, earningsThisMonthCount, earningsTotal, earningsTotalCount);
+  }
+
+  private boolean isSameMonth(OffsetDateTime a, OffsetDateTime b) {
+    return a.getYear() == b.getYear() && a.getMonth() == b.getMonth();
   }
 }
