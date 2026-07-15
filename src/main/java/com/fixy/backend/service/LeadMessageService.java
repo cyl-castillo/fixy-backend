@@ -101,6 +101,13 @@ public class LeadMessageService {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
     String text = sanitize(rawText);
+    // Guard anti-loro: si el último mensaje del chat ya es este mismo texto
+    // del agente, no lo repetimos (en el lead #109 el agente posteó dos veces
+    // seguidas el mismo enlatado arriba de una charla cliente↔proveedor).
+    LeadMessage last = messageRepository.findFirstByLeadIdOrderByIdDesc(leadId).orElse(null);
+    if (last != null && "fixy".equals(last.getSender()) && text.equals(last.getText())) {
+      return LeadMessageResponse.fromEntity(last);
+    }
     LeadMessage saved = persist(lead.getId(), "fixy", text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_FIXY", "agent",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);

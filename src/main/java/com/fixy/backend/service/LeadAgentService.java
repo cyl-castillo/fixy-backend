@@ -910,10 +910,20 @@ public class LeadAgentService {
   }
 
   String buildContext(Lead lead) {
+    // OJO: el catálogo de proveedores matchea por el ID de categoría
+    // ("pasteleria"), no por la etiqueta humana ("Pastelería") — pasarle la
+    // etiqueta hacía contar 0 y el agente le decía al cliente "no hay
+    // proveedores" mientras el auto-match SÍ encontraba uno (lead #108/#109).
+    String rawCategory = safe(lead.getDetectedCategory(), "");
+    String rawLocation = safe(lead.getLocation(), "");
     String category = humanCategory(safe(lead.getDetectedCategory(), "sin definir"));
     String location = safe(lead.getLocation(), "sin definir");
     String urgency = safe(lead.getUrgency(), "no especificada");
-    int providerCount = countProvidersInZone(category, location);
+    boolean categoryKnown = !rawCategory.isBlank() && !"otro".equalsIgnoreCase(rawCategory);
+    boolean locationKnown = !rawLocation.isBlank() && !"sin definir".equalsIgnoreCase(rawLocation);
+    int providerCount = (categoryKnown && locationKnown)
+        ? countProvidersInZone(rawCategory, rawLocation)
+        : 0;
     String missing = safe(lead.getMissingFields(), "").replace("||", ", ");
     if (missing.isBlank()) missing = "ninguno";
 
@@ -923,8 +933,13 @@ public class LeadAgentService {
       coverageHint = "\nINSTRUCCION DURA: la zona '" + location + "' NO ESTA EN COBERTURA. Decile al cliente con honestidad que todavia no operás ahí, que guardás el pedido y le avisás cuando llegues a esa zona. NO INVENTES otra zona ni le ofrezcas un proveedor.\n";
     } else if ("out_of_scope_category".equals(action)) {
       coverageHint = "\nINSTRUCCION DURA: el servicio '" + category + "' NO ESTA en la lista MVP. Decile que todavía no cubrís ese rubro y que guardás el pedido para cuando lo sumes. NO le ofrezcas un proveedor.\n";
-    } else if (providerCount == 0) {
+    } else if (categoryKnown && locationKnown && providerCount == 0) {
+      // Solo afirmar "no hay proveedores" cuando categoría Y zona están
+      // definidas: antes se inyectaba también con datos "sin definir" y el
+      // agente lo decía en el PRIMER mensaje del cliente.
       coverageHint = "\nINSTRUCCION: ahora mismo no hay proveedores libres en '" + location + "' para " + category + ". Avisá que vas a contactar apenas aparezca uno. No alarmes.\n";
+    } else if (!categoryKnown || !locationKnown) {
+      coverageHint = "\nINSTRUCCION: todavía faltan datos (categoría o zona). NO afirmes nada sobre disponibilidad de proveedores — ni que hay ni que no hay. Pedí el dato que falta.\n";
     }
 
     String customerMemory = buildCustomerMemorySection(lead);

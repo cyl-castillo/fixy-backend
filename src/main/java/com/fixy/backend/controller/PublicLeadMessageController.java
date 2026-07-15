@@ -70,28 +70,32 @@ public class PublicLeadMessageController {
       @Valid @RequestBody LeadMessageCreateRequest request
   ) {
     LeadMessageResponse persisted = messageService.postFromCustomer(leadId, token, request.text());
-    // Si el lead ya está asignado a un proveedor, hacemos relay del mensaje del
-    // cliente directo al WhatsApp del proveedor. Si no, deja que el agente
-    // responda como hasta ahora.
+    // Si el lead ya está asignado a un proveedor, la conversación es entre
+    // humanos: el agente NO responde (aunque WhatsApp esté apagado — antes el
+    // else lo hacía interrumpir la charla cliente↔proveedor con enlatados).
+    // Si además WhatsApp está habilitado, hacemos relay del mensaje del
+    // cliente directo al WhatsApp del proveedor.
     Lead lead = leadRepository.findById(leadId).orElse(null);
     boolean assignedToProvider = lead != null
         && lead.getAssignedProviderId() != null
         && (lead.getStatus() == LeadStatus.ASSIGNED
             || lead.getStatus() == LeadStatus.IN_PROGRESS
             || lead.getStatus() == LeadStatus.PROVIDER_CONTACTED);
-    if (assignedToProvider && whatsappService.isEnabled()) {
-      try {
-        Provider p = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
-        if (p != null) {
-          String to = (p.getWhatsappNumber() == null || p.getWhatsappNumber().isBlank())
-              ? p.getPhone() : p.getWhatsappNumber();
-          if (to != null && !to.isBlank()) {
-            String customerName = lead.getName() == null ? "Cliente" : lead.getName();
-            whatsappService.sendText(to, customerName + " (lead #" + lead.getId() + "): " + request.text());
+    if (assignedToProvider) {
+      if (whatsappService.isEnabled()) {
+        try {
+          Provider p = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
+          if (p != null) {
+            String to = (p.getWhatsappNumber() == null || p.getWhatsappNumber().isBlank())
+                ? p.getPhone() : p.getWhatsappNumber();
+            if (to != null && !to.isBlank()) {
+              String customerName = lead.getName() == null ? "Cliente" : lead.getName();
+              whatsappService.sendText(to, customerName + " (lead #" + lead.getId() + "): " + request.text());
+            }
           }
+        } catch (Exception ex) {
+          log.warn("relay customer→provider failed: {}", ex.getMessage());
         }
-      } catch (Exception ex) {
-        log.warn("relay customer→provider failed: {}", ex.getMessage());
       }
     } else {
       agentService.respondToCustomerAsync(leadId);
