@@ -12,6 +12,7 @@ import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.UserLeadRepository;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
@@ -247,7 +248,47 @@ public class LeadAgentService {
     }
     // Releer el lead: applyExtractedFields pudo haber actualizado categoría/zona.
     Lead refreshed = leadRepository.findById(leadId).orElse(lead);
+    if (isPriceQuestion(lastCustomerMessage)) {
+      leadMessageService.postFromAgent(leadId, heuristicPriceReply(refreshed));
+      return;
+    }
     leadMessageService.postFromAgent(leadId, heuristicFallbackReply(refreshed));
+  }
+
+  private static final List<String> PRICE_QUESTION_KEYWORDS =
+      List.of("cuanto", "cuánto", "precio", "sale", "cuesta", "vale");
+
+  /** Detecta si el mensaje del cliente es una pregunta de precio (fallback sin LLM,
+   * ver PLAN_SUPERAPP_CLIENTE.md Cotización Estimada punto 3). Heurística simple por
+   * keywords, igual de espíritu que el resto de los clasificadores heurísticos del repo. */
+  private boolean isPriceQuestion(String message) {
+    if (message == null || message.isBlank()) {
+      return false;
+    }
+    String normalized = message.toLowerCase(Locale.ROOT);
+    return PRICE_QUESTION_KEYWORDS.stream().anyMatch(normalized::contains);
+  }
+
+  /**
+   * Respuesta del fallback heurístico a una pregunta de precio: si hay categoría
+   * definida y con rango cargado, responde el rango con el disclaimer de siempre.
+   * Si hay categoría pero sin rango cargado, es honesto: el proveedor cotiza.
+   * Si no hay categoría todavía, pide el dato antes de poder ayudar con precio.
+   */
+  private String heuristicPriceReply(Lead lead) {
+    boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
+        && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
+    if (!hasCategory) {
+      return "Para darte una idea de precio primero necesito saber qué necesitás arreglar — ¿de qué se trata?";
+    }
+    String category = humanCategory(lead.getDetectedCategory());
+    String range = com.fixy.backend.model.ServiceCategory.priceRangeLabelForId(lead.getDetectedCategory());
+    if (range == null) {
+      return "El precio de %s lo termina de confirmar el proveedor cuando vea el trabajo, así que no te quiero tirar un número inventado."
+          .formatted(category);
+    }
+    return "Para %s el rango orientativo ronda %s (visita + trabajo simple), pero el precio final te lo confirma el proveedor cuando vea el trabajo."
+        .formatted(category, range);
   }
 
   private String lastCustomerMessage(Long leadId) {
@@ -943,6 +984,7 @@ public class LeadAgentService {
     }
 
     String customerMemory = buildCustomerMemorySection(lead);
+    String priceRangeLine = buildPriceRangeLine(rawCategory, categoryKnown);
 
     return """
         Contexto del pedido (interno, NO compartir IDs al cliente):
@@ -953,7 +995,7 @@ public class LeadAgentService {
         - Urgencia: %s
         - Datos faltantes: %s
         - Proveedores disponibles en esa zona+servicio: %d
-        %s%s
+        %s%s%s
         """.formatted(
         lead.getId(),
         safe(lead.getProblem(), ""),
@@ -963,8 +1005,33 @@ public class LeadAgentService {
         missing,
         providerCount,
         coverageHint,
-        customerMemory
+        customerMemory,
+        priceRangeLine
     );
+  }
+
+  /**
+   * Cotización Estimada (Ola 2 MVP, PLAN_SUPERAPP_CLIENTE.md §Ola 2 punto 4).
+   * Si la categoría está definida y tiene rango de referencia cargado en
+   * ServiceCategory, se lo inyecta al LLM con instrucción de uso restringida:
+   * ofrecerlo SOLO si el cliente pregunta precio o al confirmar el pedido,
+   * SIEMPRE con el disclaimer de que el proveedor confirma el precio final.
+   * Sin categoría conocida o sin rango cargado: string vacío — el agente debe
+   * decir honestamente que el proveedor cotiza, nunca inventar un número.
+   */
+  private String buildPriceRangeLine(String rawCategory, boolean categoryKnown) {
+    if (!categoryKnown) {
+      return "";
+    }
+    String range = com.fixy.backend.model.ServiceCategory.priceRangeLabelForId(rawCategory);
+    if (range == null) {
+      return "";
+    }
+    return "\nINSTRUCCION: rango orientativo de precio para este servicio: " + range
+        + " UYU (visita + trabajo simple). Ofrecelo SOLO si el cliente pregunta precio/cuánto"
+        + " sale/cuesta/vale, o al confirmar el pedido — nunca de arranque sin que lo pida."
+        + " SIEMPRE aclará que es un precio de referencia y que el proveedor confirma el precio"
+        + " final. NUNCA prometas ese número como precio exacto o cerrado.\n";
   }
 
   /**

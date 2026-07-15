@@ -26,29 +26,49 @@ import java.util.Optional;
  * agregar una keyword nueva no requiera tocar 2 métodos distintos.
  */
 public enum ServiceCategory {
+  // ---------------------------------------------------------------------
+  // RANGOS DE PRECIO (UYU) — Cotización Estimada, Ola 2 MVP.
+  // Los dos últimos parámetros de cada constante son (precioMinimo, precioMaximo)
+  // en pesos uruguayos, o (null, null) si todavía no hay rango cargado.
+  // SON PLACEHOLDERS razonables para Uruguay 2026, puestos por ingeniería para
+  // destrabar el feature — CARLOS DEBE VALIDARLOS con proveedores reales antes
+  // de confiar en ellos frente a clientes. Para editar: cambiar los dos números
+  // de la categoría correspondiente acá abajo y recompilar/redeployar (no hay
+  // config externa hoy — si esto empieza a cambiar seguido, mover a application.yml).
+  // Representan "visita + trabajo simple/estándar", no casos grandes o excepcionales;
+  // el agente SIEMPRE aclara que el precio final lo confirma el proveedor.
+  // ---------------------------------------------------------------------
   PLOMERIA("plomeria", "plomería", true,
       List.of("agua", "canilla", "ducha", "caño", "cano", "perdida", "pierde", "perdida de agua",
-          "pierde agua", "plomer", "destap")),
+          "pierde agua", "plomer", "destap"),
+      800, 2500),
   ELECTRICIDAD("electricidad", "electricidad", false,
-      List.of("luz", "corriente", "enchufe", "tablero", "corto", "electric")),
+      List.of("luz", "corriente", "enchufe", "tablero", "corto", "electric"),
+      null, null),
   CERRAJERIA("cerrajeria", "cerrajería", false,
-      List.of("llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj")),
+      List.of("llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj"),
+      null, null),
   BAROMETRICA("barometrica", "barométrica", true,
-      List.of("pozo", "barometr", "camara septica", "cámara séptica")),
+      List.of("pozo", "barometr", "camara septica", "cámara séptica"),
+      1500, 4000),
   JARDINERIA("jardineria", "jardinería", true,
       List.of("jardin", "jardín", "pasto", "cesped", "césped", "cortar el pasto", "cortar pasto",
-          "mantenimiento exterior", "jardiner")),
+          "mantenimiento exterior", "jardiner"),
+      1200, 3000),
   AIRES_ACONDICIONADOS("aires_acondicionados", "aire acondicionado", true,
       List.of("aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría",
           "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría",
-          "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración")),
+          "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración"),
+      1500, 4500),
   REPARACIONES("reparaciones", "reparaciones", false,
-      List.of("arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana")),
+      List.of("arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana"),
+      null, null),
   PASTELERIA("pasteleria", "pastelería", true,
       List.of("torta", "tortas", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake",
           "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres",
-          "shots dulces", "candy bar")),
-  OTRO("otro", "otro", false, List.of());
+          "shots dulces", "candy bar"),
+      900, 3500),
+  OTRO("otro", "otro", false, List.of(), null, null);
 
   /**
    * Superset de keywords por categoría, usado por los clasificadores heurísticos
@@ -64,12 +84,17 @@ public enum ServiceCategory {
   private final String label;
   private final boolean mvp;
   private final List<String> keywords;
+  private final Integer priceMin;
+  private final Integer priceMax;
 
-  ServiceCategory(String id, String label, boolean mvp, List<String> keywords) {
+  ServiceCategory(String id, String label, boolean mvp, List<String> keywords,
+      Integer priceMin, Integer priceMax) {
     this.id = id;
     this.label = label;
     this.mvp = mvp;
     this.keywords = keywords;
+    this.priceMin = priceMin;
+    this.priceMax = priceMax;
   }
 
   /** Valor persistido en Lead.detectedCategory / IntakeRequest.serviceCategory. */
@@ -89,6 +114,25 @@ public enum ServiceCategory {
 
   public List<String> keywords() {
     return keywords;
+  }
+
+  /** true si hay un rango de precio orientativo cargado para esta categoría. */
+  public boolean hasPriceRange() {
+    return priceMin != null && priceMax != null;
+  }
+
+  /**
+   * Rango orientativo en UYU, formato "$min–max", o null si no hay rango
+   * cargado (ver comentario de placeholders arriba del enum). Los llamadores
+   * deben chequear {@link #hasPriceRange()} antes de usar esto, y siempre
+   * mostrarlo con el disclaimer "el precio final lo confirma el proveedor" —
+   * nunca como precio exacto o final.
+   */
+  public String priceRangeLabel() {
+    if (!hasPriceRange()) {
+      return null;
+    }
+    return "$" + priceMin + "–" + priceMax;
   }
 
   /** IDs de las categorías MVP (matching real) — reemplaza los MVP_CATEGORIES duplicados. */
@@ -135,5 +179,10 @@ public enum ServiceCategory {
   public static String humanLabel(String rawId) {
     return fromId(rawId).map(ServiceCategory::label)
         .orElse(rawId == null || rawId.isBlank() ? "tu pedido" : rawId);
+  }
+
+  /** Rango orientativo en UYU para el id dado, o null si no hay categoría o no hay rango cargado. */
+  public static String priceRangeLabelForId(String rawId) {
+    return fromId(rawId).map(ServiceCategory::priceRangeLabel).orElse(null);
   }
 }
