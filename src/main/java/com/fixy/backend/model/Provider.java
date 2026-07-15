@@ -58,6 +58,12 @@ public class Provider {
   private Integer ratingCount;
   private Integer internalScore;
 
+  /** Disponibilidad MVP: false = "en pausa", no recibe nuevas oportunidades
+   * en su bandeja ({@link com.fixy.backend.service.ProviderOpportunityService}).
+   * Default true (disponible) para no romper a proveedores existentes. */
+  @Column(nullable = false)
+  private Boolean acceptingWork;
+
   @Column(length = 1000)
   private String riskFlags;
 
@@ -110,6 +116,9 @@ public class Provider {
     if (internalScore == null) {
       internalScore = 0;
     }
+    if (acceptingWork == null) {
+      acceptingWork = true;
+    }
   }
 
   @PreUpdate
@@ -151,6 +160,8 @@ public class Provider {
   public void setRatingCount(Integer ratingCount) { this.ratingCount = ratingCount; }
   public Integer getInternalScore() { return internalScore; }
   public void setInternalScore(Integer internalScore) { this.internalScore = internalScore; }
+  public Boolean getAcceptingWork() { return acceptingWork; }
+  public void setAcceptingWork(Boolean acceptingWork) { this.acceptingWork = acceptingWork; }
   public String getRiskFlags() { return riskFlags; }
   public void setRiskFlags(String riskFlags) { this.riskFlags = riskFlags; }
   public OffsetDateTime getLastContactedAt() { return lastContactedAt; }

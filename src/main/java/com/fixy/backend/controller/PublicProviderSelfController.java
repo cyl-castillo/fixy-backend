@@ -19,6 +19,7 @@ import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -90,6 +91,20 @@ public class PublicProviderSelfController {
     return ProviderSelfResponse.fromEntity(provider, leads);
   }
 
+  @PatchMapping("/availability")
+  public ProviderSelfResponse updateAvailability(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody AvailabilityUpdateRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Provider updated = selfService.setAcceptingWork(provider, request.acceptingWork());
+    List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(updated).stream()
+        .map(ProviderAssignedLeadSummary::fromEntity)
+        .toList();
+    return ProviderSelfResponse.fromEntity(updated, leads);
+  }
+
   @GetMapping("/commissions")
   public ProviderCommissionSummary commissions(
       @PathVariable Long providerId,
@@ -141,5 +156,8 @@ public class PublicProviderSelfController {
   }
 
   public record StatusUpdateRequest(@NotNull LeadStatus status, BigDecimal amountCharged) {
+  }
+
+  public record AvailabilityUpdateRequest(@NotNull Boolean acceptingWork) {
   }
 }

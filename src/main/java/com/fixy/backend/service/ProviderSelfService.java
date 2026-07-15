@@ -149,6 +149,18 @@ public class ProviderSelfService {
     return lead;
   }
 
+  /**
+   * Disponibilidad MVP (agenda/disponibilidad, base de Ola 2): el proveedor
+   * la setea desde su panel con el mismo token de self-service. En pausa
+   * ({@code acceptingWork=false}) filtra al proveedor de
+   * {@link ProviderOpportunityService#listFor} — no afecta trabajos ya
+   * asignados, solo oportunidades nuevas.
+   */
+  public Provider setAcceptingWork(Provider provider, boolean acceptingWork) {
+    provider.setAcceptingWork(acceptingWork);
+    return providerRepository.save(provider);
+  }
+
   public Provider regenerateAccessToken(Long providerId) {
     Provider provider = providerRepository.findById(providerId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));

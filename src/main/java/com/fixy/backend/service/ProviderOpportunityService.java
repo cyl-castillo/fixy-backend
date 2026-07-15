@@ -63,6 +63,12 @@ public class ProviderOpportunityService {
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
+    // Disponibilidad MVP: en pausa (acceptingWork=false) no ve oportunidades
+    // nuevas. No afecta trabajos ya asignados (assignedLeadsFor).
+    if (provider.getAcceptingWork() != null && !provider.getAcceptingWork()) {
+      return List.of();
+    }
+
     Set<Long> declinedLeadIds = declineRepository.findByProviderId(provider.getId()).stream()
         .map(ProviderLeadDecline::getLeadId)
         .collect(java.util.stream.Collectors.toSet());

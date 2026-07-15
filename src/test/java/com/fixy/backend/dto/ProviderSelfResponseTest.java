@@ -61,4 +61,26 @@ class ProviderSelfResponseTest {
     assertThat(response.ratingAverage()).isNull();
     assertThat(response.ratingCount()).isZero();
   }
+
+  @Test
+  void treatsNullAcceptingWorkAsAvailableForLegacyProviders() {
+    // Proveedores creados antes de este campo (ej. Melissa en prod) no
+    // deben quedar "en pausa" por default solo porque el campo es null.
+    Provider provider = baseProvider();
+    provider.setAcceptingWork(null);
+
+    ProviderSelfResponse response = ProviderSelfResponse.fromEntity(provider, List.of());
+
+    assertThat(response.acceptingWork()).isTrue();
+  }
+
+  @Test
+  void exposesAcceptingWorkFalseWhenProviderIsPaused() {
+    Provider provider = baseProvider();
+    provider.setAcceptingWork(false);
+
+    ProviderSelfResponse response = ProviderSelfResponse.fromEntity(provider, List.of());
+
+    assertThat(response.acceptingWork()).isFalse();
+  }
 }

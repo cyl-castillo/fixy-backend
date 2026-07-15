@@ -17,6 +17,7 @@ public record ProviderSelfResponse(
     String status,
     Double ratingAverage,
     Integer ratingCount,
+    Boolean acceptingWork,
     List<ProviderAssignedLeadSummary> assignedLeads
 ) {
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
@@ -38,6 +39,7 @@ public record ProviderSelfResponse(
         provider.getStatus() == null ? null : provider.getStatus().name(),
         ratingAverage,
         ratingCount,
+        provider.getAcceptingWork() == null || provider.getAcceptingWork(),
         leads
     );
   }
