@@ -56,6 +56,8 @@ public class LeadService {
   private final LeadTimelineService leadTimelineService;
   private final LeadAgentService leadAgentService;
   private final TelegramNotifyService telegramNotifyService;
+  private final PushNotificationService pushNotificationService;
+  private final ProviderSelfService providerSelfService;
 
   public LeadService(
       LeadRepository leadRepository,
@@ -63,7 +65,11 @@ public class LeadService {
       ProviderCatalogService providerCatalogService,
       LeadTimelineService leadTimelineService,
       LeadAgentService leadAgentService,
-      TelegramNotifyService telegramNotifyService
+      TelegramNotifyService telegramNotifyService,
+      PushNotificationService pushNotificationService,
+      // @Lazy: mismo motivo que en TelegramNotifyService — providerSelfService
+      // solo se usa en runtime (ensureAccessToken) y evita ciclo de beans.
+      @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
@@ -71,6 +77,8 @@ public class LeadService {
     this.leadTimelineService = leadTimelineService;
     this.leadAgentService = leadAgentService;
     this.telegramNotifyService = telegramNotifyService;
+    this.pushNotificationService = pushNotificationService;
+    this.providerSelfService = providerSelfService;
   }
 
   /**
@@ -477,6 +485,31 @@ public class LeadService {
     } catch (Exception ex) {
       // best-effort, nunca romper generateMatches
     }
+    notifyProvidersOfOpportunity(lead, matches);
+  }
+
+  /**
+   * Web Push (Ola UX): oportunidad nueva → aviso directo a cada proveedor
+   * que matchea, si se suscribió. No-op silencioso si push no está
+   * configurado. Best-effort por proveedor: que uno falle no afecta a los
+   * demás ni al flujo de generateMatches.
+   */
+  private void notifyProvidersOfOpportunity(Lead lead, List<ProviderCatalogItem> matches) {
+    if (!pushNotificationService.isEnabled()) return;
+    for (ProviderCatalogItem match : matches) {
+      try {
+        com.fixy.backend.model.Provider provider = providerSelfService.ensureAccessToken(match.id());
+        pushNotificationService.notifyProvider(provider.getId(), provider.getAccessToken(),
+            "Nueva oportunidad para vos",
+            humanCategory(lead.getDetectedCategory()) + " en " + safe(lead.getLocation()));
+      } catch (Exception ex) {
+        // best-effort, nunca romper generateMatches
+      }
+    }
+  }
+
+  private String humanCategory(String raw) {
+    return raw == null || raw.isBlank() ? "servicio" : raw;
   }
 
   private ProviderMatchItem toProviderMatch(ProviderCatalogItem provider, Lead lead) {

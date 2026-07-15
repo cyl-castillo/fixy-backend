@@ -74,3 +74,7 @@ fixy:
   telegram:
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     chat-id: ${TELEGRAM_CHAT_ID:}
+  push:
+    vapid-public-key: ${FIXY_PUSH_VAPID_PUBLIC_KEY:}
+    vapid-private-key: ${FIXY_PUSH_VAPID_PRIVATE_KEY:}
+    subject: ${FIXY_PUSH_SUBJECT:mailto:soporte@fixy.com.uy}

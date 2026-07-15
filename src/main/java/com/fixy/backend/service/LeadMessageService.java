@@ -3,8 +3,10 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.LeadMessageResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
+import com.fixy.backend.model.Provider;
 import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.ProviderRepository;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -34,8 +36,10 @@ public class LeadMessageService {
 
   private final LeadMessageRepository messageRepository;
   private final LeadRepository leadRepository;
+  private final ProviderRepository providerRepository;
   private final LeadTimelineService timelineService;
   private final WhatsAppService whatsappService;
+  private final PushNotificationService pushNotificationService;
 
   private final int maxMessagesPerWindow;
   private final Duration messageWindow;
@@ -45,15 +49,19 @@ public class LeadMessageService {
   public LeadMessageService(
       LeadMessageRepository messageRepository,
       LeadRepository leadRepository,
+      ProviderRepository providerRepository,
       LeadTimelineService timelineService,
       WhatsAppService whatsappService,
+      PushNotificationService pushNotificationService,
       @Value("${fixy.chat.max-messages-per-window:10}") int maxMessagesPerWindow,
       @Value("${fixy.chat.window-seconds:60}") long windowSeconds
   ) {
     this.messageRepository = messageRepository;
     this.leadRepository = leadRepository;
+    this.providerRepository = providerRepository;
     this.timelineService = timelineService;
     this.whatsappService = whatsappService;
+    this.pushNotificationService = pushNotificationService;
     this.maxMessagesPerWindow = maxMessagesPerWindow;
     this.messageWindow = Duration.ofSeconds(windowSeconds);
   }
@@ -84,6 +92,7 @@ public class LeadMessageService {
     lastTextByLead.put(lead.getId(), text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_CUSTOMER", "user",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
+    notifyAssignedProviderOfCustomerMessage(lead, text);
     return LeadMessageResponse.fromEntity(saved);
   }
 
@@ -114,6 +123,7 @@ public class LeadMessageService {
     if ("whatsapp".equals(lead.getChannel()) && lead.getPhone() != null && !lead.getPhone().isBlank()) {
       whatsappService.sendText(lead.getPhone(), text);
     }
+    notifyCustomerOfNews(lead, text);
     return LeadMessageResponse.fromEntity(saved);
   }
 
@@ -135,6 +145,7 @@ public class LeadMessageService {
     lastTextByLead.put(lead.getId(), text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_CUSTOMER", "user",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
+    notifyAssignedProviderOfCustomerMessage(lead, text);
     return LeadMessageResponse.fromEntity(saved);
   }
 
@@ -166,7 +177,42 @@ public class LeadMessageService {
     String eventType = sender.equals("provider") ? "MESSAGE_FROM_PROVIDER" : "MESSAGE_FROM_FIXY";
     timelineService.appendEvent(lead, eventType, sender,
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
+    notifyCustomerOfNews(lead, text);
     return LeadMessageResponse.fromEntity(saved);
+  }
+
+  /**
+   * Web Push (Ola UX): el cliente entra un mensaje que no es suyo (fixy o
+   * proveedor) → avisamos por push aunque tenga la pestaña cerrada. No-op
+   * silencioso si push no está configurado (ver {@link PushNotificationService}).
+   */
+  private void notifyCustomerOfNews(Lead lead, String text) {
+    try {
+      String preview = text.length() > 100 ? text.substring(0, 100) + "…" : text;
+      pushNotificationService.notifyLeadHasNews(lead.getId(), "Fixy: tenés novedades de tu pedido", preview);
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo de mensajería
+    }
+  }
+
+  /**
+   * Web Push (Ola UX): el cliente le escribe al proveedor en un lead ya
+   * asignado → avisamos al proveedor por push, igual que el aviso interino
+   * de Telegram a ops pero directo al proveedor. No-op silencioso si push
+   * no está configurado o el lead no está asignado.
+   */
+  private void notifyAssignedProviderOfCustomerMessage(Lead lead, String text) {
+    try {
+      if (lead.getAssignedProviderId() == null) return;
+      Provider provider = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
+      if (provider == null) return;
+      String customerName = lead.getName() == null || lead.getName().isBlank() ? "Cliente" : lead.getName();
+      String preview = text.length() > 100 ? text.substring(0, 100) + "…" : text;
+      pushNotificationService.notifyProvider(provider.getId(), provider.getAccessToken(),
+          customerName + " te escribió", preview);
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo de mensajería
+    }
   }
 
   private Lead requireLeadAndToken(Long leadId, String token) {

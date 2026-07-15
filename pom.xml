@@ -74,6 +74,20 @@
       <version>9.37.3</version>
     </dependency>
     <dependency>
+      <!-- Web Push (VAPID) para notificaciones push del navegador, incluso
+           con la pestaña cerrada. -->
+      <groupId>nl.martijndwars</groupId>
+      <artifactId>web-push</artifactId>
+      <version>5.1.1</version>
+    </dependency>
+    <dependency>
+      <!-- BouncyCastle: la lib web-push necesita este provider registrado
+           para las claves EC (ECDH/ECDSA) de VAPID; no es transitiva. -->
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcprov-jdk18on</artifactId>
+      <version>1.78.1</version>
+    </dependency>
+    <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
       <scope>test</scope>
