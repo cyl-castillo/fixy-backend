@@ -602,7 +602,9 @@ public class LeadService {
         lead.getAccessToken(),
         lead.getCreatedAt(),
         lead.getUpdatedAt(),
-        lead.isDisputed()
+        lead.isDisputed(),
+        lead.getDisputeResolvedAt(),
+        lead.getDisputeResolutionNote()
     );
   }
 

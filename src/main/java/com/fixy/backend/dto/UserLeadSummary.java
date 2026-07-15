@@ -12,6 +12,7 @@ public record UserLeadSummary(
     OffsetDateTime createdAt,
     String summary,
     String accessToken,
-    boolean disputed
+    boolean disputed,
+    OffsetDateTime disputeResolvedAt
 ) {
 }

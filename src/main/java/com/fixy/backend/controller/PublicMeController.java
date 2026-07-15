@@ -64,7 +64,8 @@ public class PublicMeController {
         lead.getCreatedAt(),
         lead.getSummary(),
         lead.getAccessToken(),
-        lead.isDisputed()
+        lead.isDisputed(),
+        lead.getDisputeResolvedAt()
     );
   }
 }

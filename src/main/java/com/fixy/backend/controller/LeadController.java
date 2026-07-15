@@ -2,9 +2,12 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.DiscoveredProviderCreateRequest;
 import com.fixy.backend.dto.DiscoveredProviderLinkResponse;
+import com.fixy.backend.dto.DisputeResolutionRequest;
+import com.fixy.backend.dto.DisputeResolutionResponse;
 import com.fixy.backend.dto.LeadCreateRequest;
 import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.LeadUpdateRequest;
+import com.fixy.backend.service.LeadClosingService;
 import com.fixy.backend.service.LeadService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -24,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class LeadController {
 
   private final LeadService leadService;
+  private final LeadClosingService leadClosingService;
 
-  public LeadController(LeadService leadService) {
+  public LeadController(LeadService leadService, LeadClosingService leadClosingService) {
     this.leadService = leadService;
+    this.leadClosingService = leadClosingService;
   }
 
   @PostMapping
@@ -52,5 +57,19 @@ public class LeadController {
       @Valid @RequestBody DiscoveredProviderCreateRequest request
   ) {
     return leadService.createDiscoveredProvider(id, request);
+  }
+
+  /**
+   * Cierre visible de disputas (Ola 2): ops marca una disputa abierta
+   * como resuelta con una nota corta. Mismo basic auth que el resto de
+   * {@code /api/leads/**} (ver SecurityConfig) — no se crea un endpoint
+   * público nuevo, esto es una acción de ops.
+   */
+  @PatchMapping("/{id}/dispute-resolution")
+  public DisputeResolutionResponse resolveDispute(
+      @PathVariable Long id,
+      @Valid @RequestBody DisputeResolutionRequest request
+  ) {
+    return leadClosingService.resolveDispute(id, request.resolutionNote());
   }
 }

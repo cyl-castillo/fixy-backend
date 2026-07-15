@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.DisputeResolutionResponse;
 import com.fixy.backend.dto.LeadCompletionConfirmRequest;
 import com.fixy.backend.dto.LeadCompletionConfirmResponse;
 import com.fixy.backend.model.Lead;
@@ -11,6 +12,7 @@ import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.OffsetDateTime;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -124,7 +126,52 @@ public class LeadClosingService {
     timelineService.appendEvent(lead, "CUSTOMER_DISPUTED_COMPLETION", "user",
         "Cliente reportó un problema: " + comment);
 
+    // Cierre visible de disputas (Ola 2): evento de vida propia (distinto
+    // del evento anterior, que registra el reporte en sí) + mensaje al
+    // cliente en el mismo hilo con expectativa concreta, para que no
+    // quede en el limbo esperando sin saber si alguien lo va a leer.
+    timelineService.appendEvent(lead, "DISPUTE_OPENED", "fixy",
+        "Se abrió una disputa para revisión de ops");
+    leadMessageService.postFromOps(lead.getId(), "fixy",
+        "Gracias por avisarnos. Una persona de Fixy va a revisar esto, te contactamos en menos de 24h.");
+
     return new LeadCompletionConfirmResponse(lead.getId(), false, true, null);
+  }
+
+  /**
+   * Cierre visible de disputas (Ola 2): ops (Carlos u otro operador,
+   * mismo basic auth de {@code /api/leads/**}) marca la disputa como
+   * resuelta con una nota corta. Idempotente por diseño — una segunda
+   * resolución sobre el mismo lead se rechaza limpio (409) en vez de
+   * pisar la nota anterior o duplicar el mensaje al cliente.
+   */
+  public DisputeResolutionResponse resolveDispute(Long leadId, String resolutionNote) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+
+    if (!lead.isDisputed()) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "este lead no tiene una disputa abierta");
+    }
+    if (lead.getDisputeResolvedAt() != null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "esta disputa ya fue resuelta antes");
+    }
+    if (resolutionNote == null || resolutionNote.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "la nota de resolución es obligatoria");
+    }
+
+    lead.setDisputeResolvedAt(OffsetDateTime.now());
+    lead.setDisputeResolutionNote(resolutionNote);
+    leadRepository.save(lead);
+
+    timelineService.appendEvent(lead, "DISPUTE_RESOLVED", "fixy", resolutionNote);
+    leadMessageService.postFromOps(lead.getId(), "fixy",
+        "Ya revisamos tu reporte: " + resolutionNote);
+
+    return new DisputeResolutionResponse(
+        lead.getId(), lead.isDisputed(), lead.getDisputeResolutionNote(), lead.getDisputeResolvedAt());
   }
 
   /** H2.3: agregación real desde la tabla, no incremental. */

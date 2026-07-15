@@ -75,6 +75,19 @@ public class Lead {
   @Column(nullable = false)
   private boolean disputed;
 
+  /** Cierre visible de disputas (Ola 2): momento en que ops marcó la
+   * disputa como resuelta. Null = todavía abierta/en revisión. No se
+   * limpia {@link #disputed} al resolver — la disputa "pasó", pero el
+   * hecho de que existió queda como historia del lead; el cliente ve la
+   * resolución vía el evento de timeline + este campo. */
+  private OffsetDateTime disputeResolvedAt;
+
+  /** Nota corta de ops explicando cómo se resolvió la disputa. Se le
+   * manda tal cual al cliente en el mensaje de resolución — por eso el
+   * límite corto (que sea honesto y legible, no un informe interno). */
+  @Column(length = 1000)
+  private String disputeResolutionNote;
+
   /** H2.4: momento en que el scheduler de auto-confirmación (72h sin
    * respuesta del cliente) emitió el evento. Null = todavía no corrió.
    * Se usa para idempotencia: si ya tiene valor, no se re-procesa. */
@@ -133,6 +146,10 @@ public class Lead {
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
   public boolean isDisputed() { return disputed; }
   public void setDisputed(boolean disputed) { this.disputed = disputed; }
+  public OffsetDateTime getDisputeResolvedAt() { return disputeResolvedAt; }
+  public void setDisputeResolvedAt(OffsetDateTime disputeResolvedAt) { this.disputeResolvedAt = disputeResolvedAt; }
+  public String getDisputeResolutionNote() { return disputeResolutionNote; }
+  public void setDisputeResolutionNote(String disputeResolutionNote) { this.disputeResolutionNote = disputeResolutionNote; }
   public OffsetDateTime getClosingAutoConfirmedAt() { return closingAutoConfirmedAt; }
   public void setClosingAutoConfirmedAt(OffsetDateTime closingAutoConfirmedAt) { this.closingAutoConfirmedAt = closingAutoConfirmedAt; }
 }

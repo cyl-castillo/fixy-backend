@@ -26,6 +26,8 @@ public record LeadResponse(
     String accessToken,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt,
-    boolean disputed
+    boolean disputed,
+    OffsetDateTime disputeResolvedAt,
+    String disputeResolutionNote
 ) {
 }

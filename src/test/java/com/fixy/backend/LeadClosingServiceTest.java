@@ -307,4 +307,124 @@ class LeadClosingServiceTest {
             .content("{\"confirmed\": true, \"score\": 5}"))
         .andExpect(status().isConflict());
   }
+
+  /**
+   * Cierre visible de disputas (Ola 2): abrir la disputa debe dejar
+   * rastro doble — evento DISPUTE_OPENED en el timeline y un mensaje
+   * honesto en el chat del cliente con expectativa de tiempo concreta.
+   */
+  @Test
+  void shouldPostEventAndMessageWhenDisputeOpens() throws Exception {
+    ProviderAndLead ctx = createCompletedLead("099800040", "099800140");
+
+    mockMvc.perform(post("/api/public/leads/{id}/confirm-completion", ctx.leadId())
+            .param("token", ctx.leadToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"confirmed\": false, \"comment\": \"quedó a medio hacer\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(get("/api/public/leads/{id}/timeline", ctx.leadId())
+            .param("token", ctx.leadToken()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.type == 'DISPUTE_OPENED')]").isNotEmpty());
+
+    mockMvc.perform(get("/api/leads/{id}/messages", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.text =~ /.*revisar esto.*24h.*/)]").isNotEmpty());
+  }
+
+  /**
+   * Cierre visible de disputas (Ola 2): ops resuelve con una nota corta →
+   * evento DISPUTE_RESOLVED + mensaje honesto al cliente con esa nota.
+   */
+  @Test
+  void shouldResolveDisputeWithNoteAndNotifyCustomer() throws Exception {
+    ProviderAndLead ctx = createCompletedLead("099800050", "099800150");
+
+    mockMvc.perform(post("/api/public/leads/{id}/confirm-completion", ctx.leadId())
+            .param("token", ctx.leadToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"confirmed\": false, \"comment\": \"no terminó el trabajo\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(patch("/api/leads/{id}/dispute-resolution", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"resolutionNote\": \"Hablamos con el proveedor, va a terminar el trabajo esta semana\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.leadId").value(ctx.leadId()))
+        .andExpect(jsonPath("$.disputed").value(true))
+        .andExpect(jsonPath("$.disputeResolutionNote").value("Hablamos con el proveedor, va a terminar el trabajo esta semana"))
+        .andExpect(jsonPath("$.disputeResolvedAt").exists());
+
+    mockMvc.perform(get("/api/public/leads/{id}/timeline", ctx.leadId())
+            .param("token", ctx.leadToken()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.type == 'DISPUTE_RESOLVED')]").isNotEmpty());
+
+    mockMvc.perform(get("/api/leads/{id}/messages", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.text =~ /.*Ya revisamos tu reporte.*terminar el trabajo esta semana.*/)]").isNotEmpty());
+
+    mockMvc.perform(get("/api/leads")
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$[?(@.id == %d)].disputeResolvedAt".formatted(ctx.leadId())).exists());
+  }
+
+  @Test
+  void shouldRejectDoubleResolution() throws Exception {
+    ProviderAndLead ctx = createCompletedLead("099800060", "099800160");
+
+    mockMvc.perform(post("/api/public/leads/{id}/confirm-completion", ctx.leadId())
+            .param("token", ctx.leadToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"confirmed\": false, \"comment\": \"problema\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(patch("/api/leads/{id}/dispute-resolution", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"resolutionNote\": \"Ya se resolvió con el cliente\"}"))
+        .andExpect(status().isOk());
+
+    // Idempotencia: una segunda resolución sobre el mismo lead se rechaza
+    // limpio (409), no pisa la nota ni duplica el mensaje al cliente.
+    mockMvc.perform(patch("/api/leads/{id}/dispute-resolution", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"resolutionNote\": \"Otra nota\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void shouldRejectResolvingDisputeThatWasNeverOpened() throws Exception {
+    ProviderAndLead ctx = createCompletedLead("099800070", "099800170");
+
+    // El lead está COMPLETED pero nunca se disputó (nadie confirmó ni reportó).
+    mockMvc.perform(patch("/api/leads/{id}/dispute-resolution", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"resolutionNote\": \"no aplica\"}"))
+        .andExpect(status().isConflict());
+  }
+
+  @Test
+  void shouldRejectResolutionWithBlankNote() throws Exception {
+    ProviderAndLead ctx = createCompletedLead("099800080", "099800180");
+
+    mockMvc.perform(post("/api/public/leads/{id}/confirm-completion", ctx.leadId())
+            .param("token", ctx.leadToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"confirmed\": false, \"comment\": \"problema\"}"))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(patch("/api/leads/{id}/dispute-resolution", ctx.leadId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"resolutionNote\": \"\"}"))
+        .andExpect(status().isBadRequest());
+  }
 }
