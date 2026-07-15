@@ -258,7 +258,15 @@ public class ProviderCatalogService {
   }
 
   private String normalize(String value) {
-    return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    if (value == null) {
+      return "";
+    }
+    // Sin acentos: "Shangrilá" (cliente) tiene que matchear "Shangrila"
+    // (proveedor registrado). Mismo tipo de bug que el de categorías por
+    // etiqueta humana — descubierto en la prueba de push con Melissa.
+    String lowered = value.trim().toLowerCase(Locale.ROOT);
+    return java.text.Normalizer.normalize(lowered, java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "");
   }
 
   private List<String> splitCsv(String raw) {
