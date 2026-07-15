@@ -35,19 +35,22 @@ public class LeadClosingService {
   private final LeadRatingRepository leadRatingRepository;
   private final LeadTimelineService timelineService;
   private final LeadMessageService leadMessageService;
+  private final TelegramNotifyService telegramNotifyService;
 
   public LeadClosingService(
       LeadRepository leadRepository,
       ProviderRepository providerRepository,
       LeadRatingRepository leadRatingRepository,
       LeadTimelineService timelineService,
-      LeadMessageService leadMessageService
+      LeadMessageService leadMessageService,
+      TelegramNotifyService telegramNotifyService
   ) {
     this.leadRepository = leadRepository;
     this.providerRepository = providerRepository;
     this.leadRatingRepository = leadRatingRepository;
     this.timelineService = timelineService;
     this.leadMessageService = leadMessageService;
+    this.telegramNotifyService = telegramNotifyService;
   }
 
   /**
@@ -134,6 +137,8 @@ public class LeadClosingService {
         "Se abrió una disputa para revisión de ops");
     leadMessageService.postFromOps(lead.getId(), "fixy",
         "Gracias por avisarnos. Una persona de Fixy va a revisar esto, te contactamos en menos de 24h.");
+    // Le prometimos al cliente "menos de 24h" — ops tiene que enterarse YA.
+    telegramNotifyService.notifyDisputeOpened(lead, comment);
 
     return new LeadCompletionConfirmResponse(lead.getId(), false, true, null);
   }

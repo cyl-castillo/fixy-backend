@@ -55,6 +55,8 @@ public class TelegramNotifyService {
   public static final String ESCALATED_EVENT_TYPE = "ESCALATED_TO_HUMAN";
   /** Aviso a ops de "cliente escribió en un lead asignado" — throttled, no una-vez-por-lead. */
   static final String CUSTOMER_MSG_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_CUSTOMER_MSG";
+  /** Aviso a ops de disputa abierta — una vez por lead. */
+  static final String DISPUTE_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_DISPUTE";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -68,7 +70,11 @@ public class TelegramNotifyService {
   public TelegramNotifyService(
       LeadEventRepository leadEventRepository,
       LeadTimelineService leadTimelineService,
-      ProviderSelfService providerSelfService,
+      // @Lazy: providerSelfService solo se usa en runtime (panelUrl). Sin esto
+      // hay ciclo de beans: TelegramNotify → ProviderSelf → LeadClosing →
+      // TelegramNotify (LeadClosing avisa disputas por acá). Telegram es un
+      // notificador hoja — cualquier servicio puede depender de él.
+      @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService,
       @Value("${fixy.telegram.bot-token:}") String botToken,
       @Value("${fixy.telegram.chat-id:}") String chatId,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
@@ -161,6 +167,27 @@ public class TelegramNotifyService {
             truncate(safe(summary), 200)
         );
     send(lead, ESCALATED_EVENT_TYPE, text, "Aviso de escalamiento a humano enviado a Telegram");
+  }
+
+  /**
+   * Cierre visible de disputas (Ola 2): al cliente se le promete revisión "en
+   * menos de 24h", así que ops tiene que enterarse en el momento. Idempotente
+   * por lead (una disputa abierta = un aviso; el modelo de datos tampoco
+   * permite reabrir) y respeta el guard "[smoke]".
+   */
+  @Async
+  public void notifyDisputeOpened(Lead lead, String customerComment) {
+    if (!shouldNotify(lead, DISPUTE_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⚠️ Disputa abierta en lead #%d (%s en %s, cliente %s): \"%s\" — prometimos respuesta en <24h. Resolvela con PATCH /api/leads/%d/dispute-resolution."
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            safe(lead.getName()),
+            truncate(safe(customerComment), 150),
+            lead.getId()
+        );
+    send(lead, DISPUTE_NOTIFIED_EVENT_TYPE, text, "Aviso de disputa abierta enviado a ops");
   }
 
   /**

@@ -235,6 +235,29 @@ class TelegramNotifyServiceTest {
   }
 
   @Test
+  void disputeOpened_notifiesOpsOncePerLead() throws InterruptedException {
+    Lead lead = persistLead("plomeria", "Solymar", "Se me rompió la canilla");
+
+    telegramNotifyService.notifyDisputeOpened(lead, "El trabajo quedó mal hecho");
+
+    String body = awaitOneMessage();
+    assertThat(body).contains("Disputa abierta en lead #" + lead.getId());
+    assertThat(body).contains("plomería en Solymar");
+    assertThat(body).contains("El trabajo quedó mal hecho");
+    assertThat(body).contains("dispute-resolution");
+
+    Awaitility.await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(50))
+        .untilAsserted(() -> assertThat(leadEventRepository
+            .findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "OPS_NOTIFIED_DISPUTE"))
+            .isNotEmpty());
+
+    // Idempotencia: segundo disparo del mismo lead no re-avisa.
+    telegramNotifyService.notifyDisputeOpened(lead, "El trabajo quedó mal hecho");
+    String second = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
+    assertThat(second).as("una disputa = un aviso").isNull();
+  }
+
+  @Test
   void customerMessageOnSmokeAssignedLead_doesNotNotify() throws InterruptedException {
     Lead lead = persistLead("pasteleria", "Solymar", "[smoke] prueba de aviso");
 
