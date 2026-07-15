@@ -63,6 +63,7 @@ public class LeadAgentService {
   private final LeadTimelineService leadTimelineService;
   private final AgentService agentService;
   private final TelegramNotifyService telegramNotifyService;
+  private final PushNotificationService pushNotificationService;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -75,6 +76,7 @@ public class LeadAgentService {
       LeadTimelineService leadTimelineService,
       AgentService agentService,
       TelegramNotifyService telegramNotifyService,
+      PushNotificationService pushNotificationService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -92,6 +94,7 @@ public class LeadAgentService {
     this.leadTimelineService = leadTimelineService;
     this.agentService = agentService;
     this.telegramNotifyService = telegramNotifyService;
+    this.pushNotificationService = pushNotificationService;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.objectMapper = objectMapper;
@@ -734,6 +737,19 @@ public class LeadAgentService {
       safeTelegramNotifyOpportunity(lead, matches);
       ProviderCatalogItem top = matches.get(0);
       com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
+
+      // Push al proveedor matcheado (si se suscribió): el camino AUTOMÁTICO
+      // también avisa, no solo el manual de generateMatches. Async y no-op
+      // sin claves VAPID — nunca interrumpe el matching.
+      if (providerEntity != null && !isSmokeLead(lead)) {
+        pushNotificationService.notifyProvider(
+            providerEntity.getId(),
+            providerEntity.getAccessToken(),
+            "Nueva oportunidad para vos",
+            "%s en %s — entrá a tu panel para aceptarla".formatted(
+                humanCategory(lead.getDetectedCategory()),
+                safe(lead.getLocation(), "tu zona")));
+      }
 
       // Marco el lead como "esperando respuesta del proveedor" para que el
       // webhook pueda vincular las respuestas de WhatsApp al lead correcto.
