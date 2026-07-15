@@ -177,6 +177,19 @@ public class LeadAgentService {
       return;
     }
     try {
+      // Pregunta de precio con categoría ya definida: respuesta DETERMINISTA.
+      // El 8B demostró en prod (lead #111) que regatea el rango aunque la
+      // instrucción se lo ordene, y "¿cuánto sale?" es demasiado crítico para
+      // dejarlo al azar del modelo. El camino heurístico además extrae zona/
+      // urgencia del mismo mensaje y dispara el auto-match si completa datos.
+      String lastMsg = lastCustomerMessage(leadId);
+      boolean categoryKnown = lead.getDetectedCategory() != null
+          && !lead.getDetectedCategory().isBlank()
+          && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
+      if (categoryKnown && isPriceQuestion(lastMsg)) {
+        respondWithHeuristicFallback(leadId, lead);
+        return;
+      }
       String context = buildContext(lead);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
       AgentTurnResult result = respondAndExtractTurn(lead, context, history);
@@ -377,6 +390,10 @@ public class LeadAgentService {
            Si el cliente recién pasó info (foto, dirección, detalles), agradecela y avanzá.
            No repitas lo que ya dijiste. Si todavía no sabés qué necesita, preguntá.
         2) Extraé datos estructurados del cliente que aparezcan en la conversación.
+           REGLA DURA: extraé SOLO lo que el CLIENTE escribió en SUS mensajes. NUNCA extraigas
+           una zona, categoría u otro dato que solo aparece en TUS preguntas o ejemplos
+           (ej: si vos preguntaste "¿qué zona de Ciudad de la Costa?", eso NO es la zona del
+           cliente). Si el cliente no lo dijo, va null.
 
         3) Decidí si hace falta escalar la conversación a una persona de Fixy (acción "escalate").
            Ver la sección "CUÁNDO ESCALAR" del prompt de sistema. Por defecto action.type es "none".
