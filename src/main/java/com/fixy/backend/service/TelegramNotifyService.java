@@ -53,6 +53,8 @@ public class TelegramNotifyService {
    * antes de postear el mensaje al cliente (mismo evento que gatea el aviso
    * a Telegram acá — una sola fuente de verdad para la idempotencia). */
   public static final String ESCALATED_EVENT_TYPE = "ESCALATED_TO_HUMAN";
+  /** Aviso a ops de "cliente escribió en un lead asignado" — throttled, no una-vez-por-lead. */
+  static final String CUSTOMER_MSG_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_CUSTOMER_MSG";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -159,6 +161,42 @@ public class TelegramNotifyService {
             truncate(safe(summary), 200)
         );
     send(lead, ESCALATED_EVENT_TYPE, text, "Aviso de escalamiento a humano enviado a Telegram");
+  }
+
+  /**
+   * Parche interino mientras WhatsApp está apagado (esperando a Meta): con el
+   * lead ASIGNADO el agente ya no responde (fix del lead #109), pero el
+   * proveedor no se entera de que el cliente le escribió salvo que tenga el
+   * panel abierto. Avisamos a Carlos por Telegram para que le pegue un toque
+   * al proveedor. A diferencia de los otros avisos NO es una-vez-por-lead:
+   * cada mensaje puede importar — pero con throttle de 10 minutos por lead
+   * para no spamear durante un intercambio rápido.
+   */
+  @Async
+  public void notifyCustomerMessageForProvider(Lead lead, Provider provider, String messageText) {
+    if (!enabled || lead == null || lead.getId() == null) return;
+    String problem = lead.getProblem();
+    if (problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]")) {
+      return;
+    }
+    List<com.fixy.backend.model.LeadEvent> recent = leadEventRepository
+        .findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), CUSTOMER_MSG_NOTIFIED_EVENT_TYPE);
+    if (!recent.isEmpty() && recent.get(0).getCreatedAt() != null
+        && recent.get(0).getCreatedAt().isAfter(java.time.OffsetDateTime.now().minusMinutes(10))) {
+      return;
+    }
+    String providerName = provider != null && provider.getName() != null && !provider.getName().isBlank()
+        ? provider.getName()
+        : safe(lead.getAssignedProvider());
+    String text = "💬 Cliente escribió en lead #%d (%s en %s, proveedor %s): \"%s\" — avisale que tiene mensaje en el panel."
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            providerName,
+            truncate(safe(messageText), 150)
+        );
+    send(lead, CUSTOMER_MSG_NOTIFIED_EVENT_TYPE, text, "Aviso a ops de mensaje del cliente en lead asignado");
   }
 
   private boolean shouldNotify(Lead lead) {

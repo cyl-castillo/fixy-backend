@@ -209,6 +209,42 @@ class TelegramNotifyServiceTest {
   }
 
   @Test
+  void customerMessageOnAssignedLead_notifiesOpsOnceThenThrottles() throws InterruptedException {
+    Lead lead = persistLead("pasteleria", "Ciudad de la Costa", "Pedido de pastelería");
+    Provider melissa = persistProvider("Melissa", "099333444");
+
+    telegramNotifyService.notifyCustomerMessageForProvider(lead, melissa, "Para el viernes");
+
+    String body = awaitOneMessage();
+    assertThat(body).contains("Cliente escribi");
+    assertThat(body).contains("lead #" + lead.getId());
+    assertThat(body).contains("Melissa");
+    assertThat(body).contains("Para el viernes");
+
+    // Igual que en secondTriggerForSameLead: esperar el evento (base del
+    // throttle) antes de disparar el segundo intento.
+    Awaitility.await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(50))
+        .untilAsserted(() -> assertThat(leadEventRepository
+            .findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "OPS_NOTIFIED_CUSTOMER_MSG"))
+            .isNotEmpty());
+
+    // Throttle de 10 min: mensajes seguidos del cliente no spamean a ops.
+    telegramNotifyService.notifyCustomerMessageForProvider(lead, melissa, "Y que sea de chocolate");
+    String second = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
+    assertThat(second).as("mensajes seguidos del cliente no deben spamear a ops").isNull();
+  }
+
+  @Test
+  void customerMessageOnSmokeAssignedLead_doesNotNotify() throws InterruptedException {
+    Lead lead = persistLead("pasteleria", "Solymar", "[smoke] prueba de aviso");
+
+    telegramNotifyService.notifyCustomerMessageForProvider(lead, null, "hola");
+
+    String body = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
+    assertThat(body).as("lead [smoke] no debe generar aviso").isNull();
+  }
+
+  @Test
   void mvpCategoryWithoutProviders_sendsDemandWithoutSupplyNotice() {
     Lead lead = persistLead("jardineria", "Lagomar", "Necesito que me corten el pasto del fondo");
 

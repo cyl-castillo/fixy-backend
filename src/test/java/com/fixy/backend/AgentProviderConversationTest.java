@@ -1,6 +1,8 @@
 package com.fixy.backend;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
@@ -11,6 +13,7 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.service.LeadAgentService;
+import com.fixy.backend.service.TelegramNotifyService;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +38,7 @@ class AgentProviderConversationTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private LeadRepository leadRepository;
   @MockitoBean private LeadAgentService agentService;
+  @MockitoBean private TelegramNotifyService telegramNotifyService;
 
   private record ChatLead(Long id, String token) {}
 
@@ -71,6 +75,9 @@ class AgentProviderConversationTest {
     // La charla es cliente↔proveedor: el agente no interrumpe, aunque
     // WhatsApp esté deshabilitado (como en prod hasta que Meta apruebe).
     verify(agentService, never()).respondToCustomerAsync(anyLong());
+    // Pero ops SÍ se entera de que el cliente escribió, para avisarle al
+    // proveedor (parche interino hasta WhatsApp).
+    verify(telegramNotifyService).notifyCustomerMessageForProvider(any(Lead.class), any(), eq("Para el viernes"));
   }
 
   @Test

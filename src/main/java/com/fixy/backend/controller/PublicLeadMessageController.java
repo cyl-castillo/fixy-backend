@@ -9,6 +9,7 @@ import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.LeadAgentService;
 import com.fixy.backend.service.LeadMessageService;
+import com.fixy.backend.service.TelegramNotifyService;
 import com.fixy.backend.service.WhatsAppService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -35,19 +36,22 @@ public class PublicLeadMessageController {
   private final LeadRepository leadRepository;
   private final ProviderRepository providerRepository;
   private final WhatsAppService whatsappService;
+  private final TelegramNotifyService telegramNotifyService;
 
   public PublicLeadMessageController(
       LeadMessageService messageService,
       LeadAgentService agentService,
       LeadRepository leadRepository,
       ProviderRepository providerRepository,
-      WhatsAppService whatsappService
+      WhatsAppService whatsappService,
+      TelegramNotifyService telegramNotifyService
   ) {
     this.messageService = messageService;
     this.agentService = agentService;
     this.leadRepository = leadRepository;
     this.providerRepository = providerRepository;
     this.whatsappService = whatsappService;
+    this.telegramNotifyService = telegramNotifyService;
   }
 
   @GetMapping
@@ -96,6 +100,11 @@ public class PublicLeadMessageController {
         } catch (Exception ex) {
           log.warn("relay customer→provider failed: {}", ex.getMessage());
         }
+      } else {
+        // Interino sin WhatsApp: el proveedor no ve el mensaje salvo que tenga
+        // el panel abierto — avisamos a ops (Telegram) para cerrar el loop.
+        Provider p = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
+        telegramNotifyService.notifyCustomerMessageForProvider(lead, p, request.text());
       }
     } else {
       agentService.respondToCustomerAsync(leadId);
