@@ -36,6 +36,12 @@ import org.springframework.web.reactive.function.client.WebClient;
  * lead aunque el gatillo se dispare por más de un camino (chat-first
  * automático vía tryAutoMatch, y matching manual/legacy vía
  * LeadService.generateMatches).
+ *
+ * También cubre el aviso de escalamiento a humano (Salto 2 del cerebro
+ * agéntico, ver ARQUITECTURA_SUPERAPP.md): cuando el agente conversacional
+ * pide la acción "escalate" en su JSON de turno, {@link #notifyEscalation}
+ * avisa por acá. Misma idempotencia (evento "ESCALATED_TO_HUMAN" por lead) y
+ * mismo guard de "[smoke]" que los avisos de oportunidad.
  */
 @Service
 public class TelegramNotifyService {
@@ -43,6 +49,10 @@ public class TelegramNotifyService {
   private static final Logger log = LoggerFactory.getLogger(TelegramNotifyService.class);
 
   static final String NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_OPPORTUNITY";
+  /** Público: LeadAgentService lo usa para chequear si ya escaló este lead
+   * antes de postear el mensaje al cliente (mismo evento que gatea el aviso
+   * a Telegram acá — una sola fuente de verdad para la idempotencia). */
+  public static final String ESCALATED_EVENT_TYPE = "ESCALATED_TO_HUMAN";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -130,7 +140,32 @@ public class TelegramNotifyService {
     send(lead, text);
   }
 
+  /**
+   * Avisa a Carlos que un lead fue escalado a humano porque el agente no pudo
+   * resolverlo solo (motivo lo decide el LLM en el turno: fuera de alcance,
+   * sin proveedor, cliente frustrado/reclamo, etc). Idempotente por lead
+   * (evento "ESCALATED_TO_HUMAN", mismo patrón que OPS_NOTIFIED_OPPORTUNITY)
+   * y respeta el guard "[smoke]". Async por la misma razón que los avisos de
+   * oportunidad: nunca debe demorar la respuesta al cliente.
+   */
+  @Async
+  public void notifyEscalation(Lead lead, String reason, String summary) {
+    if (!shouldNotify(lead, ESCALATED_EVENT_TYPE)) return;
+    String text = "🆘 Escalamiento #%d: %s. Motivo: %s. %s"
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()) + " en " + safe(lead.getLocation()),
+            safe(reason),
+            truncate(safe(summary), 200)
+        );
+    send(lead, ESCALATED_EVENT_TYPE, text, "Aviso de escalamiento a humano enviado a Telegram");
+  }
+
   private boolean shouldNotify(Lead lead) {
+    return shouldNotify(lead, NOTIFIED_EVENT_TYPE);
+  }
+
+  private boolean shouldNotify(Lead lead, String eventType) {
     if (!enabled) return false;
     if (lead == null || lead.getId() == null) return false;
     String problem = lead.getProblem();
@@ -138,20 +173,23 @@ public class TelegramNotifyService {
       return false;
     }
     boolean alreadyNotified = !leadEventRepository
-        .findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), NOTIFIED_EVENT_TYPE)
+        .findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), eventType)
         .isEmpty();
     return !alreadyNotified;
   }
 
   private void send(Lead lead, String text) {
+    send(lead, NOTIFIED_EVENT_TYPE, text, "Aviso de oportunidad enviado a Telegram");
+  }
+
+  private void send(Lead lead, String eventType, String text, String timelineMessage) {
     try {
       boolean sent = post(text);
       if (sent) {
-        leadTimelineService.appendEvent(lead, NOTIFIED_EVENT_TYPE, "system",
-            "Aviso de oportunidad enviado a Telegram");
+        leadTimelineService.appendEvent(lead, eventType, "system", timelineMessage);
       }
     } catch (Exception ex) {
-      log.warn("telegram notifyOpportunity lead={} failed: {}", lead.getId(), ex.getMessage());
+      log.warn("telegram notify (type={}) lead={} failed: {}", eventType, lead.getId(), ex.getMessage());
     }
   }
 

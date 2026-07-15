@@ -36,4 +36,13 @@ public class LeadTimelineService {
         ))
         .toList();
   }
+
+  /** Chequeo genérico de idempotencia: ¿ya se registró un evento de este tipo
+   * para este lead? Mismo patrón que usa TelegramNotifyService internamente
+   * para OPS_NOTIFIED_OPPORTUNITY; expuesto acá para que otros servicios
+   * (ej. el dispatcher de acciones del agente) puedan chequear "ya pasó esto"
+   * sin acoplarse directo a LeadEventRepository. */
+  public boolean hasEvent(Long leadId, String type) {
+    return !leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, type).isEmpty();
+  }
 }

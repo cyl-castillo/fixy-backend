@@ -189,6 +189,9 @@ public class LeadAgentService {
       if (result.extracted() != null && !result.extracted().isEmpty()) {
         applyExtractedFields(leadId, result.extracted());
       }
+      if (result.action() != null && result.action().isEscalate()) {
+        dispatchEscalation(leadId, result.action());
+      }
     } catch (Exception ex) {
       log.warn("respondToCustomer failed for lead {}: {}", leadId, ex.getMessage());
       try {
@@ -306,7 +309,20 @@ public class LeadAgentService {
     return ack.toString();
   }
 
-  private record AgentTurnResult(String reply, Map<String, String> extracted) {}
+  /** Acción opcional que el LLM puede pedir en el turno (Salto 2 del cerebro
+   * agéntico, ver ARQUITECTURA_SUPERAPP.md). Hoy solo existe "escalate";
+   * cualquier otro valor (ausente, "none", desconocido) se trata como
+   * "none" — comportamiento idéntico al de antes de este cambio.
+   * Package-private (no private): permite tests directos de parseTurnJson,
+   * mismo patrón que buildContext ya usa para testear sin LLM real. */
+  record AgentAction(String type, String reason, String summary) {
+    static final AgentAction NONE = new AgentAction("none", null, null);
+    boolean isEscalate() {
+      return "escalate".equals(type);
+    }
+  }
+
+  record AgentTurnResult(String reply, Map<String, String> extracted, AgentAction action) {}
 
   private AgentTurnResult respondAndExtractTurn(Lead lead, String context, String history) {
     // Catálogo derivado de ServiceCategory.MVP_IDS (fuente única) — antes era
@@ -321,6 +337,9 @@ public class LeadAgentService {
            No repitas lo que ya dijiste. Si todavía no sabés qué necesita, preguntá.
         2) Extraé datos estructurados del cliente que aparezcan en la conversación.
 
+        3) Decidí si hace falta escalar la conversación a una persona de Fixy (acción "escalate").
+           Ver la sección "CUÁNDO ESCALAR" del prompt de sistema. Por defecto action.type es "none".
+
         FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta estructura:
         {
           "reply": "tu respuesta conversacional al cliente",
@@ -332,6 +351,11 @@ public class LeadAgentService {
             "name": "nombre o null",
             "address": "dirección exacta o null",
             "details": "detalles relevantes o null"
+          },
+          "action": {
+            "type": "none|escalate",
+            "reason": "motivo corto del escalamiento, o null si type es none",
+            "summary": "resumen de 1 línea de la situación para la persona que va a atender, o null si type es none"
           }
         }
 
@@ -341,6 +365,11 @@ public class LeadAgentService {
         - phone debe tener formato uruguayo: 8-9 dígitos empezando con 09 ó 9.
         - Si category es "pasteleria", incluí en "details" lo que el cliente haya dicho sobre
           fecha del evento, cantidad de personas o porciones, y temática/tipo de torta.
+
+        Reglas para action:
+        - Default: {"type": "none", "reason": null, "summary": null}. Usalo salvo que aplique escalar.
+        - "reply" SIEMPRE debe ser la respuesta honesta al cliente, sea cual sea action.type — si
+          escalás, "reply" debe avisarle al cliente que lo vas a poner en contacto con una persona.
         """.formatted(categoryOptions);
     String raw;
     if ("workersai".equals(provider)) {
@@ -385,6 +414,14 @@ public class LeadAgentService {
                       "name", Map.of("type", "string"),
                       "address", Map.of("type", "string"),
                       "details", Map.of("type", "string")
+                  )
+              ),
+              "action", Map.of(
+                  "type", "object",
+                  "properties", Map.of(
+                      "type", Map.of("type", "string", "enum", List.of("none", "escalate")),
+                      "reason", Map.of("type", "string"),
+                      "summary", Map.of("type", "string")
                   )
               )
           ),
@@ -432,7 +469,8 @@ public class LeadAgentService {
     }
   }
 
-  private AgentTurnResult parseTurnJson(String raw) {
+  /** Package-private: testeado directo (sin LLM real), mismo patrón que buildContext. */
+  AgentTurnResult parseTurnJson(String raw) {
     try {
       String trimmed = raw.trim();
       // Algunos modelos meten ```json ``` o texto extra. Buscar el primer { y último }.
@@ -440,7 +478,7 @@ public class LeadAgentService {
       int last = trimmed.lastIndexOf('}');
       if (first < 0 || last <= first) {
         log.warn("turn-json: no JSON object found in response (first={}, last={})", first, last);
-        return new AgentTurnResult(raw.trim(), java.util.Map.of());
+        return new AgentTurnResult(raw.trim(), java.util.Map.of(), AgentAction.NONE);
       }
       String jsonOnly = trimmed.substring(first, last + 1);
       JsonNode root = objectMapper.readTree(jsonOnly);
@@ -458,15 +496,34 @@ public class LeadAgentService {
           }
         }
       }
+      AgentAction action = parseAction(root.path("action"));
       if (reply.isEmpty()) {
-        return new AgentTurnResult(null, extracted);
+        return new AgentTurnResult(null, extracted, action);
       }
-      return new AgentTurnResult(reply, extracted);
+      return new AgentTurnResult(reply, extracted, action);
     } catch (Exception ex) {
       log.warn("turn-json parse failed: {}", ex.getMessage());
       // Fallback: tratar todo el raw como reply text (sin extracción).
-      return new AgentTurnResult(raw.trim(), java.util.Map.of());
+      return new AgentTurnResult(raw.trim(), java.util.Map.of(), AgentAction.NONE);
     }
+  }
+
+  /**
+   * Parsea el campo opcional "action" del JSON de turno. Ausente, no-objeto,
+   * "none", o cualquier tipo desconocido => AgentAction.NONE (comportamiento
+   * idéntico al de antes de este campo existir). Nunca lanza.
+   */
+  private AgentAction parseAction(JsonNode actionNode) {
+    if (actionNode == null || !actionNode.isObject()) {
+      return AgentAction.NONE;
+    }
+    String type = actionNode.path("type").asText("none").trim().toLowerCase(java.util.Locale.ROOT);
+    if (!"escalate".equals(type)) {
+      return AgentAction.NONE;
+    }
+    String reason = actionNode.path("reason").asText("").trim();
+    String summary = actionNode.path("summary").asText("").trim();
+    return new AgentAction("escalate", reason.isEmpty() ? "no especificado" : reason, summary);
   }
 
   /**
@@ -630,6 +687,50 @@ public class LeadAgentService {
     } catch (Exception ex) {
       log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
     }
+  }
+
+  /** Evento propio del dispatcher: gatea el mensaje al cliente ("te paso con
+   * una persona") para que no se repita en cada turno mientras el lead sigue
+   * escalado. Distinto del evento ESCALATED_TO_HUMAN que escribe
+   * TelegramNotifyService — esa es la idempotencia propia del aviso a
+   * Carlos (mismo patrón self-contenido que OPS_NOTIFIED_OPPORTUNITY), esta
+   * es la idempotencia del lado cliente. Dos guards independientes es
+   * intencional: si Telegram está deshabilitado (sin credenciales, como en
+   * dev), el cliente igual no debe recibir el mensaje de escalamiento dos
+   * veces. */
+  private static final String CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE = "CUSTOMER_NOTIFIED_ESCALATION";
+
+  /**
+   * Salto 2 del cerebro agéntico (tool-calling explícito, ver
+   * ARQUITECTURA_SUPERAPP.md): el LLM pidió "escalate" en el turno. Avisa a
+   * Carlos por Telegram (reusa TelegramNotifyService, que ya es idempotente y
+   * respeta el guard "[smoke]" para el aviso en sí) y deja un mensaje honesto
+   * al cliente en el chat del lead. Idempotente a nivel de este método
+   * también (ver CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE) y respeta el mismo
+   * guard "[smoke]" que Telegram para no escalar leads de prueba.
+   * Package-private: testeado directo, mismo patrón que buildContext.
+   */
+  void dispatchEscalation(Long leadId, AgentAction action) {
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null) return;
+      if (isSmokeLead(lead)) return;
+      if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
+        return;
+      }
+      leadMessageService.postFromAgent(leadId,
+          "Te paso con una persona de Fixy para resolver esto mejor, en breve te contactan.");
+      leadTimelineService.appendEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE, "system",
+          "Escalado a humano: " + safe(action.reason(), "no especificado"));
+      telegramNotifyService.notifyEscalation(lead, action.reason(), action.summary());
+    } catch (Exception ex) {
+      log.warn("dispatchEscalation failed for lead {}: {}", leadId, ex.getMessage());
+    }
+  }
+
+  private boolean isSmokeLead(Lead lead) {
+    String problem = lead.getProblem();
+    return problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]");
   }
 
   /** Nunca debe interrumpir tryAutoMatch: TelegramNotifyService ya se protege
