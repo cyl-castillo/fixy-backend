@@ -200,8 +200,19 @@ public class LeadAgentService {
         return;
       }
       leadMessageService.postFromAgent(leadId, result.reply());
-      if (result.extracted() != null && !result.extracted().isEmpty()) {
-        applyExtractedFields(leadId, result.extracted());
+      Map<String, String> extracted = result.extracted();
+      // Guard determinista contra zonas alucinadas: el 8B extrajo dos veces
+      // en prod (leads #111 y #112) una zona que solo aparecía en las
+      // preguntas del PROPIO agente, aún con la regla dura en el prompt.
+      // Una zona extraída solo vale si el cliente la escribió textualmente.
+      if (extracted != null && extracted.get("zone") != null
+          && !zoneMentionedByCustomer(leadId, extracted.get("zone"))) {
+        extracted = new java.util.HashMap<>(extracted);
+        extracted.remove("zone");
+        log.info("zona extraída descartada (el cliente no la mencionó): lead={}", leadId);
+      }
+      if (extracted != null && !extracted.isEmpty()) {
+        applyExtractedFields(leadId, extracted);
       }
       if (result.action() != null && result.action().isEscalate()) {
         dispatchEscalation(leadId, result.action());
@@ -302,6 +313,27 @@ public class LeadAgentService {
     }
     return "Para %s el rango orientativo ronda %s (visita + trabajo simple), pero el precio final te lo confirma el proveedor cuando vea el trabajo."
         .formatted(category, range);
+  }
+
+  /** Una zona extraída por el LLM solo se acepta si aparece textualmente
+   * (case-insensitive, sin acentos) en algún mensaje del CLIENTE de la
+   * conversación reciente. Package-private para testear sin LLM real,
+   * mismo patrón que buildContext/parseTurnJson. */
+  boolean zoneMentionedByCustomer(Long leadId, String zone) {
+    if (zone == null || zone.isBlank()) {
+      return false;
+    }
+    String needle = stripAccents(zone.toLowerCase(Locale.ROOT)).trim();
+    if (needle.isEmpty()) {
+      return false;
+    }
+    return leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
+        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
+        .anyMatch(m -> stripAccents(m.getText().toLowerCase(Locale.ROOT)).contains(needle));
+  }
+
+  private static String stripAccents(String s) {
+    return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
   }
 
   private String lastCustomerMessage(Long leadId) {
