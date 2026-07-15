@@ -1030,6 +1030,9 @@ public class LeadAgentService {
     return "\nINSTRUCCION: rango orientativo de precio para este servicio: " + range
         + " UYU (visita + trabajo simple). Ofrecelo SOLO si el cliente pregunta precio/cuánto"
         + " sale/cuesta/vale, o al confirmar el pedido — nunca de arranque sin que lo pida."
+        + " Si el cliente PREGUNTA el precio, respondé el rango EN ESA MISMA respuesta, ANTES"
+        + " de pedir zona u otro dato — nunca condiciones el precio a que primero te dé un dato"
+        + " (esta instruccion le gana a 'pedí el dato que falta')."
         + " SIEMPRE aclará que es un precio de referencia y que el proveedor confirma el precio"
         + " final. NUNCA prometas ese número como precio exacto o cerrado.\n";
   }
