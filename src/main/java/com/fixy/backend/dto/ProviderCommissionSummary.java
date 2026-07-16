@@ -25,10 +25,27 @@ public record ProviderCommissionSummary(
     BigDecimal earningsThisMonth,
     int earningsThisMonthCount,
     BigDecimal earningsTotal,
-    int earningsTotalCount
+    int earningsTotalCount,
+    java.util.List<PendingCommission> pendingItems
 ) {
+  /**
+   * Comisión pendiente con su link de pago, para que el panel tenga un botón
+   * "Pagar" real. Hallazgo del primer cobro real (lead #105, 2026-07-16):
+   * el link de MP solo existía en un mensaje del chat compartido — el
+   * proveedor no tenía NINGUNA forma de pagar desde su panel.
+   */
+  public record PendingCommission(
+      Long leadId,
+      BigDecimal commissionAmount,
+      String currency,
+      String mpPaymentLink,
+      java.time.OffsetDateTime createdAt
+  ) {
+  }
+
   public static ProviderCommissionSummary empty() {
     return new ProviderCommissionSummary(
-        BigDecimal.ZERO, 0, BigDecimal.ZERO, 0, "UYU", BigDecimal.ZERO, 0, BigDecimal.ZERO, 0);
+        BigDecimal.ZERO, 0, BigDecimal.ZERO, 0, "UYU", BigDecimal.ZERO, 0, BigDecimal.ZERO, 0,
+        java.util.List.of());
   }
 }

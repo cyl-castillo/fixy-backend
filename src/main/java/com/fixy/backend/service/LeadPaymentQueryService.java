@@ -58,6 +58,7 @@ public class LeadPaymentQueryService {
     BigDecimal earningsTotal = BigDecimal.ZERO;
     int earningsTotalCount = 0;
     OffsetDateTime now = OffsetDateTime.now(clock);
+    List<ProviderCommissionSummary.PendingCommission> pendingItems = new java.util.ArrayList<>();
 
     for (LeadPayment payment : payments) {
       if (payment.getCommissionStatus() == CommissionStatus.PAID) {
@@ -67,6 +68,15 @@ public class LeadPaymentQueryService {
           || payment.getCommissionStatus() == CommissionStatus.OVERDUE) {
         pending = pending.add(payment.getCommissionAmount());
         pendingCount++;
+        // Item con link de pago para el botón "Pagar" del panel (ver javadoc
+        // de PendingCommission). mpPaymentLink puede ser null si MP estaba
+        // apagado al crearla — el front muestra el item igual, sin botón.
+        pendingItems.add(new ProviderCommissionSummary.PendingCommission(
+            payment.getLeadId(),
+            payment.getCommissionAmount(),
+            payment.getCurrency(),
+            payment.getMpPaymentLink(),
+            payment.getCreatedAt()));
       }
       // WAIVED no suma a ninguno de los dos totales: Fixy decidió no cobrarla.
 
@@ -83,7 +93,8 @@ public class LeadPaymentQueryService {
 
     return new ProviderCommissionSummary(
         pending, pendingCount, paid, paidCount, currency,
-        earningsThisMonth, earningsThisMonthCount, earningsTotal, earningsTotalCount);
+        earningsThisMonth, earningsThisMonthCount, earningsTotal, earningsTotalCount,
+        List.copyOf(pendingItems));
   }
 
   private boolean isSameMonth(OffsetDateTime a, OffsetDateTime b) {
