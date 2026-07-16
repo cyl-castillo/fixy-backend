@@ -35,6 +35,16 @@ public class LeadMessage {
   @Column(nullable = false, length = 2000)
   private String text;
 
+  /**
+   * "all" (default) | "provider_only" | "customer_only". Controla quién ve
+   * el mensaje en su chat: el cliente nunca debe ver info financiera del
+   * proveedor (ej. su comisión), y ciertos avisos internos del proveedor no
+   * le interesan al cliente. Sin audiencia especificada, se comporta como
+   * siempre se comportó: visible para ambos.
+   */
+  @Column(nullable = false, length = 16)
+  private String audience = "all";
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -42,6 +52,9 @@ public class LeadMessage {
   void prePersist() {
     if (createdAt == null) {
       createdAt = OffsetDateTime.now();
+    }
+    if (audience == null) {
+      audience = "all";
     }
   }
 
@@ -53,6 +66,8 @@ public class LeadMessage {
   public void setSender(String sender) { this.sender = sender; }
   public String getText() { return text; }
   public void setText(String text) { this.text = text; }
+  public String getAudience() { return audience; }
+  public void setAudience(String audience) { this.audience = audience; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

@@ -136,9 +136,9 @@ public class PublicProviderSelfController {
     Provider provider = selfService.authenticate(providerId, token);
     Lead lead = selfService.requireAssignedLead(provider, leadId);
     if (sinceId != null) {
-      return messageService.listSinceForCustomer(lead.getId(), lead.getAccessToken(), sinceId);
+      return messageService.listSinceForProvider(lead.getId(), lead.getAccessToken(), sinceId);
     }
-    return messageService.listForCustomer(lead.getId(), lead.getAccessToken());
+    return messageService.listForProvider(lead.getId(), lead.getAccessToken());
   }
 
   @PostMapping("/leads/{leadId}/messages")

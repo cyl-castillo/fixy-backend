@@ -103,7 +103,10 @@ public class CommissionService {
           .formatted(payment.getCurrency(), commission);
     }
 
-    leadMessageService.postFromOps(lead.getId(), "fixy", message);
+    // provider_only: es la comisión que el proveedor le debe a Fixy, info
+    // financiera del proveedor que el cliente no debe ver en su chat
+    // (hallazgo del primer cobro real: se posteaba en el chat compartido).
+    leadMessageService.postFromOps(lead.getId(), "fixy", message, "provider_only");
 
     return payment;
   }

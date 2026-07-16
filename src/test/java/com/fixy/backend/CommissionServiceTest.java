@@ -2,6 +2,7 @@ package com.fixy.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fixy.backend.dto.LeadMessageResponse;
 import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
@@ -11,8 +12,10 @@ import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.CommissionService;
+import com.fixy.backend.service.LeadMessageService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -33,6 +36,9 @@ class CommissionServiceTest {
 
   @Autowired
   private LeadPaymentRepository leadPaymentRepository;
+
+  @Autowired
+  private LeadMessageService leadMessageService;
 
   private Lead createLead() {
     Lead lead = new Lead();
@@ -96,5 +102,25 @@ class CommissionServiceTest {
 
     LeadPayment reloaded = leadPaymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(reloaded.getCommissionAmount()).isEqualByComparingTo(new BigDecimal("250.00"));
+  }
+
+  @Test
+  void commissionMessageIsProviderOnlyAndInvisibleToCustomer() {
+    Lead lead = createLead();
+    lead.setAccessToken("token-comision-test");
+    lead = leadRepository.save(lead);
+    Provider provider = createProvider();
+    lead.setAssignedProviderId(provider.getId());
+    lead = leadRepository.save(lead);
+
+    commissionService.createForCompletedLead(lead, provider, new BigDecimal("2500.00"));
+
+    // El cliente no debe ver el mensaje de comisión en su chat.
+    List<LeadMessageResponse> customerView = leadMessageService.listForCustomer(lead.getId(), lead.getAccessToken());
+    assertThat(customerView).noneMatch(m -> m.text().contains("comisión Fixy"));
+
+    // El proveedor sí lo ve, en su listado dedicado.
+    List<LeadMessageResponse> providerView = leadMessageService.listForProvider(lead.getId(), lead.getAccessToken());
+    assertThat(providerView).anyMatch(m -> m.text().contains("comisión Fixy") && "provider_only".equals(m.audience()));
   }
 }

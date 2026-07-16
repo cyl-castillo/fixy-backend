@@ -26,6 +26,7 @@ public class LeadMessageService {
 
   private static final Set<String> PUBLIC_SENDERS = Set.of("customer");
   private static final Set<String> PROVIDER_SENDERS = Set.of("provider", "fixy");
+  private static final Set<String> VALID_AUDIENCES = Set.of("all", "provider_only", "customer_only");
   private static final int MAX_TEXT_LENGTH = 2000;
   /** Detector simple de URLs y dominios visibles. Cubre http(s)://, www.foo,
    * bit.ly/algo, foo.com/bar. Falsos positivos son aceptables: el cliente
@@ -69,7 +70,8 @@ public class LeadMessageService {
   public List<LeadMessageResponse> listForCustomer(Long leadId, String token) {
     Lead lead = requireLeadAndToken(leadId, token);
     return messageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
-        .map(LeadMessageResponse::fromEntity)
+        .filter(m -> !"provider_only".equals(m.getAudience()))
+        .map(m -> toResponse(m, lead))
         .toList();
   }
 
@@ -78,7 +80,33 @@ public class LeadMessageService {
     return messageRepository
         .findByLeadIdAndIdGreaterThanOrderByCreatedAtAsc(lead.getId(), sinceId)
         .stream()
-        .map(LeadMessageResponse::fromEntity)
+        .filter(m -> !"provider_only".equals(m.getAudience()))
+        .map(m -> toResponse(m, lead))
+        .toList();
+  }
+
+  /**
+   * Listado equivalente para el panel del proveedor: excluye customer_only
+   * en vez de provider_only. Antes el panel reusaba listForCustomer con el
+   * accessToken del lead, lo que exponía cualquier mensaje customer_only
+   * (hoy ninguno, pero rompía el modelo) y ocultaba mensajes provider_only
+   * como el de la comisión.
+   */
+  public List<LeadMessageResponse> listForProvider(Long leadId, String token) {
+    Lead lead = requireLeadAndToken(leadId, token);
+    return messageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
+        .filter(m -> !"customer_only".equals(m.getAudience()))
+        .map(m -> toResponse(m, lead))
+        .toList();
+  }
+
+  public List<LeadMessageResponse> listSinceForProvider(Long leadId, String token, Long sinceId) {
+    Lead lead = requireLeadAndToken(leadId, token);
+    return messageRepository
+        .findByLeadIdAndIdGreaterThanOrderByCreatedAtAsc(lead.getId(), sinceId)
+        .stream()
+        .filter(m -> !"customer_only".equals(m.getAudience()))
+        .map(m -> toResponse(m, lead))
         .toList();
   }
 
@@ -162,23 +190,38 @@ public class LeadMessageService {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
     return messageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
-        .map(LeadMessageResponse::fromEntity)
+        .map(m -> toResponse(m, lead))
         .toList();
   }
 
   public LeadMessageResponse postFromOps(Long leadId, String sender, String rawText) {
+    return postFromOps(leadId, sender, rawText, "all");
+  }
+
+  /**
+   * Variante con audiencia explícita. Usada por CommissionService para que
+   * el aviso de comisión ("Tu comisión Fixy es de UYU X...") quede
+   * provider_only: es información financiera del proveedor, el cliente no
+   * debe verla en su copia del chat (hallazgo del primer cobro real).
+   */
+  public LeadMessageResponse postFromOps(Long leadId, String sender, String rawText, String audience) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
     if (!PROVIDER_SENDERS.contains(sender)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sender must be one of " + PROVIDER_SENDERS);
     }
+    if (!VALID_AUDIENCES.contains(audience)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "audience must be one of " + VALID_AUDIENCES);
+    }
     String text = sanitize(rawText);
-    LeadMessage saved = persist(lead.getId(), sender, text);
+    LeadMessage saved = persist(lead.getId(), sender, text, audience);
     String eventType = sender.equals("provider") ? "MESSAGE_FROM_PROVIDER" : "MESSAGE_FROM_FIXY";
     timelineService.appendEvent(lead, eventType, sender,
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
-    notifyCustomerOfNews(lead, text);
-    return LeadMessageResponse.fromEntity(saved);
+    if (!"provider_only".equals(audience)) {
+      notifyCustomerOfNews(lead, text);
+    }
+    return toResponse(saved, lead);
   }
 
   /**
@@ -225,6 +268,10 @@ public class LeadMessageService {
   }
 
   private LeadMessage persist(Long leadId, String sender, String text) {
+    return persist(leadId, sender, text, "all");
+  }
+
+  private LeadMessage persist(Long leadId, String sender, String text, String audience) {
     if (!PUBLIC_SENDERS.contains(sender) && !PROVIDER_SENDERS.contains(sender)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid sender");
     }
@@ -232,7 +279,24 @@ public class LeadMessageService {
     message.setLeadId(leadId);
     message.setSender(sender);
     message.setText(text);
+    message.setAudience(audience == null ? "all" : audience);
     return messageRepository.save(message);
+  }
+
+  /**
+   * Resuelve senderName (nombre real del proveedor asignado al lead) para
+   * mensajes sender=provider. El chat del cliente hoy muestra un avatar "P"
+   * genérico porque LeadMessage no llevaba el nombre; con esto el frontend
+   * puede mostrar "Nueva Era" en vez de un genérico.
+   */
+  private LeadMessageResponse toResponse(LeadMessage message, Lead lead) {
+    if (!"provider".equals(message.getSender()) || lead.getAssignedProviderId() == null) {
+      return LeadMessageResponse.fromEntity(message);
+    }
+    String providerName = providerRepository.findById(lead.getAssignedProviderId())
+        .map(Provider::getName)
+        .orElse(null);
+    return LeadMessageResponse.fromEntity(message, providerName);
   }
 
   private void rejectIfLooksLikeLink(String text) {

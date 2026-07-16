@@ -8,15 +8,28 @@ public record LeadMessageResponse(
     Long leadId,
     String sender,
     String text,
-    OffsetDateTime createdAt
+    OffsetDateTime createdAt,
+    String audience,
+    String senderName
 ) {
   public static LeadMessageResponse fromEntity(LeadMessage message) {
+    return fromEntity(message, null);
+  }
+
+  /**
+   * @param senderName nombre real a mostrar cuando sender=provider (ej. el
+   *     nombre del proveedor asignado al lead). Null para fixy/customer o
+   *     cuando no se resolvió (el frontend hace fallback a algo genérico).
+   */
+  public static LeadMessageResponse fromEntity(LeadMessage message, String senderName) {
     return new LeadMessageResponse(
         message.getId(),
         message.getLeadId(),
         message.getSender(),
         message.getText(),
-        message.getCreatedAt()
+        message.getCreatedAt(),
+        message.getAudience(),
+        "provider".equals(message.getSender()) ? senderName : null
     );
   }
 }
