@@ -57,6 +57,8 @@ public class TelegramNotifyService {
   static final String CUSTOMER_MSG_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_CUSTOMER_MSG";
   /** Aviso a ops de disputa abierta — una vez por lead. */
   static final String DISPUTE_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_DISPUTE";
+  /** Aviso a ops de trabajo asignado que lleva 48h sin cerrar — una vez por lead. */
+  static final String STALE_JOB_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_JOB";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -224,6 +226,30 @@ public class TelegramNotifyService {
             truncate(safe(messageText), 150)
         );
     send(lead, CUSTOMER_MSG_NOTIFIED_EVENT_TYPE, text, "Aviso a ops de mensaje del cliente en lead asignado");
+  }
+
+  /**
+   * Caso real (2026-07-16): Barométrica Nueva Era hizo el trabajo del lead
+   * #105, cobró $2500 y nunca marcó "Completado" en su panel — Carlos tuvo
+   * que perseguirlo y se cerró por ops. Sin cierre no hay comisión: esto es
+   * el aviso a Carlos cuando un trabajo asignado lleva 48h sin cerrarse,
+   * para que le dé un toque manual al proveedor. Lo dispara
+   * {@link ProviderClosingReminderScheduler}. Idempotente por lead (evento
+   * "OPS_NOTIFIED_STALE_JOB") y respeta el guard "[smoke]" (vía
+   * {@link #shouldNotify(Lead, String)}). Async por el mismo motivo que los
+   * demás avisos: nunca debe demorar el ciclo del scheduler que lo dispara.
+   */
+  @Async
+  public void notifyStaleJob(Lead lead, String providerName) {
+    if (!shouldNotify(lead, STALE_JOB_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⏰ Trabajo #%d (%s en %s, proveedor %s) lleva 48h sin cerrar — dale un toque al proveedor."
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            safe(providerName)
+        );
+    send(lead, STALE_JOB_NOTIFIED_EVENT_TYPE, text, "Aviso de trabajo sin cerrar enviado a ops");
   }
 
   private boolean shouldNotify(Lead lead) {
