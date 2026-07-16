@@ -186,6 +186,15 @@ public class LeadAgentService {
       // dejarlo al azar del modelo. El camino heurístico además extrae zona/
       // urgencia del mismo mensaje y dispara el auto-match si completa datos.
       String lastMsg = lastCustomerMessage(leadId);
+      // Estado de espera (pedido ya en búsqueda, sin proveedor asignado): un
+      // "ok/gracias/dale" del cliente NO se responde — un humano tampoco lo
+      // haría. Antes el agente reabría el interrogatorio ante un "ok"
+      // (captura de Carlos, 2026-07-16 17:47).
+      if (lead.isReadyForMatching() && lead.getAssignedProviderId() == null
+          && isAcknowledgment(lastMsg)) {
+        log.info("ack del cliente en espera, sin respuesta: lead={}", leadId);
+        return;
+      }
       boolean categoryKnown = lead.getDetectedCategory() != null
           && !lead.getDetectedCategory().isBlank()
           && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
@@ -459,6 +468,22 @@ public class LeadAgentService {
       return "";
     }
     return stripAccents(text.toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9 ]", "").trim();
+  }
+
+  private static final java.util.Set<String> ACKNOWLEDGMENTS = java.util.Set.of(
+      "ok", "oka", "okey", "okay", "dale", "gracias", "muchas gracias", "perfecto",
+      "listo", "genial", "buenisimo", "barbaro", "ta", "va", "de acuerdo", "entendido",
+      "joya", "espero", "aguardo", "bueno", "bien");
+
+  /** true si el mensaje es un cierre/asentimiento corto ("ok", "gracias"). */
+  static boolean isAcknowledgment(String message) {
+    if (message == null) {
+      return false;
+    }
+    String normalized = stripAccents(message.toLowerCase(Locale.ROOT))
+        .replaceAll("[^a-z ]", "").trim();
+    return !normalized.isEmpty() && normalized.length() <= 20
+        && ACKNOWLEDGMENTS.contains(normalized);
   }
 
   private String lastCustomerMessage(Long leadId) {
@@ -1175,6 +1200,15 @@ public class LeadAgentService {
 
     String customerMemory = buildCustomerMemorySection(lead);
 
+    // Pedido ya en búsqueda (intake completo): se acabaron las preguntas.
+    String waitingLine = "";
+    if (lead.isReadyForMatching() && lead.getAssignedProviderId() == null) {
+      waitingLine = "\nINSTRUCCION: el pedido YA está completo y en búsqueda de proveedor."
+          + " NO hagas más preguntas de intake. Si el cliente aporta un dato nuevo,"
+          + " agradecelo y confirmá que queda registrado; si pregunta algo, respondé"
+          + " y nada más.\n";
+    }
+
     // Detalles que el cliente YA dio (extraídos a notes en turnos previos):
     // sin esto el LLM no tiene cómo saber que su pregunta ya fue respondida
     // y re-pregunta en loop (lead #126: "¿reparación o instalación?" dos
@@ -1219,7 +1253,7 @@ public class LeadAgentService {
         providerCount,
         coverageHint,
         customerMemory,
-        priceRangeLine + intakeHintLine + answeredLine
+        priceRangeLine + intakeHintLine + answeredLine + waitingLine
     );
   }
 
