@@ -71,4 +71,17 @@ class LeadAgentIntakeHintTest {
           .isNotBlank();
     }
   }
+
+  @Test
+  void provisionalCategoryInjectsHintOnFirstTurn() {
+    // Primer turno: el lead todavía NO tiene categoría (la extracción corre
+    // después), pero el mensaje del cliente ya la delata — la pre-clasificación
+    // determinista mete el guion correcto desde el arranque.
+    Lead lead = persistLead(null);
+
+    String context = leadAgentService.buildContext(lead, "aires_acondicionados");
+
+    assertThat(context).contains("instalación, service/limpieza o reparación");
+    assertThat(context).doesNotContain("porciones");
+  }
 }

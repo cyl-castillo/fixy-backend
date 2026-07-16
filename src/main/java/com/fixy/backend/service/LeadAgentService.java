@@ -202,7 +202,13 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
-      String context = buildContext(lead);
+      String provisionalCategory = null;
+      if (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank()) {
+        provisionalCategory = com.fixy.backend.model.ServiceCategory.detectFromText(lastMsg)
+            .map(com.fixy.backend.model.ServiceCategory::id)
+            .orElse(null);
+      }
+      String context = buildContext(lead, provisionalCategory);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
       AgentTurnResult result = respondAndExtractTurn(lead, context, history);
       if (result == null || result.reply() == null || result.reply().isBlank()) {
@@ -1166,13 +1172,27 @@ public class LeadAgentService {
   }
 
   String buildContext(Lead lead) {
+    return buildContext(lead, null);
+  }
+
+  /**
+   * @param provisionalCategoryId categoría detectada determinísticamente del
+   *   ÚLTIMO mensaje del cliente cuando el lead todavía no tiene una — el
+   *   contexto se arma ANTES de la extracción del turno, así que sin esto el
+   *   primer turno sale sin guion de intake y el 8B improvisa preguntas de
+   *   otro rubro ("¿porciones?" para un aire — visto 3 veces en prod).
+   */
+  String buildContext(Lead lead, String provisionalCategoryId) {
     // OJO: el catálogo de proveedores matchea por el ID de categoría
     // ("pasteleria"), no por la etiqueta humana ("Pastelería") — pasarle la
     // etiqueta hacía contar 0 y el agente le decía al cliente "no hay
     // proveedores" mientras el auto-match SÍ encontraba uno (lead #108/#109).
     String rawCategory = safe(lead.getDetectedCategory(), "");
+    if (rawCategory.isBlank() && provisionalCategoryId != null && !provisionalCategoryId.isBlank()) {
+      rawCategory = provisionalCategoryId;
+    }
     String rawLocation = safe(lead.getLocation(), "");
-    String category = humanCategory(safe(lead.getDetectedCategory(), "sin definir"));
+    String category = humanCategory(rawCategory.isBlank() ? "sin definir" : rawCategory);
     String location = safe(lead.getLocation(), "sin definir");
     String urgency = safe(lead.getUrgency(), "no especificada");
     boolean categoryKnown = !rawCategory.isBlank() && !"otro".equalsIgnoreCase(rawCategory);
