@@ -66,4 +66,34 @@ class LeadAgentZoneGuardTest {
     assertThat(leadAgentService.zoneMentionedByCustomer(lead.getId(), null)).isFalse();
     assertThat(leadAgentService.zoneMentionedByCustomer(lead.getId(), "  ")).isFalse();
   }
+
+  @Test
+  void partialZoneTokenFromCustomerValidatesCanonicalName() {
+    Lead lead = persistLead();
+    // Caso real lead #123: el cliente escribe "lomas", el LLM canonicaliza a
+    // "Lomas de Solymar" — debe aceptarse.
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "lomas");
+
+    assertThat(leadAgentService.zoneMentionedByCustomer(lead.getId(), "Lomas de Solymar")).isTrue();
+  }
+
+  @Test
+  void stopwordsAloneDoNotValidateZone() {
+    Lead lead = persistLead();
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "de la casa de mi madre");
+
+    assertThat(leadAgentService.zoneMentionedByCustomer(lead.getId(), "Ciudad de la Costa")).isFalse();
+  }
+
+  @Test
+  void stuckLlmReplyIsDetected() {
+    Lead lead = persistLead();
+    leadMessageService.postFromAgent(lead.getId(), "¿Es instalación, servicio o reparación?");
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "servicio");
+
+    assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
+        "¿Es instalación, servicio o reparación?")).isTrue();
+    assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
+        "Dale, un service entonces. ¿Para cuándo lo necesitás?")).isFalse();
+  }
 }

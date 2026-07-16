@@ -202,6 +202,14 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
+      if (isStuckRepeatingItself(leadId, result.reply())) {
+        // El 8B genera la MISMA respuesta que su mensaje anterior (visto en
+        // lead #123: repitió textual "¿instalación, servicio o reparación?"
+        // tras la respuesta del cliente). LLM atascado = turno determinista.
+        log.info("LLM atascado repitiéndose en lead {}: fallback heurístico", leadId);
+        respondWithHeuristicFallback(leadId, lead);
+        return;
+      }
       leadMessageService.postFromAgent(leadId, result.reply());
       Map<String, String> extracted = result.extracted();
       // Guard determinista contra zonas alucinadas: el 8B extrajo dos veces
@@ -341,10 +349,25 @@ public class LeadAgentService {
     if (needle.isEmpty()) {
       return false;
     }
+    // Matching por TOKENS distintivos, no por frase completa: el cliente
+    // escribe "lomas" y el LLM canonicaliza a "Lomas de Solymar" (correcto) —
+    // la versión anterior exigía la frase entera y rechazaba la zona real
+    // (lead #123). Un token distintivo (>=4 letras, sin conectores) del
+    // nombre canónico alcanza; "hola" sigue sin validar "Ciudad de la Costa".
+    java.util.List<String> tokens = java.util.Arrays.stream(needle.split("\\s+"))
+        .filter(t -> t.length() >= 4 && !ZONE_STOPWORDS.contains(t))
+        .toList();
+    if (tokens.isEmpty()) {
+      return false;
+    }
     return leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
         .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
-        .anyMatch(m -> stripAccents(m.getText().toLowerCase(Locale.ROOT)).contains(needle));
+        .map(m -> stripAccents(m.getText().toLowerCase(Locale.ROOT)))
+        .anyMatch(text -> tokens.stream().anyMatch(text::contains));
   }
+
+  private static final java.util.Set<String> ZONE_STOPWORDS =
+      java.util.Set.of("de", "del", "la", "las", "el", "los", "san", "santa");
 
   private static String stripAccents(String s) {
     return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
@@ -394,6 +417,29 @@ public class LeadAgentService {
       }
     }
     return false;
+  }
+
+  /** true si la respuesta generada es (normalizada) igual al último mensaje
+   * que el agente ya mandó — señal de LLM en loop. Package-private para test. */
+  boolean isStuckRepeatingItself(Long leadId, String reply) {
+    if (reply == null || reply.isBlank()) {
+      return false;
+    }
+    List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
+    for (int i = recent.size() - 1; i >= 0; i--) {
+      LeadMessage m = recent.get(i);
+      if ("fixy".equals(m.getSender())) {
+        return normalizeForComparison(m.getText()).equals(normalizeForComparison(reply));
+      }
+    }
+    return false;
+  }
+
+  private static String normalizeForComparison(String text) {
+    if (text == null) {
+      return "";
+    }
+    return stripAccents(text.toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9 ]", "").trim();
   }
 
   private String lastCustomerMessage(Long leadId) {
