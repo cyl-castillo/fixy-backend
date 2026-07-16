@@ -478,7 +478,10 @@ public class LeadAgentService {
 
 
         TAREA:
-        1) Respondé al ÚLTIMO mensaje del cliente en español rioplatense (voseo), breve y útil.
+        1) Respondé al ÚLTIMO mensaje del cliente en español rioplatense (voseo: "necesitás",
+           "dale" — JAMAS "vale" ni "necesitas"), breve y útil. NUNCA repitas la frase del
+           cliente en primera persona: el que necesita es EL CLIENTE, no vos (mal: "Vale,
+           necesito aire acondicionado"; bien: "Dale, aire acondicionado en Lomas.").
            Si el cliente recién pasó info (foto, dirección, detalles), agradecela y avanzá.
            No repitas lo que ya dijiste. Si todavía no sabés qué necesita, preguntá.
         2) Extraé datos estructurados del cliente que aparezcan en la conversación.
@@ -1107,6 +1110,18 @@ public class LeadAgentService {
 
     String customerMemory = buildCustomerMemorySection(lead);
     String priceRangeLine = buildPriceRangeLine(rawCategory, categoryKnown);
+    String intakeHintLine = "";
+    if (categoryKnown) {
+      String hint = com.fixy.backend.model.ServiceCategory.intakeHintForId(rawCategory);
+      if (hint != null) {
+        // Guion de intake determinista por categoría: sin esto el 8B inventa
+        // preguntas de OTRA categoría (lead #123: "¿cuántas porciones?" para
+        // un aire acondicionado).
+        intakeHintLine = "\nINSTRUCCION: para " + category + ", lo útil de preguntar es: " + hint
+            + ". Pregunta SOLO lo que falte, de a UNA pregunta por mensaje, y NUNCA preguntes"
+            + " cosas de otro rubro.\n";
+      }
+    }
 
     return """
         Contexto del pedido (interno, NO compartir IDs al cliente):
@@ -1128,7 +1143,7 @@ public class LeadAgentService {
         providerCount,
         coverageHint,
         customerMemory,
-        priceRangeLine
+        priceRangeLine + intakeHintLine
     );
   }
 

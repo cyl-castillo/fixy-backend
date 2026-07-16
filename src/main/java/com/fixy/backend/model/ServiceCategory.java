@@ -41,34 +41,42 @@ public enum ServiceCategory {
   PLOMERIA("plomeria", "plomería", true,
       List.of("agua", "canilla", "ducha", "caño", "cano", "perdida", "pierde", "perdida de agua",
           "pierde agua", "plomer", "destap"),
-      800, 2500),
+      800, 2500,
+      "qué pasa exactamente (pérdida, canilla tapada, destape) y si es urgente"),
   ELECTRICIDAD("electricidad", "electricidad", false,
       List.of("luz", "corriente", "enchufe", "tablero", "corto", "electric"),
-      null, null),
+      null, null,
+      "qué falla (sin luz general, un enchufe, el tablero) y si es urgente"),
   CERRAJERIA("cerrajeria", "cerrajería", false,
       List.of("llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj"),
-      null, null),
+      null, null,
+      "si quedó afuera AHORA (urgente) o es cambio/arreglo de cerradura"),
   BAROMETRICA("barometrica", "barométrica", true,
       List.of("pozo", "barometr", "camara septica", "cámara séptica"),
-      1500, 4000),
+      1500, 4000,
+      "si el pozo está desbordando (urgente) o es mantenimiento programado"),
   JARDINERIA("jardineria", "jardinería", true,
       List.of("jardin", "jardín", "pasto", "cesped", "césped", "cortar el pasto", "cortar pasto",
           "mantenimiento exterior", "jardiner"),
-      1200, 3000),
+      1200, 3000,
+      "tamaño aproximado del jardín y qué trabajo necesita (corte, limpieza, poda)"),
   AIRES_ACONDICIONADOS("aires_acondicionados", "aire acondicionado", true,
       List.of("aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría",
           "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría",
           "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración"),
-      1500, 4500),
+      1500, 4500,
+      "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"),
   REPARACIONES("reparaciones", "reparaciones", false,
       List.of("arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana"),
-      null, null),
+      null, null,
+      "qué hay que arreglar y de qué se trata (mueble, persiana, pared)"),
   PASTELERIA("pasteleria", "pastelería", true,
       List.of("torta", "tortas", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake",
           "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres",
           "shots dulces", "candy bar"),
-      900, 3500),
-  OTRO("otro", "otro", false, List.of(), null, null);
+      900, 3500,
+      "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre"),
+  OTRO("otro", "otro", false, List.of(), null, null, null);
 
   /**
    * Superset de keywords por categoría, usado por los clasificadores heurísticos
@@ -86,15 +94,27 @@ public enum ServiceCategory {
   private final List<String> keywords;
   private final Integer priceMin;
   private final Integer priceMax;
+  /** Qué le conviene preguntar el agente para ESTE servicio una vez que
+   * categoría y zona están definidas. Guion de intake determinista: el 8B
+   * demostró (lead #123, 2026-07-16) que sin esto inventa preguntas de otra
+   * categoría ("¿cuántas porciones?" para un aire acondicionado). null =
+   * sin guion, el agente pregunta genérico. */
+  private final String intakeHint;
 
   ServiceCategory(String id, String label, boolean mvp, List<String> keywords,
-      Integer priceMin, Integer priceMax) {
+      Integer priceMin, Integer priceMax, String intakeHint) {
     this.id = id;
     this.label = label;
     this.mvp = mvp;
     this.keywords = keywords;
     this.priceMin = priceMin;
     this.priceMax = priceMax;
+    this.intakeHint = intakeHint;
+  }
+
+  /** Guion de intake para el agente (o null). Ver campo intakeHint. */
+  public static String intakeHintForId(String rawId) {
+    return fromId(rawId).map(c -> c.intakeHint).orElse(null);
   }
 
   /** Valor persistido en Lead.detectedCategory / IntakeRequest.serviceCategory. */
