@@ -637,7 +637,8 @@ public class LeadService {
         lead.getUpdatedAt(),
         lead.isDisputed(),
         lead.getDisputeResolvedAt(),
-        lead.getDisputeResolutionNote()
+        lead.getDisputeResolutionNote(),
+        providerSelfService.summaryForAssignedProvider(lead)
     );
   }
 

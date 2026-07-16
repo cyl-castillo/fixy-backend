@@ -114,6 +114,24 @@ public class PublicProviderSelfController {
     return leadPaymentQueryService.summaryFor(providerId);
   }
 
+  /**
+   * "Voy en camino": caso real Nueva Era (lead #105) escribió "en 40 min
+   * maso llega" a mano en el chat — esto lo convierte en un botón de un
+   * toque, como Uber. Body opcional con ETA en minutos.
+   */
+  @PostMapping("/leads/{leadId}/on-my-way")
+  public ProviderAssignedLeadSummary onMyWay(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @RequestBody(required = false) OnMyWayRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Integer etaMinutes = request == null ? null : request.etaMinutes();
+    Lead updated = selfService.notifyOnTheWay(provider, leadId, etaMinutes);
+    return ProviderAssignedLeadSummary.fromEntity(updated);
+  }
+
   @PostMapping("/leads/{leadId}/status")
   public ProviderAssignedLeadSummary updateStatus(
       @PathVariable Long providerId,
@@ -159,5 +177,8 @@ public class PublicProviderSelfController {
   }
 
   public record AvailabilityUpdateRequest(@NotNull Boolean acceptingWork) {
+  }
+
+  public record OnMyWayRequest(Integer etaMinutes) {
   }
 }

@@ -1,11 +1,15 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.model.Lead;
+import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
@@ -35,26 +39,43 @@ public class ProviderSelfService {
       LeadStatus.CANCELLED
   );
 
+  /** Tipo de evento de timeline para "voy en camino" (leído por el cliente
+   *  desde el timeline público existente, contrato acordado con el otro
+   *  agente que construye la superficie del cliente). */
+  static final String ON_THE_WAY_EVENT_TYPE = "PROVIDER_ON_THE_WAY";
+
+  /** Anti-spam: como máximo un aviso "voy en camino" por hora por lead. */
+  private static final Duration ON_THE_WAY_COOLDOWN = Duration.ofHours(1);
+
   private final ProviderRepository providerRepository;
   private final LeadRepository leadRepository;
+  private final LeadEventRepository leadEventRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
   private final LeadClosingService leadClosingService;
+  private final LeadMessageService leadMessageService;
+  private final PushNotificationService pushNotificationService;
   private final boolean paymentsEnabled;
 
   public ProviderSelfService(
       ProviderRepository providerRepository,
       LeadRepository leadRepository,
+      LeadEventRepository leadEventRepository,
       LeadTimelineService timelineService,
       CommissionService commissionService,
       LeadClosingService leadClosingService,
+      LeadMessageService leadMessageService,
+      PushNotificationService pushNotificationService,
       @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
   ) {
     this.providerRepository = providerRepository;
     this.leadRepository = leadRepository;
+    this.leadEventRepository = leadEventRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
     this.leadClosingService = leadClosingService;
+    this.leadMessageService = leadMessageService;
+    this.pushNotificationService = pushNotificationService;
     this.paymentsEnabled = paymentsEnabled;
   }
 
@@ -150,6 +171,51 @@ public class ProviderSelfService {
   }
 
   /**
+   * "Voy en camino" (caso real: Nueva Era escribió "en 40 min maso llega"
+   * como texto perdido en el chat, lead #105 — esto lo convierte en una
+   * acción de un toque, como Uber). Efectos: evento de timeline
+   * PROVIDER_ON_THE_WAY (el cliente lo lee del timeline público existente),
+   * mensaje al chat (audience=all, visible para el cliente) y push. Anti-spam:
+   * máximo un aviso por hora por lead, chequeado contra el evento más
+   * reciente del mismo tipo — evita que un toque doble o un proveedor
+   * ansioso spamee al cliente.
+   *
+   * @param etaMinutes opcional; si viene, se menciona en el mensaje.
+   */
+  public Lead notifyOnTheWay(Provider provider, Long leadId, Integer etaMinutes) {
+    Lead lead = requireAssignedLead(provider, leadId);
+
+    List<LeadEvent> recent = leadEventRepository
+        .findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, ON_THE_WAY_EVENT_TYPE);
+    if (!recent.isEmpty()) {
+      OffsetDateTime lastSentAt = recent.get(0).getCreatedAt();
+      if (lastSentAt != null && lastSentAt.isAfter(OffsetDateTime.now().minus(ON_THE_WAY_COOLDOWN))) {
+        throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+            "ya le avisaste al cliente hace poco; esperá un rato antes de avisar de nuevo");
+      }
+    }
+
+    String providerName = hasText(provider.getName()) ? provider.getName() : "Tu proveedor";
+    String etaSuffix = etaMinutes != null && etaMinutes > 0
+        ? " — llega en ~%d min".formatted(etaMinutes)
+        : "";
+    String message = "🚛 %s avisó que va en camino%s".formatted(providerName, etaSuffix);
+
+    timelineService.appendEvent(lead, ON_THE_WAY_EVENT_TYPE, "provider", message);
+    leadMessageService.postFromOps(lead.getId(), "provider", message, "all");
+    try {
+      pushNotificationService.notifyLeadHasNews(lead.getId(), providerName + " va en camino", message);
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
+    }
+    return lead;
+  }
+
+  private boolean hasText(String value) {
+    return value != null && !value.trim().isBlank();
+  }
+
+  /**
    * Disponibilidad MVP (agenda/disponibilidad, base de Ola 2): el proveedor
    * la setea desde su panel con el mismo token de self-service. En pausa
    * ({@code acceptingWork=false}) filtra al proveedor de
@@ -174,6 +240,33 @@ public class ProviderSelfService {
    * null, genera uno nuevo. Usado por avisos automáticos (Telegram) que
    * necesitan el link de panel sin invalidar tokens ya entregados.
    */
+  /**
+   * Resumen público del proveedor asignado a un lead, para
+   * {@code LeadResponse.assignedProviderSummary} (contrato acordado con el
+   * agente que construye la superficie del cliente). Null si el lead no
+   * tiene proveedor asignado o el proveedor no existe más. Honestidad de
+   * reputación: {@code ratingAverage} null si {@code ratingCount == 0},
+   * mismo criterio que {@link ProviderCatalogService#publicPreview}.
+   */
+  public LeadResponse.AssignedProviderSummary summaryForAssignedProvider(Lead lead) {
+    if (lead == null || lead.getAssignedProviderId() == null) {
+      return null;
+    }
+    Provider provider = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
+    if (provider == null) {
+      return null;
+    }
+    int ratingCount = provider.getRatingCount() == null ? 0 : provider.getRatingCount();
+    Double ratingAverage = ratingCount == 0 ? null : provider.getRatingAverage();
+    return new LeadResponse.AssignedProviderSummary(
+        provider.getName(),
+        ratingAverage,
+        ratingCount,
+        provider.getCompletedJobsCount(),
+        provider.getPrimaryZone()
+    );
+  }
+
   public Provider ensureAccessToken(Long providerId) {
     Provider provider = providerRepository.findById(providerId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));

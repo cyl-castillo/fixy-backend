@@ -28,6 +28,23 @@ public record LeadResponse(
     OffsetDateTime updatedAt,
     boolean disputed,
     OffsetDateTime disputeResolvedAt,
-    String disputeResolutionNote
+    String disputeResolutionNote,
+    AssignedProviderSummary assignedProviderSummary
 ) {
+  /**
+   * Datos públicos del proveedor asignado a este lead, para que el cliente
+   * vea con quién está tratando (contrato acordado con el agente que
+   * construye la superficie del cliente). Null si todavía no hay proveedor
+   * asignado. {@code ratingAverage} es null si {@code ratingCount == 0}
+   * (misma regla de honestidad que {@link ProviderPublicPreview}: no
+   * mostrar un promedio inflado a un proveedor sin calificaciones reales).
+   */
+  public record AssignedProviderSummary(
+      String name,
+      Double ratingAverage,
+      Integer ratingCount,
+      Integer completedJobs,
+      String primaryZone
+  ) {
+  }
 }
