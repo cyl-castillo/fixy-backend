@@ -214,6 +214,17 @@ public class LeadAgentService {
         extracted.remove("zone");
         log.info("zona extraída descartada (el cliente no la mencionó): lead={}", leadId);
       }
+      // Guard determinista contra categorías alucinadas: el 8B le presumió
+      // "pastelería" a clientes que solo dijeron "hola" (leads #116/#119),
+      // mismo espíritu que el guard de zona de arriba. Una categoría extraída
+      // solo vale si aparece (por detección de keywords o keyword suelta) en
+      // texto del CLIENTE.
+      if (extracted != null && extracted.get("category") != null
+          && !categoryMentionedByCustomer(leadId, extracted.get("category"))) {
+        extracted = new java.util.HashMap<>(extracted);
+        extracted.remove("category");
+        log.info("categoría extraída descartada (el cliente no dio rastro): lead={}", leadId);
+      }
       if (extracted != null && !extracted.isEmpty()) {
         applyExtractedFields(leadId, extracted);
       }
@@ -337,6 +348,52 @@ public class LeadAgentService {
 
   private static String stripAccents(String s) {
     return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+  }
+
+  /** Una categoría extraída por el LLM solo se acepta si el CLIENTE dio algún
+   * rastro de ella en sus propios mensajes: o bien
+   * {@link com.fixy.backend.model.ServiceCategory#detectFromText} sobre el
+   * texto del cliente devuelve esa misma categoría, o alguna de sus keywords
+   * (ver {@link com.fixy.backend.model.ServiceCategory#keywords()}) aparece
+   * ahí (sin acentos, case-insensitive). Mismo patrón que
+   * zoneMentionedByCustomer — evita que el LLM le presuma una categoría a un
+   * cliente que solo dijo "hola" (leads #116/#119 en prod). Package-private
+   * para testear sin LLM real. */
+  boolean categoryMentionedByCustomer(Long leadId, String category) {
+    if (category == null || category.isBlank()) {
+      return false;
+    }
+    java.util.Optional<com.fixy.backend.model.ServiceCategory> target =
+        com.fixy.backend.model.ServiceCategory.fromId(category);
+    if (target.isEmpty()) {
+      // Categoría desconocida para el catálogo (no debería pasar dado el enum
+      // del schema, pero si pasa no hay nada que validar contra keywords):
+      // se rechaza, es más seguro que aceptar algo que no podemos verificar.
+      return false;
+    }
+    String customerText = stripAccents(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
+        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
+        .map(m -> m.getText().toLowerCase(Locale.ROOT))
+        .collect(Collectors.joining(" ")));
+    if (customerText.isBlank()) {
+      return false;
+    }
+    // 1) Clasificador heurístico laxo sobre el texto del cliente: si coincide
+    // con la misma categoría, es la validación más fuerte.
+    java.util.Optional<com.fixy.backend.model.ServiceCategory> detected =
+        com.fixy.backend.model.ServiceCategory.detectFromText(customerText);
+    if (detected.isPresent() && detected.get() == target.get()) {
+      return true;
+    }
+    // 2) Si detectFromText matcheó OTRA categoría primero (la búsqueda es
+    // "primer match" en orden del enum), igual aceptamos si alguna keyword
+    // propia de la categoría extraída aparece en el texto del cliente.
+    for (String keyword : target.get().keywords()) {
+      if (customerText.contains(stripAccents(keyword))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private String lastCustomerMessage(Long leadId) {
