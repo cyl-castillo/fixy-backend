@@ -429,10 +429,29 @@ public class LeadAgentService {
     for (int i = recent.size() - 1; i >= 0; i--) {
       LeadMessage m = recent.get(i);
       if ("fixy".equals(m.getSender())) {
-        return normalizeForComparison(m.getText()).equals(normalizeForComparison(reply));
+        // Similitud difusa (Jaccard de tokens), no igualdad exacta: el 8B
+        // varía dos palabras y repite la misma pregunta ("¿reparación o
+        // instalación?" con y sin preámbulo — lead #126).
+        return tokenSimilarity(normalizeForComparison(m.getText()),
+            normalizeForComparison(reply)) >= 0.8;
       }
     }
     return false;
+  }
+
+  private static double tokenSimilarity(String a, String b) {
+    java.util.Set<String> ta = new java.util.HashSet<>(java.util.Arrays.asList(a.split("\\s+")));
+    java.util.Set<String> tb = new java.util.HashSet<>(java.util.Arrays.asList(b.split("\\s+")));
+    ta.remove(""); tb.remove("");
+    if (ta.isEmpty() || tb.isEmpty()) {
+      return 0.0;
+    }
+    java.util.Set<String> inter = new java.util.HashSet<>(ta);
+    inter.retainAll(tb);
+    // Coeficiente de solapamiento (no Jaccard): el repetido típico del 8B es
+    // un SUBCONJUNTO del mensaje anterior (misma pregunta, menos preámbulo) —
+    // Jaccard lo diluye por la diferencia de largo; overlap lo clava en ~1.0.
+    return (double) inter.size() / Math.min(ta.size(), tb.size());
   }
 
   private static String normalizeForComparison(String text) {
@@ -1155,6 +1174,17 @@ public class LeadAgentService {
     }
 
     String customerMemory = buildCustomerMemorySection(lead);
+
+    // Detalles que el cliente YA dio (extraídos a notes en turnos previos):
+    // sin esto el LLM no tiene cómo saber que su pregunta ya fue respondida
+    // y re-pregunta en loop (lead #126: "¿reparación o instalación?" dos
+    // veces después de que el cliente contestó "reparacion").
+    String answeredLine = "";
+    String notes = safe(lead.getNotes(), "");
+    if (!notes.isBlank()) {
+      answeredLine = "\n- Detalles que el cliente YA dio (PROHIBIDO volver a preguntarlos): "
+          + notes.replace("\n", "; ") + "\n";
+    }
     String priceRangeLine = buildPriceRangeLine(rawCategory, categoryKnown);
     String intakeHintLine = "";
     if (categoryKnown) {
@@ -1189,7 +1219,7 @@ public class LeadAgentService {
         providerCount,
         coverageHint,
         customerMemory,
-        priceRangeLine + intakeHintLine
+        priceRangeLine + intakeHintLine + answeredLine
     );
   }
 

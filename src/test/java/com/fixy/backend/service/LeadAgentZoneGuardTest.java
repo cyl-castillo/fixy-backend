@@ -96,4 +96,19 @@ class LeadAgentZoneGuardTest {
     assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
         "Dale, un service entonces. ¿Para cuándo lo necesitás?")).isFalse();
   }
+
+  @Test
+  void fuzzyRepeatWithDifferentPreambleIsDetected() {
+    Lead lead = persistLead();
+    leadMessageService.postFromAgent(lead.getId(),
+        "Dale, necesitás aire acondicionado en Lomas. ¿Cuál es el problema? ¿Necesitás reparación o instalación?");
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "reparacion");
+
+    // Caso real lead #126: mismo contenido con preámbulo distinto.
+    assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
+        "Dale, aire acondicionado en Lomas. ¿Necesitás reparación o instalación?")).isTrue();
+    // Una respuesta que avanza de verdad no debe dispararlo.
+    assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
+        "Dale, reparación anotada. Ya busco proveedor y te aviso por acá.")).isFalse();
+  }
 }
