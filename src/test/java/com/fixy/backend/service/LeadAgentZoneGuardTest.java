@@ -111,4 +111,26 @@ class LeadAgentZoneGuardTest {
     assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
         "Dale, reparación anotada. Ya busco proveedor y te aviso por acá.")).isFalse();
   }
+
+  @Test
+  void repeatingAnOlderQuestionIsAlsoDetected() {
+    Lead lead = persistLead();
+    // Lead #131: preguntó tamaño, el cliente respondió, preguntó zona, y
+    // después VOLVIÓ a preguntar el tamaño — dos mensajes atrás.
+    leadMessageService.postFromAgent(lead.getId(), "Dale, necesitás jardinería. ¿Qué tamaño tiene el jardín?");
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "30 m");
+    leadMessageService.postFromAgent(lead.getId(), "Dale, necesitás jardinería. ¿Qué zona de Ciudad de la Costa?");
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "montes");
+
+    assertThat(leadAgentService.isStuckRepeatingItself(lead.getId(),
+        "Dale, necesitás jardinería en Montes. ¿Qué tamaño tiene el jardín?")).isTrue();
+  }
+
+  @Test
+  void montesDeSolymarIsAValidZoneToken() {
+    Lead lead = persistLead();
+    leadMessageService.postFromCustomer(lead.getId(), lead.getAccessToken(), "montes");
+
+    assertThat(leadAgentService.zoneMentionedByCustomer(lead.getId(), "Montes de Solymar")).isTrue();
+  }
 }

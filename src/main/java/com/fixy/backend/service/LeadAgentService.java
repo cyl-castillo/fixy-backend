@@ -202,6 +202,11 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
+      // Captura determinista pregunta→respuesta: si el agente preguntó algo y
+      // el cliente contestó corto, se anota en notes SIN depender de que el
+      // LLM lo extraiga (lead #131: "30 m" nunca llegó a notes y el guion
+      // repreguntó el tamaño).
+      recordShortAnswerToLastQuestion(leadId, lead);
       String provisionalCategory = null;
       if (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank()) {
         provisionalCategory = com.fixy.backend.model.ServiceCategory.detectFromText(lastMsg)
@@ -441,14 +446,18 @@ public class LeadAgentService {
       return false;
     }
     List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
-    for (int i = recent.size() - 1; i >= 0; i--) {
+    // Contra los últimos 3 mensajes del agente, no solo el último: el 8B
+    // también re-hace preguntas VIEJAS ya respondidas (lead #131: volvió a
+    // "¿qué tamaño tiene el jardín?" dos preguntas después del "30 m").
+    int checked = 0;
+    for (int i = recent.size() - 1; i >= 0 && checked < 3; i--) {
       LeadMessage m = recent.get(i);
       if ("fixy".equals(m.getSender())) {
-        // Similitud difusa (Jaccard de tokens), no igualdad exacta: el 8B
-        // varía dos palabras y repite la misma pregunta ("¿reparación o
-        // instalación?" con y sin preámbulo — lead #126).
-        return tokenSimilarity(normalizeForComparison(m.getText()),
-            normalizeForComparison(reply)) >= 0.8;
+        checked++;
+        if (tokenSimilarity(normalizeForComparison(m.getText()),
+            normalizeForComparison(reply)) >= 0.8) {
+          return true;
+        }
       }
     }
     return false;
@@ -474,6 +483,36 @@ public class LeadAgentService {
       return "";
     }
     return stripAccents(text.toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9 ]", "").trim();
+  }
+
+  private void recordShortAnswerToLastQuestion(Long leadId, Lead lead) {
+    try {
+      List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
+      if (recent.size() < 2) {
+        return;
+      }
+      LeadMessage last = recent.get(recent.size() - 1);
+      LeadMessage previous = recent.get(recent.size() - 2);
+      if (!"customer".equals(last.getSender()) || !"fixy".equals(previous.getSender())) {
+        return;
+      }
+      String answer = safe(last.getText(), "").trim();
+      String question = safe(previous.getText(), "").trim();
+      if (answer.isEmpty() || answer.length() > 80 || !question.contains("?")
+          || isAcknowledgment(answer)) {
+        return;
+      }
+      String entry = answer + " (respuesta a: " + (question.length() > 60
+          ? question.substring(question.length() - 60) : question) + ")";
+      String currentNotes = safe(lead.getNotes(), "");
+      if (currentNotes.contains(answer)) {
+        return; // ya registrado (por el LLM o por un turno anterior)
+      }
+      lead.setNotes(currentNotes.isBlank() ? entry : currentNotes + "\n" + entry);
+      leadRepository.save(lead);
+    } catch (Exception ex) {
+      log.warn("recordShortAnswer failed lead {}: {}", leadId, ex.getMessage());
+    }
   }
 
   private static final java.util.Set<String> ACKNOWLEDGMENTS = java.util.Set.of(
@@ -594,7 +633,7 @@ public class LeadAgentService {
           "reply": "tu respuesta conversacional al cliente",
           "extracted": {
             "category": "%s",
-            "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
+            "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Montes de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
             "urgency": "alta|media|baja|null",
             "phone": "099XXXXXX o null",
             "name": "nombre o null",
@@ -1370,7 +1409,7 @@ public class LeadAgentService {
   private static final java.util.Set<String> MVP_LOCATIONS = java.util.Set.of(
       "ciudad de la costa", "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
       "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-      "lomas de solymar", "colinas de solymar", "aeroparque");
+      "lomas de solymar", "colinas de solymar", "montes de solymar", "aeroparque");
 
   private String deriveNextAction(Lead lead) {
     String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
