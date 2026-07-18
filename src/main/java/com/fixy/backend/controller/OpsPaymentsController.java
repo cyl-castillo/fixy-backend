@@ -1,10 +1,14 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadPaymentSummary;
+import com.fixy.backend.dto.MarkPaymentPaidRequest;
 import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.service.LeadPaymentQueryService;
 import java.util.List;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -39,5 +43,21 @@ public class OpsPaymentsController {
       }
     }
     return leadPaymentQueryService.list(statusFilter);
+  }
+
+  /**
+   * Panel admin (MVP): marca una comisión como cobrada por fuera de
+   * Mercado Pago (transferencia u otro medio). Idempotente — repetir la
+   * llamada sobre una comisión ya PAID no falla ni duplica el evento,
+   * simplemente devuelve el estado actual (ver
+   * {@link LeadPaymentQueryService#markPaidManually}).
+   */
+  @PatchMapping("/{id}/mark-paid")
+  public LeadPaymentSummary markPaid(
+      @PathVariable Long id,
+      @RequestBody(required = false) MarkPaymentPaidRequest request
+  ) {
+    String note = request != null ? request.note() : null;
+    return leadPaymentQueryService.markPaidManually(id, note);
   }
 }

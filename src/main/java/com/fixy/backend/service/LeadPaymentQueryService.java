@@ -3,13 +3,18 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.LeadPaymentSummary;
 import com.fixy.backend.dto.ProviderCommissionSummary;
 import com.fixy.backend.model.CommissionStatus;
+import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.repository.LeadPaymentRepository;
+import com.fixy.backend.repository.LeadRepository;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Consultas de solo lectura de comisiones para el panel ops (H1.5) y para
@@ -18,11 +23,26 @@ import org.springframework.stereotype.Service;
 @Service
 public class LeadPaymentQueryService {
 
+  /** Prefijo de mpPaymentId cuando el cobro se marcó a mano desde el panel
+   * admin (transferencia bancaria u otro medio fuera de Mercado Pago) — así
+   * queda distinguible en el dato de un pago real confirmado por MP. Caso
+   * real: Nueva Era pagando los $250 de comisión por transferencia. */
+  private static final String MANUAL_PAYMENT_PREFIX = "MANUAL:";
+
   private final LeadPaymentRepository leadPaymentRepository;
+  private final LeadRepository leadRepository;
+  private final LeadTimelineService leadTimelineService;
   private final Clock clock;
 
-  public LeadPaymentQueryService(LeadPaymentRepository leadPaymentRepository, Clock clock) {
+  public LeadPaymentQueryService(
+      LeadPaymentRepository leadPaymentRepository,
+      LeadRepository leadRepository,
+      LeadTimelineService leadTimelineService,
+      Clock clock
+  ) {
     this.leadPaymentRepository = leadPaymentRepository;
+    this.leadRepository = leadRepository;
+    this.leadTimelineService = leadTimelineService;
     this.clock = clock;
   }
 
@@ -31,6 +51,35 @@ public class LeadPaymentQueryService {
         ? leadPaymentRepository.findByCommissionStatusOrderByCreatedAtDesc(statusFilter)
         : leadPaymentRepository.findAllByOrderByCreatedAtDesc();
     return payments.stream().map(LeadPaymentSummary::fromEntity).toList();
+  }
+
+  /**
+   * Marca una comisión como cobrada manualmente (transferencia u otro medio
+   * fuera de Mercado Pago) desde el panel admin. Reusa la misma transición
+   * atómica {@code markPaidIfNotAlready} que el webhook de MP para
+   * garantizar idempotencia: si ya estaba PAID, esta llamada es un no-op y
+   * devuelve el estado actual en vez de fallar o duplicar el evento.
+   */
+  public LeadPaymentSummary markPaidManually(Long id, String note) {
+    LeadPayment payment = leadPaymentRepository.findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead payment not found"));
+
+    String marker = MANUAL_PAYMENT_PREFIX + (note == null || note.isBlank() ? "transferencia" : note.trim());
+    int transitioned = leadPaymentRepository.markPaidIfNotAlready(
+        id, marker, OffsetDateTime.now(clock), CommissionStatus.PAID);
+
+    if (transitioned == 0) {
+      // Ya estaba PAID (por MP o por un click anterior de "marcar cobrada")
+      // — idempotente, devolvemos el estado actual sin duplicar el evento.
+      return LeadPaymentSummary.fromEntity(leadPaymentRepository.findById(id).orElseThrow());
+    }
+
+    Optional<Lead> lead = leadRepository.findById(payment.getLeadId());
+    lead.ifPresent(value -> leadTimelineService.appendEvent(value, "COMMISSION_PAID", "ops",
+        "Comisión %s %s marcada cobrada manualmente (%s)".formatted(
+            payment.getCurrency(), payment.getCommissionAmount(), marker.substring(MANUAL_PAYMENT_PREFIX.length()))));
+
+    return LeadPaymentSummary.fromEntity(leadPaymentRepository.findById(id).orElseThrow());
   }
 
   /**
