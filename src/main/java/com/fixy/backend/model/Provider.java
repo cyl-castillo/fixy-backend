@@ -37,6 +37,12 @@ public class Provider {
   @Column(length = 1000)
   private String coverageZones;
 
+  /** Descripción corta editable por el proveedor desde su panel
+   * (self-service, Ola 2). Distinta de {@link #categoryNotes}, que es
+   * interna de ops. Null hasta que el proveedor la cargue. */
+  @Column(length = 500)
+  private String description;
+
   private String city;
   private String department;
 
@@ -142,6 +148,8 @@ public class Provider {
   public void setPrimaryZone(String primaryZone) { this.primaryZone = primaryZone; }
   public String getCoverageZones() { return coverageZones; }
   public void setCoverageZones(String coverageZones) { this.coverageZones = coverageZones; }
+  public String getDescription() { return description; }
+  public void setDescription(String description) { this.description = description; }
   public String getCity() { return city; }
   public void setCity(String city) { this.city = city; }
   public String getDepartment() { return department; }

@@ -1,6 +1,7 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.dto.LeadResponse;
+import com.fixy.backend.dto.ProviderStatsResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
@@ -11,7 +12,12 @@ import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.temporal.TemporalAdjusters;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -283,5 +289,125 @@ public class ProviderSelfService {
 
   private int safeInc(Integer value) {
     return value == null ? 1 : value + 1;
+  }
+
+  /**
+   * "Mi perfil" (self-service, Ola 2): SOLO estos campos son editables por
+   * el proveedor. Deliberadamente no toca status, rating, comisiones ni
+   * categories — eso rompe matching y lo gestiona ops. Validación de
+   * tamaños ya la hace {@code @Valid} en el controller; acá solo se
+   * defiende contra blank tras trim (Bean Validation no lo hace por sí
+   * solo con {@code @NotBlank} si el string trae solo espacios raros, pero
+   * esto es belt-and-suspenders).
+   */
+  public Provider updateProfile(
+      Provider provider,
+      String name,
+      String description,
+      String coverageZones,
+      String phone
+  ) {
+    String trimmedName = name == null ? "" : name.trim();
+    if (trimmedName.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "el nombre no puede estar vacío");
+    }
+    provider.setName(trimmedName);
+    provider.setDescription(blankToNull(description));
+    provider.setCoverageZones(blankToNull(coverageZones));
+    if (hasText(phone)) {
+      provider.setPhone(phone.trim());
+    }
+    return providerRepository.save(provider);
+  }
+
+  private String blankToNull(String value) {
+    if (value == null) return null;
+    String trimmed = value.trim();
+    return trimmed.isEmpty() ? null : trimmed;
+  }
+
+  /**
+   * "Mis números" (self-service, Ola 2): estadísticas derivadas de datos
+   * que ya existen, sin tabla nueva. Tasa de aceptación = aceptados /
+   * (aceptados + rechazados) sobre los contadores que
+   * {@link #updateLeadStatus} ya viene incrementando desde que existe el
+   * panel de proveedor — null si todavía no hay ninguno de los dos (nunca
+   * 0% dramático para un proveedor nuevo). Completados por semana: últimas
+   * 4 semanas (lunes a lunes), fechado por el evento de timeline
+   * PROVIDER_STATUS_CHANGE "→ COMPLETED" más reciente de cada lead
+   * asignado — el mismo patrón documentado en
+   * {@code LeadEventRepository.findByLeadIdInOrderByLeadIdAscCreatedAtAsc}
+   * porque {@code lead.updatedAt} se pisa con cualquier cambio posterior
+   * (ej. un mensaje de chat después de completar).
+   */
+  public ProviderStatsResponse statsFor(Provider provider) {
+    Integer accepted = provider.getAcceptedJobsCount();
+    Integer rejected = provider.getRejectedJobsCount();
+    int acceptedCount = accepted == null ? 0 : accepted;
+    int rejectedCount = rejected == null ? 0 : rejected;
+    int totalDecisions = acceptedCount + rejectedCount;
+    Double acceptanceRate = totalDecisions == 0 ? null : (double) acceptedCount / totalDecisions;
+
+    int ratingCount = provider.getRatingCount() == null ? 0 : provider.getRatingCount();
+    Double ratingAverage = ratingCount == 0 ? null : provider.getRatingAverage();
+
+    List<ProviderStatsResponse.WeeklyCompleted> completedByWeek = completedByWeek(provider);
+
+    return new ProviderStatsResponse(
+        acceptanceRate,
+        acceptedCount,
+        rejectedCount,
+        ratingAverage,
+        ratingCount,
+        completedByWeek
+    );
+  }
+
+  private List<ProviderStatsResponse.WeeklyCompleted> completedByWeek(Provider provider) {
+    List<Lead> leads = assignedLeadsFor(provider);
+    List<Long> completedLeadIds = leads.stream()
+        .filter(lead -> lead.getStatus() == LeadStatus.COMPLETED)
+        .map(Lead::getId)
+        .toList();
+
+    OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+    java.time.LocalDate currentWeekStart = now.toLocalDate().with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+
+    // 4 semanas, más vieja primero, para que el mini-gráfico del front no
+    // tenga que reordenar.
+    List<java.time.LocalDate> weekStarts = new ArrayList<>();
+    for (int i = 3; i >= 0; i--) {
+      weekStarts.add(currentWeekStart.minusWeeks(i));
+    }
+    Map<java.time.LocalDate, Integer> counts = new LinkedHashMap<>();
+    for (java.time.LocalDate ws : weekStarts) counts.put(ws, 0);
+
+    if (!completedLeadIds.isEmpty()) {
+      List<LeadEvent> events = leadEventRepository.findByLeadIdInOrderByLeadIdAscCreatedAtAsc(completedLeadIds);
+      // Último evento "→ COMPLETED" por lead (un lead puede completarse,
+      // reabrirse y completarse de nuevo en teoría; nos quedamos con el
+      // más reciente).
+      Map<Long, OffsetDateTime> completedAtByLead = new LinkedHashMap<>();
+      for (LeadEvent event : events) {
+        if ("PROVIDER_STATUS_CHANGE".equals(event.getType()) && event.getMessage() != null
+            && event.getMessage().endsWith("→ COMPLETED")) {
+          completedAtByLead.put(event.getLead().getId(), event.getCreatedAt());
+        }
+      }
+      java.time.LocalDate windowStart = weekStarts.get(0);
+      for (OffsetDateTime completedAt : completedAtByLead.values()) {
+        if (completedAt == null) continue;
+        java.time.LocalDate completedDate = completedAt.atZoneSameInstant(ZoneOffset.UTC).toLocalDate();
+        if (completedDate.isBefore(windowStart)) continue;
+        java.time.LocalDate weekStart = completedDate.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY));
+        counts.computeIfPresent(weekStart, (k, v) -> v + 1);
+      }
+    }
+
+    List<ProviderStatsResponse.WeeklyCompleted> result = new ArrayList<>();
+    for (java.time.LocalDate ws : weekStarts) {
+      result.add(new ProviderStatsResponse.WeeklyCompleted(ws.toString(), counts.get(ws)));
+    }
+    return result;
   }
 }

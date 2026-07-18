@@ -5,7 +5,9 @@ import com.fixy.backend.dto.LeadMessageResponse;
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
 import com.fixy.backend.dto.ProviderCommissionSummary;
 import com.fixy.backend.dto.ProviderOpportunitySummary;
+import com.fixy.backend.dto.ProviderProfileUpdateRequest;
 import com.fixy.backend.dto.ProviderSelfResponse;
+import com.fixy.backend.dto.ProviderStatsResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
@@ -103,6 +105,47 @@ public class PublicProviderSelfController {
         .map(ProviderAssignedLeadSummary::fromEntity)
         .toList();
     return ProviderSelfResponse.fromEntity(updated, leads);
+  }
+
+  /**
+   * "Mi perfil" (self-service, Ola 2): edita SOLO nombre, descripción,
+   * zonas de cobertura y teléfono. Nunca status, rating, comisiones ni
+   * categories — eso lo gestiona ops porque cambiar categorías rompe
+   * matching. {@link ProviderProfileUpdateRequest} no tiene esos campos,
+   * así que ni deserializándolos a mano se pueden colar.
+   */
+  @PatchMapping("/profile")
+  public ProviderSelfResponse updateProfile(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody ProviderProfileUpdateRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Provider updated = selfService.updateProfile(
+        provider,
+        request.name(),
+        request.description(),
+        request.coverageZones(),
+        request.phone()
+    );
+    List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(updated).stream()
+        .map(ProviderAssignedLeadSummary::fromEntity)
+        .toList();
+    return ProviderSelfResponse.fromEntity(updated, leads);
+  }
+
+  /**
+   * "Mis números" (self-service, Ola 2): tasa de aceptación, rating y
+   * completados por semana (últimas 4 semanas). Ver
+   * {@link com.fixy.backend.service.ProviderSelfService#statsFor}.
+   */
+  @GetMapping("/stats")
+  public ProviderStatsResponse stats(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    return selfService.statsFor(provider);
   }
 
   @GetMapping("/commissions")
