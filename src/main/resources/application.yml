@@ -68,6 +68,10 @@ fixy:
     enabled: ${FIXY_CLOSING_ENABLED:true}
     auto-confirm-hours: ${FIXY_CLOSING_AUTO_CONFIRM_HOURS:72}
     scheduler-fixed-delay-ms: ${FIXY_CLOSING_SCHEDULER_FIXED_DELAY_MS:3600000}
+  collections:
+    enabled: ${FIXY_COLLECTIONS_ENABLED:true}
+    overdue-days: ${FIXY_COLLECTIONS_OVERDUE_DAYS:7}
+    scheduler-fixed-delay-ms: ${FIXY_COLLECTIONS_SCHEDULER_FIXED_DELAY_MS:3600000}
   auth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     session-secret: ${AUTH_SESSION_SECRET:}

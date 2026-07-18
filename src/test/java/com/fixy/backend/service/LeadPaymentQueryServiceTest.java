@@ -45,11 +45,15 @@ class LeadPaymentQueryServiceTest {
   @Mock
   private LeadTimelineService leadTimelineService;
 
+  @Mock
+  private CommissionService commissionService;
+
   private static final Clock FIXED_CLOCK =
       Clock.fixed(Instant.parse("2026-07-14T12:00:00Z"), ZoneOffset.UTC);
 
   private LeadPaymentQueryService service() {
-    return new LeadPaymentQueryService(leadPaymentRepository, leadRepository, leadTimelineService, FIXED_CLOCK);
+    return new LeadPaymentQueryService(
+        leadPaymentRepository, leadRepository, leadTimelineService, commissionService, FIXED_CLOCK);
   }
 
   private LeadPayment payment(BigDecimal amountCharged, BigDecimal commissionAmount,
@@ -153,6 +157,39 @@ class LeadPaymentQueryServiceTest {
 
     assertThat(result.commissionStatus()).isEqualTo(CommissionStatus.PAID);
     verify(leadTimelineService).appendEvent(eq(lead), eq("COMMISSION_PAID"), eq("ops"), anyString());
+  }
+
+  @Test
+  void marcarPagadaManualmenteReactivaSiEstabaOverdue() {
+    // Reactivación instantánea (FIXY_COBRANZAS.md): la marca manual de ops
+    // (transferencia) también reactiva el matching cuando la comisión que
+    // se salda es la que lo tenía pausado.
+    LeadPayment before = paymentWithId(3L, 105L, CommissionStatus.OVERDUE);
+    LeadPayment after = paymentWithId(3L, 105L, CommissionStatus.PAID);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before), Optional.of(after));
+    when(leadPaymentRepository.markPaidIfNotAlready(eq(3L), anyString(), any(), eq(CommissionStatus.PAID)))
+        .thenReturn(1);
+    Lead lead = new Lead();
+    when(leadRepository.findById(105L)).thenReturn(Optional.of(lead));
+
+    service().markPaidManually(3L, "Nueva Era transferencia");
+
+    verify(commissionService).notifySettled(eq(before), eq(lead));
+  }
+
+  @Test
+  void marcarPagadaManualmenteNoReactivaSiNoEstabaOverdue() {
+    LeadPayment before = paymentWithId(3L, 105L, CommissionStatus.PENDING);
+    LeadPayment after = paymentWithId(3L, 105L, CommissionStatus.PAID);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before), Optional.of(after));
+    when(leadPaymentRepository.markPaidIfNotAlready(eq(3L), anyString(), any(), eq(CommissionStatus.PAID)))
+        .thenReturn(1);
+    Lead lead = new Lead();
+    when(leadRepository.findById(105L)).thenReturn(Optional.of(lead));
+
+    service().markPaidManually(3L, "Nueva Era transferencia");
+
+    verify(commissionService, never()).notifySettled(any(), any());
   }
 
   @Test

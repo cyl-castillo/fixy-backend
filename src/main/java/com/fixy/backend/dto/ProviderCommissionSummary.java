@@ -33,13 +33,19 @@ public record ProviderCommissionSummary(
    * "Pagar" real. Hallazgo del primer cobro real (lead #105, 2026-07-16):
    * el link de MP solo existía en un mensaje del chat compartido — el
    * proveedor no tenía NINGUNA forma de pagar desde su panel.
+   *
+   * {@code overdue} (Comisión vencida pausa el matching, FIXY_COBRANZAS.md):
+   * true si esta comisión concreta es la que tiene pausado el matching del
+   * proveedor — el panel la resalta con el banner ámbar en vez del resumen
+   * normal.
    */
   public record PendingCommission(
       Long leadId,
       BigDecimal commissionAmount,
       String currency,
       String mpPaymentLink,
-      java.time.OffsetDateTime createdAt
+      java.time.OffsetDateTime createdAt,
+      boolean overdue
   ) {
   }
 

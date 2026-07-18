@@ -4,13 +4,16 @@ import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.dto.ProviderCreateRequest;
 import com.fixy.backend.dto.ProviderResponse;
 import com.fixy.backend.dto.ProviderUpdateRequest;
+import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderStatus;
+import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -19,9 +22,11 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProviderCatalogService {
 
   private final ProviderRepository providerRepository;
+  private final LeadPaymentRepository leadPaymentRepository;
 
-  public ProviderCatalogService(ProviderRepository providerRepository) {
+  public ProviderCatalogService(ProviderRepository providerRepository, LeadPaymentRepository leadPaymentRepository) {
     this.providerRepository = providerRepository;
+    this.leadPaymentRepository = leadPaymentRepository;
   }
 
   public List<ProviderCatalogItem> list() {
@@ -138,10 +143,16 @@ public class ProviderCatalogService {
   public List<ProviderCatalogItem> findMatches(String category, String location) {
     String normalizedCategory = normalize(category);
     String normalizedLocation = normalize(location);
+    // Comisión vencida pausa el matching (FIXY_COBRANZAS.md): un solo query
+    // trae el set de providerIds con OVERDUE, evita un query por proveedor
+    // dentro del stream. Trabajos ya asignados no pasan por acá — solo
+    // afecta oportunidades nuevas.
+    Set<Long> overdueProviderIds = leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE);
 
     return providerRepository.findAll().stream()
         .filter(provider -> provider.getStatus() != ProviderStatus.BLOCKED)
         .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
+        .filter(provider -> !overdueProviderIds.contains(provider.getId()))
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
         .sorted((a, b) -> Double.compare(rankingScore(b), rankingScore(a)))

@@ -5,6 +5,7 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.service.CommissionService;
 import com.fixy.backend.service.LeadTimelineService;
 import com.fixy.backend.service.MercadoPagoService;
 import java.time.OffsetDateTime;
@@ -44,17 +45,20 @@ public class MercadoPagoWebhookController {
   private final LeadPaymentRepository leadPaymentRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
+  private final CommissionService commissionService;
 
   public MercadoPagoWebhookController(
       MercadoPagoService mercadoPagoService,
       LeadPaymentRepository leadPaymentRepository,
       LeadRepository leadRepository,
-      LeadTimelineService timelineService
+      LeadTimelineService timelineService,
+      CommissionService commissionService
   ) {
     this.mercadoPagoService = mercadoPagoService;
     this.leadPaymentRepository = leadPaymentRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
+    this.commissionService = commissionService;
   }
 
   @PostMapping
@@ -118,6 +122,11 @@ public class MercadoPagoWebhookController {
       return;
     }
 
+    // Reactivación instantánea (FIXY_COBRANZAS.md): leído ANTES de la
+    // transición atómica a propósito — si esta comisión estaba OVERDUE, al
+    // pasar a PAID el proveedor vuelve a recibir oportunidades.
+    boolean wasOverdue = leadPayment.getCommissionStatus() == CommissionStatus.OVERDUE;
+
     // Transición atómica en la base: MP puede mandar la misma notificación
     // dos veces casi simultáneas y un check-then-act en memoria deja pasar a
     // ambas (evento COMMISSION_PAID duplicado — visto en sandbox). Solo la
@@ -138,6 +147,10 @@ public class MercadoPagoWebhookController {
     } else {
       log.warn("mercadopago webhook: lead {} no encontrado para LeadPayment {} (evento no emitido)",
           leadPayment.getLeadId(), leadPaymentId);
+    }
+
+    if (wasOverdue) {
+      commissionService.notifySettled(leadPayment, lead);
     }
 
     log.info("mercadopago webhook: LeadPayment {} marcado PAID (paymentId={})", leadPaymentId, paymentId);

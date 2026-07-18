@@ -2,10 +2,12 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
 import com.fixy.backend.dto.ProviderOpportunitySummary;
+import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
+import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadPhotoRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
@@ -45,6 +47,7 @@ public class ProviderOpportunityService {
   private final ProviderCatalogService catalogService;
   private final LeadAssignmentService leadAssignmentService;
   private final LeadTimelineService timelineService;
+  private final LeadPaymentRepository leadPaymentRepository;
 
   public ProviderOpportunityService(
       LeadRepository leadRepository,
@@ -52,7 +55,8 @@ public class ProviderOpportunityService {
       LeadPhotoRepository photoRepository,
       ProviderCatalogService catalogService,
       LeadAssignmentService leadAssignmentService,
-      LeadTimelineService timelineService
+      LeadTimelineService timelineService,
+      LeadPaymentRepository leadPaymentRepository
   ) {
     this.leadRepository = leadRepository;
     this.declineRepository = declineRepository;
@@ -60,12 +64,20 @@ public class ProviderOpportunityService {
     this.catalogService = catalogService;
     this.leadAssignmentService = leadAssignmentService;
     this.timelineService = timelineService;
+    this.leadPaymentRepository = leadPaymentRepository;
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
     // Disponibilidad MVP: en pausa (acceptingWork=false) no ve oportunidades
     // nuevas. No afecta trabajos ya asignados (assignedLeadsFor).
     if (provider.getAcceptingWork() != null && !provider.getAcceptingWork()) {
+      return List.of();
+    }
+    // Comisión vencida pausa el matching (FIXY_COBRANZAS.md): bandeja vacía
+    // de oportunidades NUEVAS hasta saldar. Trabajos ya asignados
+    // (assignedLeadsFor) no se tocan.
+    if (leadPaymentRepository.findByProviderIdOrderByCreatedAtDesc(provider.getId()).stream()
+        .anyMatch(payment -> payment.getCommissionStatus() == CommissionStatus.OVERDUE)) {
       return List.of();
     }
 

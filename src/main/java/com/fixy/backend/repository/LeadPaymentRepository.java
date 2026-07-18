@@ -5,6 +5,7 @@ import com.fixy.backend.model.LeadPayment;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -19,6 +20,20 @@ public interface LeadPaymentRepository extends JpaRepository<LeadPayment, Long> 
   Optional<LeadPayment> findByLeadId(Long leadId);
 
   List<LeadPayment> findByProviderIdOrderByCreatedAtDesc(Long providerId);
+
+  /** Cuántos LeadPayment tiene el proveedor en total (incluye todos los
+   * estados) — usado por {@code CommissionOverdueScheduler} para detectar
+   * "es su primera comisión" (tolera el doble de plazo, está aprendiendo
+   * el sistema) sin cargar la lista completa. */
+  long countByProviderId(Long providerId);
+
+  /** Set de providerIds con al menos una comisión OVERDUE, para que el
+   * filtro de matching ({@code ProviderCatalogService.findMatches}) y la
+   * bandeja de oportunidades ({@code ProviderOpportunityService.listFor})
+   * puedan excluir en O(1) por proveedor en vez de un query por proveedor
+   * dentro del stream. */
+  @Query("select distinct p.providerId from LeadPayment p where p.commissionStatus = :status")
+  Set<Long> findProviderIdsByCommissionStatus(@Param("status") CommissionStatus status);
 
   /**
    * Transición atómica a PAID: solo escribe si el registro NO estaba ya PAID

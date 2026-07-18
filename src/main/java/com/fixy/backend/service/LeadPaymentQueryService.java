@@ -32,17 +32,20 @@ public class LeadPaymentQueryService {
   private final LeadPaymentRepository leadPaymentRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService leadTimelineService;
+  private final CommissionService commissionService;
   private final Clock clock;
 
   public LeadPaymentQueryService(
       LeadPaymentRepository leadPaymentRepository,
       LeadRepository leadRepository,
       LeadTimelineService leadTimelineService,
+      CommissionService commissionService,
       Clock clock
   ) {
     this.leadPaymentRepository = leadPaymentRepository;
     this.leadRepository = leadRepository;
     this.leadTimelineService = leadTimelineService;
+    this.commissionService = commissionService;
     this.clock = clock;
   }
 
@@ -64,6 +67,10 @@ public class LeadPaymentQueryService {
     LeadPayment payment = leadPaymentRepository.findById(id)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead payment not found"));
 
+    // Reactivación instantánea (FIXY_COBRANZAS.md): leído ANTES de la
+    // transición atómica a propósito.
+    boolean wasOverdue = payment.getCommissionStatus() == CommissionStatus.OVERDUE;
+
     String marker = MANUAL_PAYMENT_PREFIX + (note == null || note.isBlank() ? "transferencia" : note.trim());
     int transitioned = leadPaymentRepository.markPaidIfNotAlready(
         id, marker, OffsetDateTime.now(clock), CommissionStatus.PAID);
@@ -78,6 +85,10 @@ public class LeadPaymentQueryService {
     lead.ifPresent(value -> leadTimelineService.appendEvent(value, "COMMISSION_PAID", "ops",
         "Comisión %s %s marcada cobrada manualmente (%s)".formatted(
             payment.getCurrency(), payment.getCommissionAmount(), marker.substring(MANUAL_PAYMENT_PREFIX.length()))));
+
+    if (wasOverdue) {
+      commissionService.notifySettled(payment, lead.orElse(null));
+    }
 
     return LeadPaymentSummary.fromEntity(leadPaymentRepository.findById(id).orElseThrow());
   }
@@ -125,7 +136,8 @@ public class LeadPaymentQueryService {
             payment.getCommissionAmount(),
             payment.getCurrency(),
             payment.getMpPaymentLink(),
-            payment.getCreatedAt()));
+            payment.getCreatedAt(),
+            payment.getCommissionStatus() == CommissionStatus.OVERDUE));
       }
       // WAIVED no suma a ninguno de los dos totales: Fixy decidió no cobrarla.
 

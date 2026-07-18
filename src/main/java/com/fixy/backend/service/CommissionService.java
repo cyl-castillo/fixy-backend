@@ -5,6 +5,7 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.repository.LeadPaymentRepository;
+import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import org.slf4j.Logger;
@@ -29,6 +30,8 @@ public class CommissionService {
   private final LeadTimelineService timelineService;
   private final LeadMessageService leadMessageService;
   private final MercadoPagoService mercadoPagoService;
+  private final ProviderRepository providerRepository;
+  private final PushNotificationService pushNotificationService;
   private final BigDecimal commissionRate;
 
   public CommissionService(
@@ -36,12 +39,16 @@ public class CommissionService {
       LeadTimelineService timelineService,
       LeadMessageService leadMessageService,
       MercadoPagoService mercadoPagoService,
+      ProviderRepository providerRepository,
+      PushNotificationService pushNotificationService,
       @Value("${fixy.payments.commission-percent:10}") double commissionPercent
   ) {
     this.leadPaymentRepository = leadPaymentRepository;
     this.timelineService = timelineService;
     this.leadMessageService = leadMessageService;
     this.mercadoPagoService = mercadoPagoService;
+    this.providerRepository = providerRepository;
+    this.pushNotificationService = pushNotificationService;
     // commission-percent=10 -> rate=0.10. Se persiste con 4 decimales para
     // admitir tasas no enteras (ej. 8.5%) sin perder precisión.
     this.commissionRate = BigDecimal.valueOf(commissionPercent)
@@ -109,5 +116,30 @@ public class CommissionService {
     leadMessageService.postFromOps(lead.getId(), "fixy", message, "provider_only");
 
     return payment;
+  }
+
+  /**
+   * Reactivación instantánea (FIXY_COBRANZAS.md): llamar cuando un
+   * {@link LeadPayment} que ESTABA OVERDUE acaba de pasar a PAID (webhook
+   * de MP o marca manual de ops). Avisa al proveedor por push que ya puede
+   * volver a recibir pedidos y deja constancia en el timeline del lead.
+   * No-op si el lead ya no existe (no debería pasar en flujo normal).
+   */
+  public void notifySettled(LeadPayment payment, Lead lead) {
+    if (lead != null) {
+      timelineService.appendEvent(lead, "COMMISSION_SETTLED", "system",
+          "Comisión %s %s saldada — matching reactivado".formatted(
+              payment.getCurrency(), payment.getCommissionAmount()));
+    }
+    Provider provider = providerRepository.findById(payment.getProviderId()).orElse(null);
+    if (provider == null) {
+      return;
+    }
+    pushNotificationService.notifyProvider(
+        provider.getId(),
+        provider.getAccessToken(),
+        "¡Comisión saldada!",
+        "Ya estás recibiendo pedidos de nuevo 💪"
+    );
   }
 }

@@ -58,6 +58,10 @@ class MercadoPagoWebhookControllerTest {
   private MercadoPagoService mercadoPagoService;
 
   private LeadPayment createPendingLeadPayment() {
+    return createLeadPayment(CommissionStatus.PENDING);
+  }
+
+  private LeadPayment createLeadPayment(CommissionStatus initialStatus) {
     Lead lead = new Lead();
     lead.setProblem("Problema de prueba webhook MP");
     lead.setPhone("099800000");
@@ -77,7 +81,7 @@ class MercadoPagoWebhookControllerTest {
     payment.setAmountCharged(new BigDecimal("2500.00"));
     payment.setCommissionRate(new BigDecimal("0.1000"));
     payment.setCommissionAmount(new BigDecimal("250.00"));
-    payment.setCommissionStatus(CommissionStatus.PENDING);
+    payment.setCommissionStatus(initialStatus);
     return leadPaymentRepository.save(payment);
   }
 
@@ -178,5 +182,31 @@ class MercadoPagoWebhookControllerTest {
     LeadPayment reloaded = leadPaymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(reloaded.getCommissionStatus()).isEqualTo(CommissionStatus.PENDING);
     assertThat(reloaded.getPaidAt()).isNull();
+  }
+
+  @Test
+  void shouldEmitCommissionSettledEventWhenOverdueCommissionGetsPaid() throws Exception {
+    // Reactivación instantánea (FIXY_COBRANZAS.md): si la comisión que paga
+    // estaba OVERDUE (matching pausado), la transición a PAID debe dejar
+    // constancia de que el matching se reactivó.
+    LeadPayment payment = createLeadPayment(CommissionStatus.OVERDUE);
+    String paymentId = "mp-payment-overdue-1";
+
+    when(mercadoPagoService.fetchPayment(anyString()))
+        .thenReturn(Optional.of(new MercadoPagoService.PaymentStatusResult(
+            paymentId, "approved", String.valueOf(payment.getId()))));
+
+    mockMvc.perform(post("/api/webhooks/mercadopago")
+            .param("type", "payment")
+            .param("data.id", paymentId))
+        .andExpect(status().isOk());
+
+    LeadPayment reloaded = leadPaymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(reloaded.getCommissionStatus()).isEqualTo(CommissionStatus.PAID);
+
+    boolean settledEventEmitted = leadEventRepository
+        .findByLeadIdOrderByCreatedAtAsc(payment.getLeadId()).stream()
+        .anyMatch(event -> "COMMISSION_SETTLED".equals(event.getType()));
+    assertThat(settledEventEmitted).isTrue();
   }
 }
