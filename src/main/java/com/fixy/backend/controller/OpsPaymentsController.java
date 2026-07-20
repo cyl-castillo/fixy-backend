@@ -60,4 +60,18 @@ public class OpsPaymentsController {
     String note = request != null ? request.note() : null;
     return leadPaymentQueryService.markPaidManually(id, note);
   }
+
+  /**
+   * Panel admin (MVP): condona una comisión (Fixy decide no cobrarla) desde
+   * PENDING/OVERDUE. Idempotente si ya está WAIVED; 409 si está PAID — no se
+   * condona lo cobrado (ver {@link LeadPaymentQueryService#waiveManually}).
+   */
+  @PatchMapping("/{id}/waive")
+  public LeadPaymentSummary waive(
+      @PathVariable Long id,
+      @RequestBody(required = false) MarkPaymentPaidRequest request
+  ) {
+    String note = request != null ? request.note() : null;
+    return leadPaymentQueryService.waiveManually(id, note);
+  }
 }

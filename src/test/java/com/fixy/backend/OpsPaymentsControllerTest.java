@@ -16,6 +16,7 @@ import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import com.fixy.backend.service.ProviderCatalogService;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -49,18 +50,26 @@ class OpsPaymentsControllerTest {
   @Autowired
   private LeadEventRepository leadEventRepository;
 
+  @Autowired
+  private ProviderCatalogService providerCatalogService;
+
   private LeadPayment createPendingLeadPayment() {
+    return createLeadPaymentWithStatus(CommissionStatus.PENDING, "Proveedor Mark Paid Test", "099800333");
+  }
+
+  private LeadPayment createLeadPaymentWithStatus(CommissionStatus status, String providerName, String providerPhone) {
     Lead lead = new Lead();
-    lead.setProblem("Problema de prueba mark-paid ops");
+    lead.setProblem("Problema de prueba ops");
     lead.setPhone("099800222");
     lead.setChannel("whatsapp");
     lead.setStatus(LeadStatus.COMPLETED);
     lead = leadRepository.save(lead);
 
     Provider provider = new Provider();
-    provider.setName("Proveedor Mark Paid Test");
-    provider.setPhone("099800333");
+    provider.setName(providerName);
+    provider.setPhone(providerPhone);
     provider.setCategories("plomeria");
+    provider.setCoverageZones("Solymar");
     provider = providerRepository.save(provider);
 
     LeadPayment payment = new LeadPayment();
@@ -69,7 +78,7 @@ class OpsPaymentsControllerTest {
     payment.setAmountCharged(new BigDecimal("2500.00"));
     payment.setCommissionRate(new BigDecimal("0.1000"));
     payment.setCommissionAmount(new BigDecimal("250.00"));
-    payment.setCommissionStatus(CommissionStatus.PENDING);
+    payment.setCommissionStatus(status);
     return leadPaymentRepository.save(payment);
   }
 
@@ -148,5 +157,92 @@ class OpsPaymentsControllerTest {
     mockMvc.perform(get("/api/ops/payments")
             .with(httpBasic("test-ops", "test-pass")))
         .andExpect(status().isOk());
+  }
+
+  // --- condonar (WAIVED) — botón "Condonar" del panel admin ---
+
+  @Test
+  void shouldRejectUnauthenticatedWaiveRequests() throws Exception {
+    LeadPayment payment = createPendingLeadPayment();
+
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", payment.getId()))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void shouldWaiveAndBeIdempotentOnRetry() throws Exception {
+    LeadPayment payment = createPendingLeadPayment();
+
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", payment.getId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"note\":\"smoke test, no cobrar\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.commissionStatus").value("WAIVED"));
+
+    LeadPayment afterFirst = leadPaymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(afterFirst.getCommissionStatus()).isEqualTo(CommissionStatus.WAIVED);
+    assertThat(afterFirst.getMpPaymentId()).contains("smoke test, no cobrar");
+
+    long commissionWaivedEventsAfterFirst = leadEventRepository
+        .findByLeadIdOrderByCreatedAtAsc(payment.getLeadId()).stream()
+        .filter(event -> "COMMISSION_WAIVED".equals(event.getType()))
+        .count();
+    assertThat(commissionWaivedEventsAfterFirst).isEqualTo(1);
+
+    // Segundo click: no rompe, no duplica el evento.
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", payment.getId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"note\":\"otro click\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.commissionStatus").value("WAIVED"));
+
+    long commissionWaivedEventsAfterSecond = leadEventRepository
+        .findByLeadIdOrderByCreatedAtAsc(payment.getLeadId()).stream()
+        .filter(event -> "COMMISSION_WAIVED".equals(event.getType()))
+        .count();
+    assertThat(commissionWaivedEventsAfterSecond).isEqualTo(1);
+  }
+
+  @Test
+  void shouldRejectWaivingAnAlreadyPaidCommission() throws Exception {
+    LeadPayment payment = createLeadPaymentWithStatus(CommissionStatus.PAID, "Proveedor Paid Test", "099800444");
+
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", payment.getId())
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isConflict());
+
+    LeadPayment reloaded = leadPaymentRepository.findById(payment.getId()).orElseThrow();
+    assertThat(reloaded.getCommissionStatus()).isEqualTo(CommissionStatus.PAID);
+  }
+
+  @Test
+  void shouldReturn404ForUnknownPaymentOnWaive() throws Exception {
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", 999999L)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void waivingAnOverdueCommissionLiftsMatchingPause() throws Exception {
+    // Caso real (FIXY_COBRANZAS.md): un proveedor con comisión OVERDUE queda
+    // excluido de findMatches. Condonarla debe levantar la pausa sola, sin
+    // tocar ProviderCatalogService — el filtro consulta OVERDUE actual.
+    LeadPayment payment = createLeadPaymentWithStatus(
+        CommissionStatus.OVERDUE, "Proveedor Overdue Test", "099800555");
+
+    assertThat(providerCatalogService.findMatches("plomeria", "Solymar"))
+        .noneMatch(item -> item.id().equals(payment.getProviderId()));
+
+    mockMvc.perform(patch("/api/ops/payments/{id}/waive", payment.getId())
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"note\":\"condonada\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.commissionStatus").value("WAIVED"));
+
+    assertThat(providerCatalogService.findMatches("plomeria", "Solymar"))
+        .anyMatch(item -> item.id().equals(payment.getProviderId()));
   }
 }

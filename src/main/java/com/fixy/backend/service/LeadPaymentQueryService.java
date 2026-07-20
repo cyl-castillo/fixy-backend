@@ -29,6 +29,15 @@ public class LeadPaymentQueryService {
    * real: Nueva Era pagando los $250 de comisión por transferencia. */
   private static final String MANUAL_PAYMENT_PREFIX = "MANUAL:";
 
+  /** Prefijo de mpPaymentId cuando la comisión se condona desde el panel
+   * admin (Fixy decide no cobrarla — cortesía, error, ajuste). Caso real:
+   * comisión #1 ($10, smoke lead #103) quedó PENDING desde el 14 sin forma
+   * de cerrarla salvo SQL a mano. */
+  private static final String WAIVED_PREFIX = "WAIVED:";
+
+  private static final java.util.Set<CommissionStatus> WAIVABLE_STATUSES =
+      java.util.Set.of(CommissionStatus.PENDING, CommissionStatus.OVERDUE);
+
   private final LeadPaymentRepository leadPaymentRepository;
   private final LeadRepository leadRepository;
   private final LeadTimelineService leadTimelineService;
@@ -85,6 +94,56 @@ public class LeadPaymentQueryService {
     lead.ifPresent(value -> leadTimelineService.appendEvent(value, "COMMISSION_PAID", "ops",
         "Comisión %s %s marcada cobrada manualmente (%s)".formatted(
             payment.getCurrency(), payment.getCommissionAmount(), marker.substring(MANUAL_PAYMENT_PREFIX.length()))));
+
+    if (wasOverdue) {
+      commissionService.notifySettled(payment, lead.orElse(null));
+    }
+
+    return LeadPaymentSummary.fromEntity(leadPaymentRepository.findById(id).orElseThrow());
+  }
+
+  /**
+   * Condona una comisión (Fixy decide no cobrarla) desde el panel admin.
+   * Solo permitido desde PENDING/OVERDUE — no se condona una comisión ya
+   * PAID (409). Idempotente: repetir la llamada sobre una comisión ya
+   * WAIVED es un no-op que devuelve el estado actual, mismo patrón que
+   * {@link #markPaidManually}. Si la comisión condonada estaba OVERDUE, la
+   * pausa de matching se levanta sola (el filtro de
+   * {@code ProviderCatalogService.findMatches} solo excluye proveedores con
+   * comisiones OVERDUE actuales) — se notifica igual que un pago saldado.
+   */
+  public LeadPaymentSummary waiveManually(Long id, String note) {
+    LeadPayment payment = leadPaymentRepository.findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead payment not found"));
+
+    if (payment.getCommissionStatus() == CommissionStatus.PAID) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "no se puede condonar una comisión ya cobrada");
+    }
+    if (payment.getCommissionStatus() == CommissionStatus.WAIVED) {
+      // Idempotente: ya estaba condonada, no-op.
+      return LeadPaymentSummary.fromEntity(payment);
+    }
+
+    boolean wasOverdue = payment.getCommissionStatus() == CommissionStatus.OVERDUE;
+
+    String marker = WAIVED_PREFIX + (note == null || note.isBlank() ? "condonada" : note.trim());
+    int transitioned = leadPaymentRepository.waiveIfWaivable(
+        id, marker, CommissionStatus.WAIVED, WAIVABLE_STATUSES);
+
+    if (transitioned == 0) {
+      // Carrera perdida (otro request cambió el estado entre el findById de
+      // arriba y este update): releemos y tratamos igual que al principio.
+      LeadPayment current = leadPaymentRepository.findById(id).orElseThrow();
+      if (current.getCommissionStatus() == CommissionStatus.PAID) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "no se puede condonar una comisión ya cobrada");
+      }
+      return LeadPaymentSummary.fromEntity(current);
+    }
+
+    Optional<Lead> lead = leadRepository.findById(payment.getLeadId());
+    lead.ifPresent(value -> leadTimelineService.appendEvent(value, "COMMISSION_WAIVED", "ops",
+        "Comisión %s %s condonada (%s)".formatted(
+            payment.getCurrency(), payment.getCommissionAmount(), marker.substring(WAIVED_PREFIX.length()))));
 
     if (wasOverdue) {
       commissionService.notifySettled(payment, lead.orElse(null));

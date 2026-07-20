@@ -52,4 +52,23 @@ public interface LeadPaymentRepository extends JpaRepository<LeadPayment, Long> 
       @Param("paidAt") OffsetDateTime paidAt,
       @Param("paid") CommissionStatus paid
   );
+
+  /**
+   * Transición atómica a WAIVED: solo escribe si el registro está en un
+   * estado condonable (PENDING u OVERDUE — no se condona algo ya PAID).
+   * Devuelve cuántas filas tocó (1 = esta invocación ganó la transición,
+   * 0 = no estaba en un estado condonable). El llamador decide, mirando el
+   * estado actual, si el 0 significa "ya estaba WAIVED" (idempotente) o
+   * "está PAID" (409, no se condona lo cobrado).
+   */
+  @Modifying(clearAutomatically = true)
+  @Transactional
+  @Query("update LeadPayment p set p.commissionStatus = :waived, p.mpPaymentId = :mpPaymentId "
+      + "where p.id = :id and p.commissionStatus in :waivable")
+  int waiveIfWaivable(
+      @Param("id") Long id,
+      @Param("mpPaymentId") String mpPaymentId,
+      @Param("waived") CommissionStatus waived,
+      @Param("waivable") java.util.Collection<CommissionStatus> waivable
+  );
 }

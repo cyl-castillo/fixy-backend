@@ -215,4 +215,91 @@ class LeadPaymentQueryServiceTest {
         org.springframework.web.server.ResponseStatusException.class,
         () -> service.markPaidManually(99L, null));
   }
+
+  // --- condonar (WAIVED) — botón "Condonar" del panel admin ---
+
+  @Test
+  void condonarTransicionaAWaivedYEmiteEvento() {
+    LeadPayment before = paymentWithId(3L, 105L, CommissionStatus.PENDING);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before));
+    when(leadPaymentRepository.waiveIfWaivable(eq(3L), anyString(), eq(CommissionStatus.WAIVED), any()))
+        .thenReturn(1);
+    LeadPayment after = paymentWithId(3L, 105L, CommissionStatus.WAIVED);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before), Optional.of(after));
+    Lead lead = new Lead();
+    when(leadRepository.findById(105L)).thenReturn(Optional.of(lead));
+
+    LeadPaymentSummary result = service().waiveManually(3L, "smoke test, no cobrar");
+
+    assertThat(result.commissionStatus()).isEqualTo(CommissionStatus.WAIVED);
+    verify(leadTimelineService).appendEvent(eq(lead), eq("COMMISSION_WAIVED"), eq("ops"), anyString());
+  }
+
+  @Test
+  void condonarUnaOverdueReactivaElMatching() {
+    // FIXY_COBRANZAS.md: condonar una comisión OVERDUE también debe levantar
+    // la pausa de matching, igual que pagarla — el filtro de
+    // ProviderCatalogService solo mira comisiones OVERDUE actuales.
+    LeadPayment before = paymentWithId(3L, 105L, CommissionStatus.OVERDUE);
+    LeadPayment after = paymentWithId(3L, 105L, CommissionStatus.WAIVED);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before), Optional.of(after));
+    when(leadPaymentRepository.waiveIfWaivable(eq(3L), anyString(), eq(CommissionStatus.WAIVED), any()))
+        .thenReturn(1);
+    Lead lead = new Lead();
+    when(leadRepository.findById(105L)).thenReturn(Optional.of(lead));
+
+    service().waiveManually(3L, "condonada");
+
+    verify(commissionService).notifySettled(eq(before), eq(lead));
+  }
+
+  @Test
+  void condonarUnaPendingNoNotificaReactivacion() {
+    LeadPayment before = paymentWithId(3L, 105L, CommissionStatus.PENDING);
+    LeadPayment after = paymentWithId(3L, 105L, CommissionStatus.WAIVED);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(before), Optional.of(after));
+    when(leadPaymentRepository.waiveIfWaivable(eq(3L), anyString(), eq(CommissionStatus.WAIVED), any()))
+        .thenReturn(1);
+    Lead lead = new Lead();
+    when(leadRepository.findById(105L)).thenReturn(Optional.of(lead));
+
+    service().waiveManually(3L, "condonada");
+
+    verify(commissionService, never()).notifySettled(any(), any());
+  }
+
+  @Test
+  void condonarEsIdempotenteSiYaEstabaWaived() {
+    LeadPayment alreadyWaived = paymentWithId(3L, 105L, CommissionStatus.WAIVED);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(alreadyWaived));
+
+    LeadPaymentSummary result = service().waiveManually(3L, "condonada de nuevo");
+
+    assertThat(result.commissionStatus()).isEqualTo(CommissionStatus.WAIVED);
+    verify(leadTimelineService, never()).appendEvent(any(), anyString(), anyString(), anyString());
+    verify(leadPaymentRepository, never()).waiveIfWaivable(any(), anyString(), any(), any());
+  }
+
+  @Test
+  void condonarUnaPaidLanza409() {
+    LeadPayment paid = paymentWithId(3L, 105L, CommissionStatus.PAID);
+    when(leadPaymentRepository.findById(3L)).thenReturn(Optional.of(paid));
+
+    var service = service();
+    var ex = org.junit.jupiter.api.Assertions.assertThrows(
+        org.springframework.web.server.ResponseStatusException.class,
+        () -> service.waiveManually(3L, "no cobrar"));
+
+    assertThat(ex.getStatusCode().value()).isEqualTo(409);
+  }
+
+  @Test
+  void condonarLanza404SiNoExiste() {
+    when(leadPaymentRepository.findById(99L)).thenReturn(Optional.empty());
+
+    var service = service();
+    org.junit.jupiter.api.Assertions.assertThrows(
+        org.springframework.web.server.ResponseStatusException.class,
+        () -> service.waiveManually(99L, null));
+  }
 }
