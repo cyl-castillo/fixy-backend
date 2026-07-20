@@ -685,7 +685,7 @@ public class LeadAgentService {
       List<String> categoryEnum = java.util.stream.Stream.concat(
           com.fixy.backend.model.ServiceCategory.MVP_IDS.stream(), java.util.stream.Stream.of("otro")).toList();
       List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
-          "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar",
+          "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Montes de Solymar", "Colinas de Solymar",
           "Aeroparque", "Ciudad de la Costa", "otro");
       List<String> urgencyEnum = List.of("alta", "media", "baja");
       Map<String, Object> turnSchema = Map.of(

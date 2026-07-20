@@ -107,4 +107,53 @@ class AgentServiceTest {
     assertTrue(!response.missingFields().contains("zona"));
     assertTrue(!response.missingFields().contains("direccion exacta"));
   }
+
+  // --- Detección heurística de zona MVP (lead #132: "montes" cayó a
+  // "Ciudad de la Costa" genérico en vez de "Montes de Solymar") ---
+
+  @Test
+  void shouldDetectMontesDeSolymarFromDistinctiveToken() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "Hola, vivo en montes y necesito un jardinero",
+        "Ana",
+        "099222333",
+        "whatsapp"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("Montes de Solymar", response.area());
+  }
+
+  @Test
+  void shouldDetectLomasDeSolymarFromDistinctiveToken() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "Necesito un electricista, estoy en lomas",
+        "Pedro",
+        "099333444",
+        "whatsapp"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("Lomas de Solymar", response.area());
+  }
+
+  @Test
+  void shouldNotInventZoneWhenMessageHasNoZoneMention() {
+    AgentService service = new AgentService(new ObjectMapper(), "", "gpt-4.1-mini");
+    IntakeRequest request = new IntakeRequest(
+        "Se me rompio la canilla de la cocina y pierde agua",
+        "Marta",
+        "099444555",
+        "whatsapp"
+    );
+
+    IntakeResponse response = service.classify(request);
+
+    assertEquals("sin definir", response.area());
+    assertTrue(response.missingFields().contains("zona"));
+  }
 }

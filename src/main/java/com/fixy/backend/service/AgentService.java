@@ -26,7 +26,7 @@ public class AgentService {
   private static final List<String> CIUDAD_DE_LA_COSTA_ZONES = List.of(
       "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
       "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-      "lomas de solymar", "colinas de solymar", "aeroparque", "ciudad de la costa"
+      "lomas de solymar", "colinas de solymar", "montes de solymar", "aeroparque", "ciudad de la costa"
   );
 
   /**
@@ -35,9 +35,45 @@ public class AgentService {
    */
   private static final List<String> CANONICAL_AREAS = List.of(
       "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar",
-      "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Aeroparque",
+      "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Montes de Solymar", "Aeroparque",
       "Ciudad de la Costa", "sin definir"
   );
+
+  /**
+   * Token distintivo por zona MVP (sin acentos, minúscula) usado por
+   * {@link #detectArea} para matchear el nombre completo o solo un fragmento
+   * característico que el cliente escribe en lenguaje natural (ej. "vivo en
+   * los montes" → Montes de Solymar). Orden = prioridad de match: las
+   * entradas de zonas específicas van ANTES que "solymar" a secas, porque
+   * "lomas de solymar"/"colinas de solymar"/"montes de solymar" contienen la
+   * palabra "solymar" y matchearían el genérico primero si el orden fuera al
+   * revés (caso real lead #132: "montes" cayó a "Ciudad de la Costa").
+   * LinkedHashMap: el orden de inserción es el orden de evaluación.
+   */
+  private static final java.util.LinkedHashMap<String, String> ZONE_TOKENS = buildZoneTokens();
+
+  private static java.util.LinkedHashMap<String, String> buildZoneTokens() {
+    java.util.LinkedHashMap<String, String> tokens = new java.util.LinkedHashMap<>();
+    tokens.put("montes de solymar", "montes de solymar");
+    tokens.put("montes", "montes de solymar");
+    tokens.put("lomas de solymar", "lomas de solymar");
+    tokens.put("lomas", "lomas de solymar");
+    tokens.put("colinas de solymar", "colinas de solymar");
+    tokens.put("colinas", "colinas de solymar");
+    tokens.put("shangrila", "shangrilá");
+    tokens.put("shangrilá", "shangrilá");
+    tokens.put("el pinar", "el pinar");
+    tokens.put("pinar", "el pinar");
+    tokens.put("barra de carrasco", "barra de carrasco");
+    tokens.put("parque miramar", "parque miramar");
+    tokens.put("miramar", "parque miramar");
+    tokens.put("san jose de carrasco", "san josé de carrasco");
+    tokens.put("san josé de carrasco", "san josé de carrasco");
+    tokens.put("aeroparque", "aeroparque");
+    tokens.put("lagomar", "lagomar");
+    tokens.put("solymar", "solymar");
+    return tokens;
+  }
 
   private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.load("prompts/intake-classifier.md");
 
@@ -429,13 +465,13 @@ public class AgentService {
   }
 
   private String detectArea(String message) {
-    String normalized = message.toLowerCase(Locale.ROOT);
-    for (String zone : CIUDAD_DE_LA_COSTA_ZONES) {
-      if (normalized.contains(zone)) {
-        return toDisplayArea(zone);
+    String normalized = stripAccents(message.toLowerCase(Locale.ROOT));
+    for (Map.Entry<String, String> entry : ZONE_TOKENS.entrySet()) {
+      if (normalized.contains(stripAccents(entry.getKey()))) {
+        return toDisplayArea(entry.getValue());
       }
     }
-    if (normalized.contains("canelones")) {
+    if (normalized.contains("ciudad de la costa") || normalized.contains("canelones")) {
       return "Ciudad de la Costa";
     }
     return "sin definir";
@@ -465,11 +501,15 @@ public class AgentService {
     return detectUrgency(message);
   }
 
+  /** true si el mensaje menciona alguna zona reconocida (misma fuente que
+   * {@link #detectArea}, sin duplicar la lista de tokens de zonas). */
+  private boolean mentionsAnyZone(String message) {
+    return !"sin definir".equals(detectArea(message));
+  }
+
   private List<String> detectMissingFields(IntakeRequest request, String message) {
     List<String> fields = new ArrayList<>();
-    if (!hasText(request.zone()) && !containsAny(message, "ciudad de la costa", "solymar", "lagomar", "el pinar",
-        "shangrila", "shangrilá", "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-        "lomas de solymar", "colinas de solymar", "aeroparque")) {
+    if (!hasText(request.zone()) && !mentionsAnyZone(message)) {
       fields.add("zona");
     }
     if (!containsAny(message, "foto", "imagen")) {
@@ -491,9 +531,7 @@ public class AgentService {
     List<String> normalized = new ArrayList<>(missingFields == null ? List.of() : missingFields);
 
     if (!hasText(area) || "sin definir".equalsIgnoreCase(area)) {
-      if (!hasText(request.zone()) && !containsAny(message, "ciudad de la costa", "solymar", "lagomar", "el pinar",
-          "shangrila", "shangrilá", "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-          "lomas de solymar", "colinas de solymar", "aeroparque")) {
+      if (!hasText(request.zone()) && !mentionsAnyZone(message)) {
         normalized.add("zona");
       }
     }
@@ -552,6 +590,7 @@ public class AgentService {
       case "san jose de carrasco", "san josé de carrasco" -> "San José de Carrasco";
       case "lomas de solymar" -> "Lomas de Solymar";
       case "colinas de solymar" -> "Colinas de Solymar";
+      case "montes de solymar" -> "Montes de Solymar";
       case "aeroparque" -> "Aeroparque";
       default -> "Ciudad de la Costa";
     };
