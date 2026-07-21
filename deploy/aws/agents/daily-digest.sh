@@ -60,9 +60,11 @@ by_category="$(echo "$leads_json" | jq -r 'group_by(.detectedCategory // "sin-ca
 since_iso="$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%S)"
 last24=$(echo "$leads_json" | jq --arg since "$since_iso" '[.[] | select(.createdAt >= $since)] | length')
 
-# Bloqueados: blockingFields no vacio o readyForMatching=false
-blocked_ids="$(echo "$leads_json" | jq -r '.[] | select(.readyForMatching==false) | "#\(.id)(\(.detectedCategory // "?")|\(.blockingFields | join(",")))"' | head -10 | paste -sd' ' -)"
-blocked_count=$(echo "$leads_json" | jq '[.[] | select(.readyForMatching==false)] | length')
+# Bloqueados: readyForMatching=false y todavía vivos. Los CANCELLED/COMPLETED
+# se excluyen — un lead cerrado no es demanda trabada, y contarlos infló el
+# número histórico hasta 80 cuando los accionables eran 5 (hallazgo 2026-07-21).
+blocked_ids="$(echo "$leads_json" | jq -r '.[] | select(.readyForMatching==false and .status!="CANCELLED" and .status!="COMPLETED") | "#\(.id)(\(.detectedCategory // "?")|\(.blockingFields | join(",")))"' | head -10 | paste -sd' ' -)"
+blocked_count=$(echo "$leads_json" | jq '[.[] | select(.readyForMatching==false and .status!="CANCELLED" and .status!="COMPLETED")] | length')
 
 # Sin proveedor asignado
 unassigned=$(echo "$leads_json" | jq '[.[] | select((.assignedProvider // "") == "")] | length')
