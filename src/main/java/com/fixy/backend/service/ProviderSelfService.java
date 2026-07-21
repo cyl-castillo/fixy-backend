@@ -217,6 +217,50 @@ public class ProviderSelfService {
     return lead;
   }
 
+  /**
+   * "Horario acordado con un toque" (tanda flujo 2026-07-21): la
+   * coordinación de día/hora era 100% chat libre — ni el sistema ni el
+   * cliente quedaban con un horario concreto. El proveedor propone desde
+   * chips en su panel; la propuesta viaja como evento SCHEDULE_PROPOSED
+   * (message = la etiqueta cruda, ej. "mañana de 14 a 16" — el cliente la
+   * confirma/rechaza vía {@link LeadScheduleService}) + mensaje de chat +
+   * push, mismo trío que "voy en camino".
+   *
+   * Una nueva propuesta reemplaza a la anterior (el evento más reciente
+   * manda) — no hay límite de propuestas, pero sí el anti-doble-toque de
+   * 1 min para no duplicar por taps repetidos.
+   */
+  public Lead proposeSchedule(Provider provider, Long leadId, String rawProposal) {
+    Lead lead = requireAssignedLead(provider, leadId);
+    String proposal = rawProposal == null ? "" : rawProposal.trim();
+    if (proposal.length() < 3 || proposal.length() > 120) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "la propuesta de horario debe tener entre 3 y 120 caracteres");
+    }
+
+    List<LeadEvent> recent = leadEventRepository
+        .findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, LeadScheduleService.SCHEDULE_PROPOSED_EVENT_TYPE);
+    if (!recent.isEmpty()) {
+      OffsetDateTime lastSentAt = recent.get(0).getCreatedAt();
+      if (lastSentAt != null && lastSentAt.isAfter(OffsetDateTime.now().minusMinutes(1))) {
+        throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+            "acabás de proponer un horario; esperá un momento antes de proponer otro");
+      }
+    }
+
+    String providerName = hasText(provider.getName()) ? provider.getName() : "Tu proveedor";
+    timelineService.appendEvent(lead, LeadScheduleService.SCHEDULE_PROPOSED_EVENT_TYPE, "provider", proposal);
+    leadMessageService.postFromOps(lead.getId(), "provider",
+        "📅 %s propone pasar %s. Si te sirve, confirmalo acá en el chat con un toque.".formatted(providerName, proposal),
+        "all");
+    try {
+      pushNotificationService.notifyLeadHasNews(lead.getId(), providerName + " propuso un horario",
+          "%s — confirmalo con un toque desde el chat.".formatted(proposal));
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
+    }
+    return lead;
+  }
+
   private boolean hasText(String value) {
     return value != null && !value.trim().isBlank();
   }

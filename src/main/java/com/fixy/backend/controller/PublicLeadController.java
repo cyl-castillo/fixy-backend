@@ -6,12 +6,14 @@ import com.fixy.backend.dto.LeadMatchResponse;
 import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.PublicChatStartRequest;
 import com.fixy.backend.dto.PublicLeadContextUpdateRequest;
+import com.fixy.backend.service.LeadScheduleService;
 import com.fixy.backend.service.LeadService;
 import com.fixy.backend.service.LeadTimelineService;
 import com.fixy.backend.service.PublicLeadAbuseProtectionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -30,15 +32,18 @@ public class PublicLeadController {
   private final LeadService leadService;
   private final LeadTimelineService leadTimelineService;
   private final PublicLeadAbuseProtectionService abuseProtectionService;
+  private final LeadScheduleService leadScheduleService;
 
   public PublicLeadController(
       LeadService leadService,
       LeadTimelineService leadTimelineService,
-      PublicLeadAbuseProtectionService abuseProtectionService
+      PublicLeadAbuseProtectionService abuseProtectionService,
+      LeadScheduleService leadScheduleService
   ) {
     this.leadService = leadService;
     this.leadTimelineService = leadTimelineService;
     this.abuseProtectionService = abuseProtectionService;
+    this.leadScheduleService = leadScheduleService;
   }
 
   @PostMapping("/leads")
@@ -90,6 +95,25 @@ public class PublicLeadController {
         request.location()
     );
     return leadService.updatePublicContext(id, request);
+  }
+
+  /**
+   * "Horario acordado con un toque": el cliente responde la última propuesta
+   * del proveedor (ver PublicProviderSelfController.scheduleProposal) con
+   * Confirmar / No puedo — un toque, sin tipear. 409 si no hay propuesta
+   * pendiente o ya fue respondida.
+   */
+  @PostMapping("/leads/{id}/schedule-response")
+  public Map<String, Object> scheduleResponse(
+      @PathVariable Long id,
+      @RequestParam("token") String token,
+      @Valid @RequestBody ScheduleResponseRequest request
+  ) {
+    leadService.requirePublicToken(id, token);
+    return leadScheduleService.respond(id, Boolean.TRUE.equals(request.accept()));
+  }
+
+  public record ScheduleResponseRequest(@jakarta.validation.constraints.NotNull Boolean accept) {
   }
 
   @PostMapping("/leads/{id}/matches")

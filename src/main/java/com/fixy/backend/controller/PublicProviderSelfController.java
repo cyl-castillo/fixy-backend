@@ -175,6 +175,23 @@ public class PublicProviderSelfController {
     return ProviderAssignedLeadSummary.fromEntity(updated);
   }
 
+  /**
+   * "Horario acordado con un toque": el proveedor propone día/franja desde
+   * chips de su panel (ej. "mañana de 14 a 16"). El cliente lo confirma o
+   * rechaza con un toque vía POST /api/public/leads/{id}/schedule-response.
+   */
+  @PostMapping("/leads/{leadId}/schedule-proposal")
+  public ProviderAssignedLeadSummary scheduleProposal(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody ScheduleProposalRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Lead updated = selfService.proposeSchedule(provider, leadId, request.proposal());
+    return ProviderAssignedLeadSummary.fromEntity(updated);
+  }
+
   @PostMapping("/leads/{leadId}/status")
   public ProviderAssignedLeadSummary updateStatus(
       @PathVariable Long providerId,
@@ -217,6 +234,9 @@ public class PublicProviderSelfController {
   }
 
   public record StatusUpdateRequest(@NotNull LeadStatus status, BigDecimal amountCharged) {
+  }
+
+  public record ScheduleProposalRequest(@NotNull String proposal) {
   }
 
   public record AvailabilityUpdateRequest(@NotNull Boolean acceptingWork) {
