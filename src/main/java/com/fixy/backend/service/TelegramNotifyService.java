@@ -59,6 +59,8 @@ public class TelegramNotifyService {
   static final String DISPUTE_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_DISPUTE";
   /** Aviso a ops de trabajo asignado que lleva 48h sin cerrar — una vez por lead. */
   static final String STALE_JOB_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_JOB";
+  /** Aviso a ops de pedido listo que nadie acepta (MatchingStaleScheduler) — una vez por lead. */
+  static final String STALE_MATCHING_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_MATCHING";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -240,6 +242,19 @@ public class TelegramNotifyService {
    * demás avisos: nunca debe demorar el ciclo del scheduler que lo dispara.
    */
   @Async
+  /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
+  public void notifyStaleMatching(Lead lead, long minutes) {
+    if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;
+    String text = "🕳️ Pedido #%d (%s en %s) lleva %d min sin que nadie lo acepte — el cliente ya fue avisado, mirá si hay que mover proveedores a mano."
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            minutes
+        );
+    send(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE, text, "Aviso de matching estancado enviado a ops");
+  }
+
   public void notifyStaleJob(Lead lead, String providerName) {
     if (!shouldNotify(lead, STALE_JOB_NOTIFIED_EVENT_TYPE)) return;
     String text = "⏰ Trabajo #%d (%s en %s, proveedor %s) lleva 48h sin cerrar — dale un toque al proveedor."
