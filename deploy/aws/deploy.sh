@@ -9,14 +9,14 @@ set -euo pipefail
 #   DRY_RUN=1 ./deploy/aws/deploy.sh       # imprime acciones sin tocar prod
 #
 # Vars opcionales:
-#   SSH_KEY     ruta a la pem (default ~/Downloads/LightsailDefaultKey-us-east-1.pem)
+#   SSH_KEY     ruta a la pem (default ~/.ssh/fixy-prod-default.pem)
 #   SSH_USER    usuario remoto (default ubuntu)
 #   SSH_HOST    host remoto (default 52.201.149.5)
 #   REMOTE_JAR  destino (default /opt/fixy-backend/fixy-backend.jar)
 #   SERVICE     systemd unit (default fixy-backend)
 #   HEALTH_URL  url local en el server (default http://127.0.0.1:8080/api/health)
 
-SSH_KEY="${SSH_KEY:-$HOME/Downloads/LightsailDefaultKey-us-east-1.pem}"
+SSH_KEY="${SSH_KEY:-$HOME/.ssh/fixy-prod-default.pem}"
 SSH_USER="${SSH_USER:-ubuntu}"
 SSH_HOST="${SSH_HOST:-52.201.149.5}"
 REMOTE_JAR="${REMOTE_JAR:-/opt/fixy-backend/fixy-backend.jar}"
