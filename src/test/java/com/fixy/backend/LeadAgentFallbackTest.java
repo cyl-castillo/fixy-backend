@@ -62,7 +62,7 @@ class LeadAgentFallbackTest {
             .content("{\"text\": \"se me rompió la canilla, estoy en Solymar\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "plomer");
 
     // Reconoce ambos datos extraídos por la heurística — nunca un enlatado genérico.
     assertThat(fixyReply.toLowerCase()).contains("plomer");
@@ -104,7 +104,7 @@ class LeadAgentFallbackTest {
             .content("{\"text\": \"??\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "contame un poco más");
 
     // Mensaje sin info real: repregunta honesta está bien acá.
     assertThat(fixyReply.toLowerCase()).contains("contame un poco más");
@@ -135,7 +135,7 @@ class LeadAgentFallbackTest {
             .content("{\"text\": \"se me tapo la camara septica, estoy en Lagomar\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "no tengo proveedores libres");
 
     // El lead cruzó a readyForMatching (categoría+zona MVP) y tryAutoMatch ya
     // avisó honestamente que no hay proveedores — sin prometer contacto falso.
@@ -146,11 +146,18 @@ class LeadAgentFallbackTest {
     assertThat(fixyReply.toLowerCase()).doesNotContain("conseguí a");
   }
 
-  /** Polling corto sobre el endpoint público de mensajes hasta ver la respuesta de fixy (post-async). */
-  private String awaitFixyReply(Integer leadId, String token) {
+  /**
+   * Polling sobre el endpoint público de mensajes hasta ver la respuesta de
+   * fixy que contiene el fragmento esperado (case-insensitive, post-async).
+   * Esperar "cualquier mensaje de fixy" era una carrera con el saludo async
+   * de greet(): si el poll caía entre el saludo y la respuesta del fallback
+   * heurístico, el test agarraba el saludo (mismo fix que
+   * MatchingTransparencyTest).
+   */
+  private String awaitFixyReplyMentioning(Integer leadId, String token, String expectedFragment) {
     java.util.concurrent.atomic.AtomicReference<String> reply = new java.util.concurrent.atomic.AtomicReference<>();
     Awaitility.await()
-        .atMost(Duration.ofSeconds(5))
+        .atMost(Duration.ofSeconds(10))
         .pollInterval(Duration.ofMillis(100))
         .untilAsserted(() -> {
           MvcResult result = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
@@ -160,9 +167,23 @@ class LeadAgentFallbackTest {
               .andReturn();
           String listBody = result.getResponse().getContentAsString();
           java.util.List<String> senders = JsonPath.read(listBody, "$[*].sender");
-          assertThat(senders).contains("fixy");
-          int idx = senders.lastIndexOf("fixy");
-          reply.set(JsonPath.read(listBody, "$[" + idx + "].text"));
+          java.util.List<String> texts = JsonPath.read(listBody, "$[*].text");
+          java.util.List<String> fixyTexts = new java.util.ArrayList<>();
+          String match = null;
+          String needle = expectedFragment.toLowerCase();
+          for (int i = 0; i < senders.size(); i++) {
+            if ("fixy".equals(senders.get(i))) {
+              fixyTexts.add(texts.get(i));
+              if (texts.get(i).toLowerCase().contains(needle)) {
+                match = texts.get(i);
+              }
+            }
+          }
+          assertThat(match)
+              .as("mensaje de fixy mencionando '%s' (mensajes de fixy vistos: %s)",
+                  expectedFragment, fixyTexts)
+              .isNotNull();
+          reply.set(match);
         });
     return reply.get();
   }

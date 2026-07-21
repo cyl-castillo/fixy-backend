@@ -59,7 +59,7 @@ class LeadAgentPriceFallbackTest {
             .content("{\"text\": \"y cuanto sale mas o menos?\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "$800–2500");
 
     assertThat(fixyReply).contains("$800–2500");
     assertThat(fixyReply.toLowerCase()).contains("proveedor");
@@ -89,16 +89,23 @@ class LeadAgentPriceFallbackTest {
             .content("{\"text\": \"cuanto cuesta?\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "necesitás arreglar");
 
     assertThat(fixyReply.toLowerCase()).contains("necesitás arreglar");
   }
 
-  /** Polling corto sobre el endpoint público de mensajes hasta ver la respuesta de fixy (post-async). */
-  private String awaitFixyReply(Integer leadId, String token) {
+  /**
+   * Polling sobre el endpoint público de mensajes hasta ver la respuesta de
+   * fixy que contiene el fragmento esperado (case-insensitive, post-async).
+   * Esperar "cualquier mensaje de fixy" era una carrera con el saludo async
+   * de greet(): si el poll caía entre el saludo y la respuesta del fallback
+   * heurístico, el test agarraba el saludo (mismo fix que
+   * MatchingTransparencyTest).
+   */
+  private String awaitFixyReplyMentioning(Integer leadId, String token, String expectedFragment) {
     java.util.concurrent.atomic.AtomicReference<String> reply = new java.util.concurrent.atomic.AtomicReference<>();
     Awaitility.await()
-        .atMost(Duration.ofSeconds(5))
+        .atMost(Duration.ofSeconds(10))
         .pollInterval(Duration.ofMillis(100))
         .untilAsserted(() -> {
           MvcResult result = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
@@ -108,9 +115,23 @@ class LeadAgentPriceFallbackTest {
               .andReturn();
           String listBody = result.getResponse().getContentAsString();
           java.util.List<String> senders = JsonPath.read(listBody, "$[*].sender");
-          assertThat(senders).contains("fixy");
-          int idx = senders.lastIndexOf("fixy");
-          reply.set(JsonPath.read(listBody, "$[" + idx + "].text"));
+          java.util.List<String> texts = JsonPath.read(listBody, "$[*].text");
+          java.util.List<String> fixyTexts = new java.util.ArrayList<>();
+          String match = null;
+          String needle = expectedFragment.toLowerCase();
+          for (int i = 0; i < senders.size(); i++) {
+            if ("fixy".equals(senders.get(i))) {
+              fixyTexts.add(texts.get(i));
+              if (texts.get(i).toLowerCase().contains(needle)) {
+                match = texts.get(i);
+              }
+            }
+          }
+          assertThat(match)
+              .as("mensaje de fixy mencionando '%s' (mensajes de fixy vistos: %s)",
+                  expectedFragment, fixyTexts)
+              .isNotNull();
+          reply.set(match);
         });
     return reply.get();
   }

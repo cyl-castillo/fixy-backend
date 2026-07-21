@@ -92,7 +92,7 @@ class MatchingTransparencyTest {
             .content("{\"text\": \"necesito cortar el pasto del jardín, estoy en Aeroparque\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReply(leadId, token);
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "Jardinero Aeroparque Test");
 
     // Copy honesto: "contactando"/"escribiendo", nunca dar por hecho que el
     // proveedor ya aceptó antes de que confirme.
@@ -112,11 +112,19 @@ class MatchingTransparencyTest {
     assertThat(contactedEvent.getMessage().toLowerCase()).doesNotContain("conseguí");
   }
 
-  /** Polling corto sobre el endpoint público de mensajes hasta ver la respuesta de fixy (post-async). */
-  private String awaitFixyReply(Integer leadId, String token) {
+  /**
+   * Polling sobre el endpoint público de mensajes hasta ver la respuesta de
+   * fixy que menciona al proveedor (post-async). Hay DOS mensajes async de
+   * fixy en este flujo: el saludo de greet() (disparado al crear el lead) y
+   * el aviso de tryAutoMatch (disparado por el mensaje del cliente). Esperar
+   * "cualquier mensaje de fixy" era una carrera: si el poll caía entre ambos,
+   * el test agarraba el saludo y fallaba. Se espera el mensaje que este test
+   * protege; si el auto-match no dispara, el timeout lo hace fallar igual.
+   */
+  private String awaitFixyReplyMentioning(Integer leadId, String token, String expectedFragment) {
     java.util.concurrent.atomic.AtomicReference<String> reply = new java.util.concurrent.atomic.AtomicReference<>();
     Awaitility.await()
-        .atMost(Duration.ofSeconds(5))
+        .atMost(Duration.ofSeconds(10))
         .pollInterval(Duration.ofMillis(100))
         .untilAsserted(() -> {
           MvcResult result = mockMvc.perform(get("/api/public/leads/{id}/messages", leadId)
@@ -125,9 +133,23 @@ class MatchingTransparencyTest {
               .andReturn();
           String listBody = result.getResponse().getContentAsString();
           List<String> senders = JsonPath.read(listBody, "$[*].sender");
-          assertThat(senders).contains("fixy");
-          int idx = senders.lastIndexOf("fixy");
-          reply.set(JsonPath.read(listBody, "$[" + idx + "].text"));
+          List<String> texts = JsonPath.read(listBody, "$[*].text");
+          List<String> fixyTexts = new java.util.ArrayList<>();
+          String match = null;
+          String needle = expectedFragment.toLowerCase();
+          for (int i = 0; i < senders.size(); i++) {
+            if ("fixy".equals(senders.get(i))) {
+              fixyTexts.add(texts.get(i));
+              if (texts.get(i).toLowerCase().contains(needle)) {
+                match = texts.get(i);
+              }
+            }
+          }
+          assertThat(match)
+              .as("mensaje de fixy mencionando '%s' (mensajes de fixy vistos: %s)",
+                  expectedFragment, fixyTexts)
+              .isNotNull();
+          reply.set(match);
         });
     return reply.get();
   }
