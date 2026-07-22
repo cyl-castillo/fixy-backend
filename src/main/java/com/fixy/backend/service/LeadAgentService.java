@@ -261,7 +261,15 @@ public class LeadAgentService {
       // (el guard de arriba la descarta del dato, pero el texto salía igual) y
       // repregunta de algo ya respondido, sin pedir lo único que faltaba.
       boolean zoneArrivedThisTurn = extracted != null && extracted.get("zone") != null;
-      if (shouldForceZoneQuestion(categoryKnown, lead.getLocation(), lastMsg, result.reply(), zoneArrivedThisTurn)) {
+      // La categoría cuenta como conocida también si recién se detectó en
+      // ESTE turno (provisional por keywords o extraída y validada): en el
+      // primer mensaje del chat el lead arranca vacío y categoryKnown
+      // pre-turno es false — el hueco exacto por el que el guard no disparó
+      // en la réplica del #138 (lead #139).
+      boolean categoryKnownForReply = categoryKnown
+          || provisionalCategory != null
+          || (extracted != null && extracted.get("category") != null);
+      if (shouldForceZoneQuestion(categoryKnownForReply, lead.getLocation(), lastMsg, result.reply(), zoneArrivedThisTurn)) {
         log.info("respuesta del LLM no pide la zona (única traba) en lead {}: fallback determinista", leadId);
         respondWithHeuristicFallback(leadId, lead);
         return;
