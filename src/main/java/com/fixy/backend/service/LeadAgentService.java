@@ -230,12 +230,14 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
-      leadMessageService.postFromAgent(leadId, result.reply());
       Map<String, String> extracted = result.extracted();
       // Guard determinista contra zonas alucinadas: el 8B extrajo dos veces
       // en prod (leads #111 y #112) una zona que solo aparecía en las
       // preguntas del PROPIO agente, aún con la regla dura en el prompt.
       // Una zona extraída solo vale si el cliente la escribió textualmente.
+      // (Los guards de extracción corren ANTES de postear desde el caso
+      // #138: la validación de la respuesta de abajo necesita saber si la
+      // zona llegó de verdad en este turno.)
       if (extracted != null && extracted.get("zone") != null
           && !zoneMentionedByCustomer(leadId, extracted.get("zone"))) {
         extracted = new java.util.HashMap<>(extracted);
@@ -253,6 +255,18 @@ public class LeadAgentService {
         extracted.remove("category");
         log.info("categoría extraída descartada (el cliente no dio rastro): lead={}", leadId);
       }
+      // Guard determinista de RESPUESTA (lead #138): con categoría conocida y
+      // la zona como única traba, el 8B contestó "Dale, aire acondicionado en
+      // Lomas. ¿Qué tipo de servicio necesitás?" — zona alucinada en el TEXTO
+      // (el guard de arriba la descarta del dato, pero el texto salía igual) y
+      // repregunta de algo ya respondido, sin pedir lo único que faltaba.
+      boolean zoneArrivedThisTurn = extracted != null && extracted.get("zone") != null;
+      if (shouldForceZoneQuestion(categoryKnown, lead.getLocation(), lastMsg, result.reply(), zoneArrivedThisTurn)) {
+        log.info("respuesta del LLM no pide la zona (única traba) en lead {}: fallback determinista", leadId);
+        respondWithHeuristicFallback(leadId, lead);
+        return;
+      }
+      leadMessageService.postFromAgent(leadId, result.reply());
       if (extracted != null && !extracted.isEmpty()) {
         applyExtractedFields(leadId, extracted);
       }
@@ -437,6 +451,48 @@ public class LeadAgentService {
       }
     }
     return false;
+  }
+
+  /**
+   * true si la respuesta del LLM debe reemplazarse por la pregunta
+   * determinista de zona: categoría ya conocida, zona todavía faltante (y no
+   * llegó en este turno), el cliente NO está preguntando algo él mismo (ahí
+   * el LLM debe poder responder libre), y la respuesta generada no pide la
+   * zona. En ese estado, cualquier otra repregunta es una respuesta rota
+   * (caso real lead #138). Estático y puro para testearlo sin contexto.
+   */
+  public static boolean shouldForceZoneQuestion(
+      boolean categoryKnown,
+      String location,
+      String lastCustomerMsg,
+      String reply,
+      boolean zoneArrivedThisTurn
+  ) {
+    if (!categoryKnown || zoneArrivedThisTurn) {
+      return false;
+    }
+    boolean zoneMissing = location == null || location.isBlank() || "sin definir".equalsIgnoreCase(location);
+    if (!zoneMissing) {
+      return false;
+    }
+    if (lastCustomerMsg != null && (lastCustomerMsg.contains("?") || lastCustomerMsg.contains("¿"))) {
+      return false;
+    }
+    return !asksForZone(reply);
+  }
+
+  /** true si la respuesta menciona la zona/ubicación como pregunta o pedido (insensible a acentos). */
+  public static boolean asksForZone(String reply) {
+    if (reply == null || reply.isBlank()) {
+      return false;
+    }
+    String normalized = java.text.Normalizer.normalize(reply.toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "");
+    return normalized.contains("zona")
+        || normalized.contains("barrio")
+        || normalized.contains("donde")
+        || normalized.contains("ubicac")
+        || normalized.contains("direccion");
   }
 
   /** true si la respuesta generada es (normalizada) igual al último mensaje
