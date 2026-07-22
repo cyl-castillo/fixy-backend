@@ -6,6 +6,7 @@ import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadPhotoRepository;
@@ -68,6 +69,13 @@ public class ProviderOpportunityService {
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
+    // Estado no operativo: BLOCKED nunca debió ver la bandeja (agujero
+    // latente detectado 2026-07-22) e INACTIVE cubre además al autoregistrado
+    // pendiente de aprobación — mismos estados que excluye findMatches. Como
+    // accept() exige oportunidad visible, esto también bloquea el accept.
+    if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
+      return List.of();
+    }
     // Disponibilidad MVP: en pausa (acceptingWork=false) no ve oportunidades
     // nuevas. No afecta trabajos ya asignados (assignedLeadsFor).
     if (provider.getAcceptingWork() != null && !provider.getAcceptingWork()) {
@@ -138,6 +146,12 @@ public class ProviderOpportunityService {
    * evita un check-then-act en memoria que reintroduciría la race.
    */
   private void requireVisibleOpportunity(Provider provider, Long leadId) {
+    // Mismo gate de estado que listFor: sin él, un proveedor BLOCKED o
+    // INACTIVE (autoregistrado sin aprobar) podía aceptar por POST directo
+    // aunque su bandeja estuviera vacía.
+    if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "tu cuenta no está activa todavía");
+    }
     if (!leadRepository.existsById(leadId)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found");
     }

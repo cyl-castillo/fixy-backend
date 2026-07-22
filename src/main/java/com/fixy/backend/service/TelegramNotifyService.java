@@ -242,6 +242,27 @@ public class TelegramNotifyService {
    * demás avisos: nunca debe demorar el ciclo del scheduler que lo dispara.
    */
   @Async
+  /**
+   * Autoregistro de proveedor (sin lead asociado → sin evento de timeline;
+   * el registro pasa una sola vez, no hace falta idempotencia por evento).
+   */
+  public void notifyProviderSelfRegistered(Provider provider) {
+    if (!enabled) return;
+    try {
+      String text = "🆕 Proveedor autoregistrado: %s (%s) — %s en %s. Cuenta Google: %s. Aprobalo en el admin: Proveedores → Activar."
+          .formatted(
+              provider.getName(),
+              safe(provider.getPhone()),
+              safe(provider.getCategories()),
+              safe(provider.getPrimaryZone()),
+              safe(provider.getGoogleEmail())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify provider-registered {} failed: {}", provider.getId(), ex.getMessage());
+    }
+  }
+
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;
