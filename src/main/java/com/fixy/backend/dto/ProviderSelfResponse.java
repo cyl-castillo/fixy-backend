@@ -19,6 +19,8 @@ public record ProviderSelfResponse(
     Double ratingAverage,
     Integer ratingCount,
     Boolean acceptingWork,
+    /** Email de la cuenta Google vinculada para login sin link magico — null si nunca vinculo. */
+    String googleEmail,
     List<ProviderAssignedLeadSummary> assignedLeads
 ) {
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
@@ -42,6 +44,7 @@ public record ProviderSelfResponse(
         ratingAverage,
         ratingCount,
         provider.getAcceptingWork() == null || provider.getAcceptingWork(),
+        provider.getGoogleEmail(),
         leads
     );
   }

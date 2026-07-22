@@ -9,6 +9,9 @@ import org.springframework.data.jpa.repository.Query;
 public interface ProviderRepository extends JpaRepository<Provider, Long> {
   List<Provider> findAllByOrderByCreatedAtDesc();
 
+  /** Login con Google del proveedor: el sub del ID token es la llave estable de la cuenta vinculada. */
+  Optional<Provider> findByGoogleSub(String googleSub);
+
   /**
    * Busca un provider por su número WhatsApp tolerando variaciones de
    * formato (con/sin 0 inicial, con/sin código país 598).

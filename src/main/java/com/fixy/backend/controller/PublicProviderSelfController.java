@@ -14,6 +14,7 @@ import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadPaymentQueryService;
 import com.fixy.backend.service.ProviderOpportunityService;
+import com.fixy.backend.service.ProviderGoogleAuthService;
 import com.fixy.backend.service.ProviderSelfService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -38,17 +39,20 @@ public class PublicProviderSelfController {
   private final LeadMessageService messageService;
   private final ProviderOpportunityService opportunityService;
   private final LeadPaymentQueryService leadPaymentQueryService;
+  private final ProviderGoogleAuthService providerGoogleAuthService;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
       LeadMessageService messageService,
       ProviderOpportunityService opportunityService,
-      LeadPaymentQueryService leadPaymentQueryService
+      LeadPaymentQueryService leadPaymentQueryService,
+      ProviderGoogleAuthService providerGoogleAuthService
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
     this.opportunityService = opportunityService;
     this.leadPaymentQueryService = leadPaymentQueryService;
+    this.providerGoogleAuthService = providerGoogleAuthService;
   }
 
   @GetMapping("/opportunities")
@@ -173,6 +177,28 @@ public class PublicProviderSelfController {
     Integer etaMinutes = request == null ? null : request.etaMinutes();
     Lead updated = selfService.notifyOnTheWay(provider, leadId, etaMinutes);
     return ProviderAssignedLeadSummary.fromEntity(updated);
+  }
+
+  /**
+   * Vincula la cuenta de Google al proveedor (Google Sign-In del panel): el
+   * token del link mágico prueba posesión; después puede entrar desde
+   * cualquier teléfono vía POST /api/public/auth/google-provider.
+   */
+  @PostMapping("/link-google")
+  public LinkGoogleResponse linkGoogle(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody LinkGoogleRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Provider linked = providerGoogleAuthService.link(provider, request.credential());
+    return new LinkGoogleResponse(linked.getGoogleEmail());
+  }
+
+  public record LinkGoogleRequest(@NotNull String credential) {
+  }
+
+  public record LinkGoogleResponse(String googleEmail) {
   }
 
   /**

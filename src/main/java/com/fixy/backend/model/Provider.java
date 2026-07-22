@@ -70,6 +70,13 @@ public class Provider {
   @Column(nullable = false)
   private Boolean acceptingWork;
 
+  /** Google Sign-In del proveedor (login-google): sub estable de la cuenta vinculada, null si nunca vinculó. */
+  @Column(unique = true)
+  private String googleSub;
+
+  /** Email de la cuenta Google vinculada — solo para mostrar en el panel ("entrás con ..."). */
+  private String googleEmail;
+
   @Column(length = 1000)
   private String riskFlags;
 
@@ -168,6 +175,10 @@ public class Provider {
   public void setRatingCount(Integer ratingCount) { this.ratingCount = ratingCount; }
   public Integer getInternalScore() { return internalScore; }
   public void setInternalScore(Integer internalScore) { this.internalScore = internalScore; }
+  public String getGoogleSub() { return googleSub; }
+  public void setGoogleSub(String googleSub) { this.googleSub = googleSub; }
+  public String getGoogleEmail() { return googleEmail; }
+  public void setGoogleEmail(String googleEmail) { this.googleEmail = googleEmail; }
   public Boolean getAcceptingWork() { return acceptingWork; }
   public void setAcceptingWork(Boolean acceptingWork) { this.acceptingWork = acceptingWork; }
   public String getRiskFlags() { return riskFlags; }
