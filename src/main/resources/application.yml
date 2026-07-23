@@ -11,6 +11,14 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:}
   jpa:
     hibernate:
+      # Default `update` = dev local con H2 (autocrea el esquema, Flyway off).
+      # PROD DEBE OVERRIDEAR A `none` en /etc/fixy-backend.env: prod es
+      # Postgres + Flyway (dueño del esquema). En prod, `update` es un no-op
+      # ROTO — intenta re-crear tablas existentes en cada boot (tormenta de
+      # warnings) y NO altera nada, así que una entidad con columnas nuevas
+      # deployada SIN migración rompe prod (incidente 2026-07-22). Todo
+      # cambio de esquema = migración en db/migration. Ver también los tests
+      # (create-drop explícito) que no dependen de este default.
       ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
     open-in-view: false
     properties:
