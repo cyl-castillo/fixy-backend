@@ -76,6 +76,19 @@ public enum ServiceCategory {
           "shots dulces", "candy bar"),
       900, 3500,
       "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre"),
+  // Declarada DESPUÉS de pastelería a propósito: detectFromText itera en orden
+  // de declaración, así "decorar la torta" cae en pastelería (keyword "torta")
+  // antes de llegar acá. Las keywords de decoración son visuales/específicas
+  // (globos, ambientación), NO comparten los términos de evento genéricos
+  // ("cumpleaños", "fiesta" a secas) con pastelería — el clasificador LLM
+  // resuelve el caso ambiguo "decoración para un cumpleaños" con la guía del
+  // prompt; el heurístico prioriza lo que matchea primero, aceptable como fallback.
+  DECORACION_FIESTAS("decoracion_fiestas", "decoración de fiestas", true,
+      List.of("decoracion", "decoración", "ambientacion", "ambientación", "ambientar",
+          "globos", "arco de globos", "backdrop", "guirnalda", "centro de mesa",
+          "decorar la fiesta", "decoracion de fiesta", "decoración de fiesta"),
+      2000, 8000,
+      "para cuándo es, qué tipo de evento (cumpleaños, 15, casamiento, empresa) y qué querés (globos, ambientación completa, un sector)"),
   OTRO("otro", "otro", false, List.of(), null, null, null);
 
   /**

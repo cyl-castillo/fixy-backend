@@ -22,9 +22,10 @@ import org.junit.jupiter.api.Test;
 class ServiceCategoryConsistencyTest {
 
   @Test
-  void allMvpCategoriesAreMarkedAsMvpAndIncludePasteleria() {
+  void allMvpCategoriesAreMarkedAsMvp() {
     assertThat(ServiceCategory.MVP_IDS).containsExactlyInAnyOrder(
-        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria");
+        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria",
+        "decoracion_fiestas");
   }
 
   @Test
@@ -33,7 +34,7 @@ class ServiceCategoryConsistencyTest {
     // que Fixy clasifica pero no matchea (electricidad, cerrajería, reparaciones).
     assertThat(ServiceCategory.ALL_IDS_INCLUDING_OTRO).containsExactlyInAnyOrder(
         "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-        "aires_acondicionados", "reparaciones", "pasteleria", "otro");
+        "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas", "otro");
   }
 
   @Test
@@ -69,7 +70,26 @@ class ServiceCategoryConsistencyTest {
     assertThat(ServiceCategory.detectFromText("quiero encargar una torta de cumpleaños")).contains(ServiceCategory.PASTELERIA);
     assertThat(ServiceCategory.detectFromText("se cortó la luz del tablero")).contains(ServiceCategory.ELECTRICIDAD);
     assertThat(ServiceCategory.detectFromText("me quedé afuera, perdí la llave")).contains(ServiceCategory.CERRAJERIA);
+    assertThat(ServiceCategory.detectFromText("quiero un arco de globos para ambientar la fiesta"))
+        .contains(ServiceCategory.DECORACION_FIESTAS);
     assertThat(ServiceCategory.detectFromText("hola, ¿cómo estás?")).isEmpty();
+  }
+
+  @Test
+  void decoracionYPasteleriaSeDistinguenPorTerminosPropios() {
+    // Términos propios de cada rubro clasifican bien en el heurístico:
+    assertThat(ServiceCategory.detectFromText("una torta para el evento")).contains(ServiceCategory.PASTELERIA);
+    assertThat(ServiceCategory.detectFromText("quiero globos y ambientación para el evento"))
+        .contains(ServiceCategory.DECORACION_FIESTAS);
+
+    // LIMITACIÓN CONOCIDA del heurístico (no del LLM): "cumpleaños" es keyword
+    // de pastelería y está declarada antes, así que "decoración para el
+    // cumpleaños" cae en pastelería por orden de match. El clasificador LLM
+    // resuelve este caso con la guía del prompt (intake-classifier.md); el
+    // heurístico es solo el fallback sin LLM. Documentado como assertion para
+    // que si algún día cambia el orden/keywords, salte acá y sea decisión.
+    assertThat(ServiceCategory.detectFromText("decoración con globos para el cumpleaños"))
+        .contains(ServiceCategory.PASTELERIA);
   }
 
   @Test

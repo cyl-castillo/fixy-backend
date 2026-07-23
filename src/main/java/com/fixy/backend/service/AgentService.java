@@ -619,6 +619,9 @@ public class AgentService {
     if (containsAny(normalized, "torta", "cumpleaños", "cumpleanos", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería")) {
       return "pasteleria";
     }
+    if (containsAny(normalized, "decoracion", "decoración", "ambientacion", "ambientación", "globos")) {
+      return "decoracion_fiestas";
+    }
     return normalized.isBlank() ? "otro" : normalized;
   }
 

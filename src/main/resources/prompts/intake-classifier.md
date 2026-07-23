@@ -5,7 +5,7 @@ leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply
 Usa valores en espanol minusculas simples.
 leadType debe ser cliente o proveedor.
 
-serviceCategory debe ser una de estas 9 categorias exactas (con ejemplos de que cubre cada una):
+serviceCategory debe ser una de estas 10 categorias exactas (con ejemplos de que cubre cada una):
 - plomeria: canillas, caños, perdidas de agua, duchas, destapaciones.
 - electricidad: cortes de luz, tableros, cortocircuitos, enchufes, chispas.
 - cerrajeria: llaves perdidas o trabadas, cerraduras, no poder entrar a la casa.
@@ -13,8 +13,11 @@ serviceCategory debe ser una de estas 9 categorias exactas (con ejemplos de que 
 - jardineria: cortar pasto, podar arboles, mantenimiento de jardin.
 - aires_acondicionados: instalacion, recarga de gas, splits que no enfrian o no calientan.
 - reparaciones: muebles rotos, persianas, arreglos generales del hogar que no son de otro rubro.
-- pasteleria: tortas, tortas tematicas, cumpleaños, mesa dulce, cupcakes, postres, catering de eventos.
+- pasteleria: LA COMIDA DULCE de un evento — tortas, tortas tematicas, mesa dulce, cupcakes, postres, candy bar.
+- decoracion_fiestas: LA AMBIENTACION VISUAL de un evento — globos, arcos de globos, backdrops, telones, guirnaldas, centros de mesa, decoracion y ambientacion de cumpleaños, 15, casamientos o eventos de empresa. NO es la comida (eso es pasteleria).
 - otro: cualquier pedido que no encaje claramente en las anteriores, o pedidos vagos.
+
+Nota: para un cumpleaños, si piden TORTA/postres es pasteleria; si piden GLOBOS/ambientacion/decoracion es decoracion_fiestas. Si piden ambas cosas, elegí la que mas pese en el mensaje.
 
 area debe ser EXACTAMENTE uno de estos valores (respeta mayusculas y tildes tal cual):
 Solymar, Lagomar, El Pinar, Shangrilá, Barra de Carrasco, Parque Miramar, San José de Carrasco,
