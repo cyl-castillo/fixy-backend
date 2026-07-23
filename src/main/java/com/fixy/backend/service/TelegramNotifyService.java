@@ -243,6 +243,33 @@ public class TelegramNotifyService {
    */
   @Async
   /**
+   * Intento de autoregistro con un teléfono que YA pertenece a un proveedor:
+   * casi siempre es un proveedor real que perdió su link — aviso proactivo
+   * para que ops se lo reenvíe sin esperar a que escriba. Throttle en
+   * memoria (el endpoint es público: sin freno, cualquiera podría inundar
+   * el Telegram tipeando teléfonos ajenos en loop; tras un restart se
+   * re-avisa una vez, aceptable).
+   */
+  public void notifyExistingProviderRegistrationAttempt(Provider existing, String googleEmail) {
+    if (!enabled) return;
+    try {
+      long now = System.currentTimeMillis();
+      Long last = registrationAttemptNotifiedAt.get(existing.getId());
+      if (last != null && now - last < REGISTRATION_ATTEMPT_THROTTLE_MS) return;
+      registrationAttemptNotifiedAt.put(existing.getId(), now);
+      String text = "🔁 %s intentó registrarse de nuevo (su teléfono ya está en Fixy) con la cuenta Google %s — probablemente perdió su link: mandale el suyo y que vincule Google desde Perfil."
+          .formatted(existing.getName(), safe(googleEmail));
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify registration-attempt provider={} failed: {}", existing.getId(), ex.getMessage());
+    }
+  }
+
+  private static final long REGISTRATION_ATTEMPT_THROTTLE_MS = 6 * 60 * 60 * 1000L;
+  private final java.util.concurrent.ConcurrentHashMap<Long, Long> registrationAttemptNotifiedAt =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
    * Autoregistro de proveedor (sin lead asociado → sin evento de timeline;
    * el registro pasa una sola vez, no hace falta idempotencia por evento).
    */

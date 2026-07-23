@@ -44,6 +44,9 @@ class ProviderRegistrationTest {
   @MockitoBean
   private GoogleIdTokenVerifierService verifier;
 
+  @MockitoBean
+  private com.fixy.backend.service.TelegramNotifyService telegramNotifyService;
+
   private void mockIdentity(String credential, String sub, String email) {
     Mockito.when(verifier.verify(eq(credential)))
         .thenReturn(Optional.of(new GoogleIdTokenVerifierService.GoogleIdentity(sub, email, "Nuevo", null)));
@@ -159,11 +162,19 @@ class ProviderRegistrationTest {
   }
 
   @Test
-  void telefonoYaRegistrado_es409() throws Exception {
+  void telefonoYaRegistrado_es409YAvisaAOpsPorTelegram() throws Exception {
     mockIdentity("cred-tel-a", "sub-tel-a", "tela@gmail.com");
     mockIdentity("cred-tel-b", "sub-tel-b", "telb@gmail.com");
     assertThat(register("cred-tel-a", "099740005").getResponse().getStatus()).isEqualTo(201);
     assertThat(register("cred-tel-b", "099740005").getResponse().getStatus()).isEqualTo(409);
+
+    // Aviso proactivo: casi siempre es un proveedor real que perdió su link.
+    Mockito.verify(telegramNotifyService).notifyExistingProviderRegistrationAttempt(
+        Mockito.argThat(p -> "099740005".equals(p.getPhone())),
+        Mockito.eq("telb@gmail.com"));
+    // El registro feliz también avisó (alta nueva).
+    Mockito.verify(telegramNotifyService, Mockito.atLeastOnce())
+        .notifyProviderSelfRegistered(Mockito.any());
   }
 
   @Test

@@ -66,7 +66,11 @@ public class ProviderRegistrationService {
         : validateLength(coverageZones.trim(), COVERAGE_MAX, "zonas de cobertura");
 
     String normalizedPhone = cleanPhone.replaceAll("\\D", "");
-    if (providerRepository.findByContactNumber(normalizedPhone).isPresent()) {
+    Provider existing = providerRepository.findByContactNumber(normalizedPhone).orElse(null);
+    if (existing != null) {
+      // Casi siempre es un proveedor real que perdió su link: aviso proactivo
+      // a ops (con throttle — ver TelegramNotifyService) antes del rechazo.
+      telegramNotifyService.notifyExistingProviderRegistrationAttempt(existing, identity.email());
       throw new ResponseStatusException(HttpStatus.CONFLICT,
           "ese teléfono ya está registrado en Fixy — si es tuyo, escribinos por WhatsApp");
     }
