@@ -489,6 +489,18 @@ public class LeadAgentService {
     return !asksForZone(reply);
   }
 
+  /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
+  private boolean customerMentionedSmoke(Long leadId) {
+    try {
+      return leadMessageService.recentForAgent(leadId, 10).stream()
+          .anyMatch(m -> "customer".equals(m.getSender())
+              && m.getText() != null
+              && m.getText().toLowerCase(Locale.ROOT).contains("[smoke]"));
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
   /** true si la respuesta menciona la zona/ubicación como pregunta o pedido (insensible a acentos). */
   public static boolean asksForZone(String reply) {
     if (reply == null || reply.isBlank()) {
@@ -945,6 +957,15 @@ public class LeadAgentService {
       if (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem())) {
         String composed = composeProblemFromExtracted(extracted);
         if (composed != null) {
+          // Preservar la marca [smoke] del mensaje original del cliente: TODOS
+          // los guards anti-tráfico-sintético (schedulers, Telegram, cobranzas)
+          // la buscan en problem — y el problem derivado ("Pedido de X") la
+          // perdía, dejando a los leads de prueba de chat SIN protección.
+          // Incidente real 2026-07-24: el banco de evaluación de modelos
+          // disparó pushes y avisos de matching estancado a proveedores reales.
+          if (customerMentionedSmoke(lead.getId())) {
+            composed = "[smoke] " + composed;
+          }
           lead.setProblem(composed);
           changed = true;
         }
