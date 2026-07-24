@@ -104,7 +104,7 @@ public class AgentService {
       @Value("${fixy.agent.provider:openai}") String provider,
       @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
       @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
-      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel
   ) {
     this.objectMapper = objectMapper;
     this.openAiApiKey = openAiApiKey;

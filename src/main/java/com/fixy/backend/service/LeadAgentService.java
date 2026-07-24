@@ -85,7 +85,7 @@ public class LeadAgentService {
       @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel,
       @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
       @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
-      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.1-8b-instruct}") String cloudflareModel,
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel,
       @Value("${fixy.whatsapp.template-name:provider_lead_notification}") String whatsappTemplateName,
       @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang
   ) {

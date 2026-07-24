@@ -54,7 +54,7 @@ fixy:
   cloudflare:
     account-id: ${CF_ACCOUNT_ID:}
     api-token: ${CF_API_TOKEN:}
-    model: ${CF_MODEL:@cf/meta/llama-3.1-8b-instruct}
+    model: ${CF_MODEL:@cf/meta/llama-3.3-70b-instruct-fp8-fast}
   whatsapp:
     phone-number-id: ${WHATSAPP_PHONE_NUMBER_ID:}
     access-token: ${WHATSAPP_ACCESS_TOKEN:}
