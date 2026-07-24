@@ -24,7 +24,9 @@ import unicodedata
 import urllib.request
 
 BASE_URL = os.environ.get("BASE_URL", "https://api.fixy.com.uy")
-REPLY_TIMEOUT_S = 50
+# 90s de default: el 70B en Workers AI responde en ~40-60s (medido 2026-07-24);
+# con 50s el banco cortaba antes de poder evaluar el contenido.
+REPLY_TIMEOUT_S = int(os.environ.get("REPLY_TIMEOUT_S", "90"))
 POLL_EVERY_S = 2.5
 
 KNOWN_ZONES = [
@@ -72,7 +74,8 @@ def create_chat():
 def send_and_wait_reply(lead_id, token, text, known_ids):
     """Manda un mensaje del cliente y espera la PRÓXIMA respuesta de fixy."""
     http("POST", f"/api/public/leads/{lead_id}/messages?token={token}", {"text": text})
-    deadline = time.time() + REPLY_TIMEOUT_S
+    started = time.time()
+    deadline = started + REPLY_TIMEOUT_S
     while time.time() < deadline:
         time.sleep(POLL_EVERY_S)
         msgs = http("GET", f"/api/public/leads/{lead_id}/messages?token={token}")
@@ -80,6 +83,7 @@ def send_and_wait_reply(lead_id, token, text, known_ids):
         for m in msgs:
             known_ids.add(m["id"])
         if fresh:
+            print(f"       (respuesta en {time.time() - started:.0f}s)", flush=True)
             return fresh[-1]["text"]
     return None
 
@@ -244,10 +248,13 @@ def run_scenario(sc):
 
 
 def main():
-    print(f"Banco de pruebas del agente — {BASE_URL}")
+    # argv opcional: nombres de escenarios a correr (default: todos).
+    wanted = set(sys.argv[1:])
+    scenarios = [s for s in SCENARIOS if not wanted or s["name"] in wanted]
+    print(f"Banco de pruebas del agente — {BASE_URL} ({len(scenarios)} escenarios)")
     print("=" * 74)
     failed = 0
-    for sc in SCENARIOS:
+    for sc in scenarios:
         lead_id, failures = run_scenario(sc)
         status = "PASS" if not failures else "FAIL"
         if failures:
@@ -257,7 +264,7 @@ def main():
         for f in failures:
             print(f"       ✗ {f}")
     print("=" * 74)
-    print(f"{len(SCENARIOS) - failed}/{len(SCENARIOS)} escenarios OK")
+    print(f"{len(scenarios) - failed}/{len(scenarios)} escenarios OK")
     sys.exit(failed)
 
 
