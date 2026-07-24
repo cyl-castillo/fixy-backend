@@ -104,6 +104,65 @@ class CommissionServiceTest {
     assertThat(reloaded.getCommissionAmount()).isEqualByComparingTo(new BigDecimal("250.00"));
   }
 
+  /** Crea un lead ya cobrado (comisión en el estado dado) para la dupla
+   * proveedor + teléfono, simulando un trabajo anterior de esa relación. */
+  private void createPriorPayment(Provider provider, String phone, CommissionStatus status) {
+    Lead prior = new Lead();
+    prior.setProblem("Trabajo anterior de la dupla");
+    prior.setPhone(phone);
+    prior.setChannel("whatsapp");
+    prior.setStatus(LeadStatus.COMPLETED);
+    prior = leadRepository.save(prior);
+
+    LeadPayment payment = new LeadPayment();
+    payment.setLeadId(prior.getId());
+    payment.setProviderId(provider.getId());
+    payment.setAmountCharged(new BigDecimal("1000.00"));
+    payment.setCommissionRate(new BigDecimal("0.1000"));
+    payment.setCommissionAmount(new BigDecimal("100.00"));
+    payment.setCommissionStatus(status);
+    leadPaymentRepository.save(payment);
+  }
+
+  @Test
+  void repeatCustomerOfSameProviderGetsReducedRate() {
+    Provider provider = createProvider();
+    // Trabajo anterior saldado con el mismo cliente, teléfono escrito
+    // distinto (+598 vs 099): la identidad es por últimos 8 dígitos.
+    createPriorPayment(provider, "+598 99 555 000", CommissionStatus.PAID);
+
+    LeadPayment payment = commissionService.createForCompletedLead(
+        createLead(), provider, new BigDecimal("2500.00"));
+
+    assertThat(payment.getCommissionRate()).isEqualByComparingTo(new BigDecimal("0.0500"));
+    assertThat(payment.getCommissionAmount()).isEqualByComparingTo(new BigDecimal("125.00"));
+  }
+
+  @Test
+  void differentCustomerStillPaysBaseRate() {
+    Provider provider = createProvider();
+    createPriorPayment(provider, "098111222", CommissionStatus.PAID);
+
+    LeadPayment payment = commissionService.createForCompletedLead(
+        createLead(), provider, new BigDecimal("2500.00"));
+
+    assertThat(payment.getCommissionRate()).isEqualByComparingTo(new BigDecimal("0.1000"));
+    assertThat(payment.getCommissionAmount()).isEqualByComparingTo(new BigDecimal("250.00"));
+  }
+
+  @Test
+  void unsettledPriorCommissionDoesNotEarnTheDiscount() {
+    Provider provider = createProvider();
+    // Mismo cliente pero la comisión anterior sigue PENDING: el descuento
+    // se gana con la primera comisión resuelta, no con marcar completado.
+    createPriorPayment(provider, "099555000", CommissionStatus.PENDING);
+
+    LeadPayment payment = commissionService.createForCompletedLead(
+        createLead(), provider, new BigDecimal("2500.00"));
+
+    assertThat(payment.getCommissionRate()).isEqualByComparingTo(new BigDecimal("0.1000"));
+  }
+
   @Test
   void commissionMessageIsProviderOnlyAndInvisibleToCustomer() {
     Lead lead = createLead();

@@ -69,6 +69,10 @@ fixy:
   payments:
     enabled: ${FIXY_PAYMENTS_ENABLED:false}
     commission-percent: ${FIXY_COMMISSION_PERCENT:10}
+    # Regla 10→5 (estudio de monetización 2026-07): tarifa para trabajos
+    # repetidos de la misma dupla cliente-proveedor con comisión previa
+    # saldada. Ver CommissionService.isRepeatCustomer.
+    repeat-commission-percent: ${FIXY_COMMISSION_REPEAT_PERCENT:5}
     mp-access-token: ${MP_ACCESS_TOKEN:}
     mp-webhook-secret: ${MP_WEBHOOK_SECRET:}
     webhook-base-url: ${FIXY_WEBHOOK_BASE_URL:}
