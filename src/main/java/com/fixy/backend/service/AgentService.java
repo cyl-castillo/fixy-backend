@@ -169,7 +169,12 @@ public class AgentService {
           .bodyValue(payload)
           .retrieve()
           .bodyToMono(String.class)
-          .timeout(Duration.ofSeconds(20))
+          // 40s + retry: la PRIMera llamada tras el boot paga arranque frío
+          // (pool TLS + colas del proveedor) y con 20s se caía al heurístico
+          // (visto 2026-07-27 evaluando gpt-5-mini). Mismo patrón que el
+          // path de Cloudflare.
+          .timeout(Duration.ofSeconds(40))
+          .retry(1)
           .block();
 
       if (raw == null || raw.isBlank()) {
@@ -187,7 +192,7 @@ public class AgentService {
       JsonNode result = objectMapper.readTree(text);
       return new IntakeResponse(
           result.path("leadType").asText("cliente"),
-          result.path("serviceCategory").asText("otro"),
+          com.fixy.backend.model.ServiceCategory.refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           result.path("area").asText(detectArea(request.message())),
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),
@@ -252,7 +257,7 @@ public class AgentService {
 
       return new IntakeResponse(
           result.path("leadType").asText("cliente"),
-          result.path("serviceCategory").asText("otro"),
+          com.fixy.backend.model.ServiceCategory.refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           normalizeAreaValue(result.path("area").asText(detectArea(request.message()))),
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),

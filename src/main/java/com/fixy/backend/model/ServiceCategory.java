@@ -201,11 +201,55 @@ public enum ServiceCategory {
     for (ServiceCategory category : values()) {
       for (String keyword : category.keywords) {
         if (normalized.contains(keyword)) {
-          return Optional.of(category);
+          return Optional.of(refineAmbiguity(normalized, category));
         }
       }
     }
     return Optional.empty();
+  }
+
+  /** Señales INEQUÍVOCAS de comida — si aparecen, pastelería gana siempre. */
+  private static final List<String> STRONG_PASTELERIA_SIGNALS = List.of(
+      "torta", "cupcake", "mesa dulce", "postre", "candy bar", "shots dulces",
+      "reposteria", "repostería", "pasteleria", "pastelería");
+
+  /** Señales visuales de ambientación (subset de keywords de DECORACION_FIESTAS). */
+  private static final List<String> DECORACION_SIGNALS = List.of(
+      "decoracion", "decoración", "decorar", "ambientacion", "ambientación",
+      "ambientar", "globos", "backdrop", "guirnalda");
+
+  /**
+   * Desempate determinista pastelería vs decoración ("lo crítico va en
+   * código, no en prompt"): "cumpleaños"/"fiesta" son keywords de pastelería
+   * por historia, así que "decoración para el cumpleaños" caía en pastelería
+   * — lo midió el banco (mixto_cumple_decoracion) y lo fallaban tanto el
+   * heurístico como gpt-5-mini (2026-07-27). Regla, espejo de la del prompt:
+   * si el texto trae señales de ambientación y NINGUNA señal inequívoca de
+   * comida (torta, mesa dulce...), es decoración. "Torta para el cumple" no
+   * se toca: torta es señal fuerte de comida. Usable por cualquier camino de
+   * clasificación (heurístico y LLM) vía {@link #refineCategoryId}.
+   */
+  private static ServiceCategory refineAmbiguity(String normalizedText, ServiceCategory detected) {
+    if (detected != PASTELERIA) {
+      return detected;
+    }
+    boolean mentionsDecoracion = DECORACION_SIGNALS.stream().anyMatch(normalizedText::contains);
+    boolean strongPasteleria = STRONG_PASTELERIA_SIGNALS.stream().anyMatch(normalizedText::contains);
+    return mentionsDecoracion && !strongPasteleria ? DECORACION_FIESTAS : detected;
+  }
+
+  /**
+   * Versión por id para los caminos LLM: aplica el mismo desempate sobre la
+   * categoría que extrajo el modelo. Devuelve el id refinado (o el original
+   * si no hay nada que corregir / el id no se reconoce).
+   */
+  public static String refineCategoryId(String text, String categoryId) {
+    if (text == null || categoryId == null) {
+      return categoryId;
+    }
+    return fromId(categoryId)
+        .map(c -> refineAmbiguity(text.toLowerCase(Locale.ROOT), c).id())
+        .orElse(categoryId);
   }
 
   /** Nombre humano en español para mostrarle al cliente; "tu pedido" si no se reconoce el id. */

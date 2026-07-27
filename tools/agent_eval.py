@@ -231,17 +231,28 @@ def run_scenario(sc):
     if sc.get("distinct_replies") and len(replies) >= 2 and norm(replies[-1]) == norm(replies[-2]):
         failures.append("se repitió textual entre turnos")
 
-    # el lead termina de actualizarse poco después de la respuesta
-    time.sleep(4)
-    lead = get_lead(lead_id, token)
+    # El lead se actualiza ASÍNCRONO respecto de la respuesta del chat. Con
+    # modelos lentos (70B: ~44s de reply) la extracción siempre llegaba antes;
+    # con modelos rápidos (gpt-5-mini: 3-20s) un sleep fijo pierde la carrera
+    # (visto 2026-07-27: decoracion_categoria_nueva "falló" con el lead vacío
+    # y 4s después estaba perfecto). Poll hasta 20s: si la expectativa se
+    # cumple antes, corta; si no, evalúa el estado final.
     expect = sc["lead"]
-    got_cat = (lead.get("detectedCategory") or "").strip()
-    got_loc = (lead.get("location") or "").strip()
-    if norm(got_loc) == "sin definir":
-        got_loc = ""
-    if expect["category"] != got_cat:
+    deadline = time.time() + 20
+    while True:
+        lead = get_lead(lead_id, token)
+        got_cat = (lead.get("detectedCategory") or "").strip()
+        got_loc = (lead.get("location") or "").strip()
+        if norm(got_loc) == "sin definir":
+            got_loc = ""
+        cat_ok = expect["category"] == got_cat
+        loc_ok = norm(expect["location"]) == norm(got_loc)
+        if (cat_ok and loc_ok) or time.time() > deadline:
+            break
+        time.sleep(3)
+    if not cat_ok:
         failures.append(f"categoría: esperaba '{expect['category']}', quedó '{got_cat}'")
-    if norm(expect["location"]) != norm(got_loc):
+    if not loc_ok:
         failures.append(f"zona: esperaba '{expect['location']}', quedó '{got_loc}'")
 
     return lead_id, failures

@@ -490,6 +490,19 @@ public class LeadAgentService {
   }
 
   /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
+  /** Último mensaje del cliente (para desempates de clasificación); "" si no hay. */
+  private String lastCustomerText(Long leadId) {
+    try {
+      return leadMessageService.recentForAgent(leadId, 10).stream()
+          .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
+          .reduce((a, b) -> b)
+          .map(m -> m.getText())
+          .orElse("");
+    } catch (Exception ex) {
+      return "";
+    }
+  }
+
   private boolean customerMentionedSmoke(Long leadId) {
     try {
       return leadMessageService.recentForAgent(leadId, 10).stream()
@@ -917,6 +930,11 @@ public class LeadAgentService {
         String heuristic = heuristicCategory(lead);
         if (heuristic != null) cat = heuristic;
       }
+      // Desempate determinista pastelería/decoración sobre lo que dijo el
+      // modelo (banco: mixto_cumple_decoracion; ver ServiceCategory).
+      if (cat != null) {
+        cat = com.fixy.backend.model.ServiceCategory.refineCategoryId(lastCustomerText(leadId), cat);
+      }
       if (cat != null && !cat.equalsIgnoreCase("otro") && (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank() || "otro".equalsIgnoreCase(lead.getDetectedCategory()))) {
         lead.setDetectedCategory(cat.toLowerCase().trim());
         changed = true;
@@ -1193,7 +1211,10 @@ public class LeadAgentService {
           .bodyValue(payload)
           .retrieve()
           .bodyToMono(String.class)
-          .timeout(Duration.ofSeconds(20))
+          // 40s + retry: paridad con el path de Cloudflare; el timeout de
+          // 20s cortaba la primera llamada post-boot (2026-07-27).
+          .timeout(Duration.ofSeconds(40))
+          .retry(1)
           .block();
       if (raw == null || raw.isBlank()) {
         return null;

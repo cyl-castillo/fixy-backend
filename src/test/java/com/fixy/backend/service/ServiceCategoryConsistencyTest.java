@@ -82,14 +82,13 @@ class ServiceCategoryConsistencyTest {
     assertThat(ServiceCategory.detectFromText("quiero globos y ambientación para el evento"))
         .contains(ServiceCategory.DECORACION_FIESTAS);
 
-    // LIMITACIÓN CONOCIDA del heurístico (no del LLM): "cumpleaños" es keyword
-    // de pastelería y está declarada antes, así que "decoración para el
-    // cumpleaños" cae en pastelería por orden de match. El clasificador LLM
-    // resuelve este caso con la guía del prompt (intake-classifier.md); el
-    // heurístico es solo el fallback sin LLM. Documentado como assertion para
-    // que si algún día cambia el orden/keywords, salte acá y sea decisión.
+    // Limitación RESUELTA (2026-07-27): "decoración para el cumpleaños" caía
+    // en pastelería por orden de keywords; ahora refineAmbiguity desempata en
+    // código (señal de ambientación sin señal inequívoca de comida →
+    // decoración). El banco de modelos lo midió fallando también en gpt-5-mini,
+    // así que la regla dejó de vivir solo en el prompt.
     assertThat(ServiceCategory.detectFromText("decoración con globos para el cumpleaños"))
-        .contains(ServiceCategory.PASTELERIA);
+        .contains(ServiceCategory.DECORACION_FIESTAS);
   }
 
   @Test
@@ -108,5 +107,42 @@ class ServiceCategoryConsistencyTest {
         "quiero encargar una torta para un cumpleaños en Solymar",
         "Ana", "099111222", "web-app", null, null, null, null, null));
     assertThat(response.serviceCategory()).isEqualTo("pasteleria");
+  }
+
+  /**
+   * Desempate determinista pastelería/decoración (banco de modelos 2026-07-27,
+   * escenario mixto_cumple_decoracion): "cumpleaños" es keyword de pastelería,
+   * así que "decoración para el cumpleaños" caía en pastelería en el heurístico
+   * Y en los modelos que no siguen la regla del prompt. La regla vive en código.
+   */
+  @Test
+  void decoracionParaUnCumpleanosClasificaDecoracionNoPasteleria() {
+    assertThat(ServiceCategory.detectFromText(
+        "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas"))
+        .contains(ServiceCategory.DECORACION_FIESTAS);
+    // Vía id (paths LLM): la extracción dijo pastelería pero el texto es de ambientación.
+    assertThat(ServiceCategory.refineCategoryId(
+        "quiero decorar el salón para un cumpleaños", "pasteleria"))
+        .isEqualTo("decoracion_fiestas");
+  }
+
+  @Test
+  void tortaParaElCumpleSigueSiendoPasteleriaAunConPalabraDecorar() {
+    // "torta" es señal inequívoca de comida: gana pastelería aunque pida decorarla.
+    assertThat(ServiceCategory.detectFromText(
+        "quiero una torta decorada para el cumpleaños"))
+        .contains(ServiceCategory.PASTELERIA);
+    assertThat(ServiceCategory.refineCategoryId(
+        "una torta con decoración de unicornio", "pasteleria"))
+        .isEqualTo("pasteleria");
+  }
+
+  @Test
+  void refineCategoryIdEsNoOpParaCategoriasNoAmbiguasOIdsDesconocidos() {
+    assertThat(ServiceCategory.refineCategoryId("decoración con globos", "plomeria"))
+        .isEqualTo("plomeria");
+    assertThat(ServiceCategory.refineCategoryId("lo que sea", "categoria-inventada"))
+        .isEqualTo("categoria-inventada");
+    assertThat(ServiceCategory.refineCategoryId(null, "pasteleria")).isEqualTo("pasteleria");
   }
 }
