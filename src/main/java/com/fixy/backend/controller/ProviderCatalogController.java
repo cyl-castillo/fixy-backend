@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -65,11 +66,21 @@ public class ProviderCatalogController {
     return providerCatalogService.update(id, request);
   }
 
-  /** Genera (o regenera) el token de acceso del proveedor y devuelve la
-   *  URL para compartir vía WhatsApp manualmente. */
+  /**
+   * Devuelve la URL de panel del proveedor para compartir por WhatsApp.
+   * NO rota el token si ya existe (incidente 2026-07-27: "copiar link" en
+   * el admin regeneraba el token en cada toque, matando el link que el
+   * proveedor ya tenía guardado — Carnot Clima quedó afuera de su panel).
+   * Copiar debe ser de solo lectura; rotar es una acción aparte con
+   * {@code ?rotate=true}, solo para invalidar un link comprometido.
+   */
   @PostMapping("/{id}/access-token")
-  public ProviderAccessTokenResponse rotateAccessToken(@PathVariable Long id) {
-    Provider provider = selfService.regenerateAccessToken(id);
+  public ProviderAccessTokenResponse accessToken(
+      @PathVariable Long id,
+      @RequestParam(name = "rotate", defaultValue = "false") boolean rotate) {
+    Provider provider = rotate
+        ? selfService.regenerateAccessToken(id)
+        : selfService.ensureAccessToken(id);
     String url = "%s/p/%d/%s".formatted(publicAppBaseUrl, provider.getId(), provider.getAccessToken());
     return new ProviderAccessTokenResponse(provider.getId(), provider.getName(), provider.getAccessToken(), url);
   }
