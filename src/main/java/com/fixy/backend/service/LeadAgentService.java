@@ -274,7 +274,17 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
-      leadMessageService.postFromAgent(leadId, result.reply());
+      String reply = result.reply();
+      // Pedido de WhatsApp (mejora diaria 2026-07-28, ver CONTACT_PHONE_ASK):
+      // con categoría y zona resueltas y sin teléfono, se anexa UNA vez.
+      boolean zoneKnownForReply = (lead.getLocation() != null && !lead.getLocation().isBlank())
+          || zoneArrivedThisTurn;
+      boolean phoneArrivedThisTurn = extracted != null && extracted.get("phone") != null;
+      if (shouldAskContactPhone(categoryKnownForReply, zoneKnownForReply, lead.getPhone(), phoneArrivedThisTurn, reply)
+          && !contactPhoneAlreadyAsked(leadId)) {
+        reply = reply + " " + CONTACT_PHONE_ASK;
+      }
+      leadMessageService.postFromAgent(leadId, reply);
       if (extracted != null && !extracted.isEmpty()) {
         applyExtractedFields(leadId, extracted);
       }
@@ -511,6 +521,55 @@ public class LeadAgentService {
               && m.getText().toLowerCase(Locale.ROOT).contains("[smoke]"));
     } catch (Exception ex) {
       return false;
+    }
+  }
+
+  /**
+   * Mejora diaria 2026-07-28 (dato: 73 de 87 leads reales de julio SIN
+   * teléfono → cliente irrecuperable si cierra la pestaña). Pedido del
+   * WhatsApp determinista, en código: UNA vez, recién cuando categoría y
+   * zona ya están (no compite con las preguntas críticas del intake) y el
+   * teléfono sigue vacío. Siempre opcional para el cliente ("seguimos por
+   * acá") — la promesa del modelo es cero fricción, no un formulario.
+   */
+  static final String CONTACT_PHONE_ASK =
+      "Por último: ¿me dejás un WhatsApp para avisarte apenas el proveedor confirme? "
+          + "Si preferís, seguimos solo por acá.";
+
+  public static boolean shouldAskContactPhone(
+      boolean categoryKnown, boolean zoneKnown, String currentPhone,
+      boolean phoneArrivedThisTurn, String reply) {
+    if (!categoryKnown || !zoneKnown) {
+      return false;
+    }
+    if (phoneArrivedThisTurn || (currentPhone != null && !currentPhone.isBlank())) {
+      return false;
+    }
+    return !asksForContactPhone(reply);
+  }
+
+  /** true si la respuesta ya pide teléfono/WhatsApp (insensible a acentos). */
+  public static boolean asksForContactPhone(String reply) {
+    if (reply == null || reply.isBlank()) {
+      return false;
+    }
+    String normalized = java.text.Normalizer.normalize(reply.toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "");
+    return normalized.contains("whatsapp")
+        || normalized.contains("telefono")
+        || (normalized.contains("numero") && normalized.contains("contact"));
+  }
+
+  /** true si el agente ya pidió el WhatsApp en algún mensaje anterior — se pide UNA vez, no se insiste. */
+  private boolean contactPhoneAlreadyAsked(Long leadId) {
+    try {
+      return leadMessageService.recentForAgent(leadId, 30).stream()
+          .anyMatch(m -> !"customer".equals(m.getSender())
+              && m.getText() != null
+              && asksForContactPhone(m.getText()));
+    } catch (Exception ex) {
+      // Ante la duda no repreguntar: molesta más pedir dos veces que no pedir.
+      return true;
     }
   }
 
