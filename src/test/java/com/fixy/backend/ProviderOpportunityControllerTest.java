@@ -273,6 +273,36 @@ class ProviderOpportunityControllerTest {
         .andExpect(jsonPath("$[?(@.type=='PROVIDER_DECLINED')]").isNotEmpty());
   }
 
+  /**
+   * Incidente 2026-07-27: un lead de humo (tráfico sintético de
+   * tools/agent_eval.py, marcado con [smoke] en problem) apareció en la
+   * bandeja de un proveedor real. Push y Telegram ya tenían el guard; la
+   * bandeja no. El accept devuelve 404 (no 403) para no revelar que existe.
+   */
+  @Test
+  void shouldHideSmokeLeadsFromOpportunitiesAndAccept() throws Exception {
+    Integer providerId = createProvider("Plomeros Humo", "099121000", "Solymar", "Solymar", "plomeria");
+    String token = accessTokenFor(providerId);
+
+    Integer real = createReadyLead("099121001", "Perdida de agua real en la cocina",
+        "plomeria", "Solymar", "alta");
+    Integer smoke = createReadyLead("099121002", "[smoke] Perdida de agua sintetica",
+        "plomeria", "Solymar", "alta");
+    // Case-insensitive: la marca puede venir en mayúsculas.
+    createReadyLead("099121003", "[SMOKE] Perdida de agua sintetica mayuscula",
+        "plomeria", "Solymar", "alta");
+
+    mockMvc.perform(get("/api/public/providers/{id}/opportunities", providerId)
+            .param("token", token))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].leadId").value(real));
+
+    mockMvc.perform(post("/api/public/providers/{pid}/opportunities/{lid}/accept", providerId, smoke)
+            .param("token", token))
+        .andExpect(status().isNotFound());
+  }
+
   @Test
   void shouldRejectInvalidTokenOnAllThreeEndpoints() throws Exception {
     Integer providerId = createProvider("Plomeros Token", "099999000", "Solymar", "Solymar", "plomeria");

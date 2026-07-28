@@ -95,6 +95,7 @@ public class ProviderOpportunityService {
 
     return leadRepository.findAllByOrderByCreatedAtDesc().stream()
         .filter(Lead::isReadyForMatching)
+        .filter(lead -> !isSmokeLead(lead))
         .filter(lead -> OPEN_STATUSES.contains(lead.getStatus()))
         .filter(lead -> lead.getAssignedProviderId() == null)
         .filter(lead -> !declinedLeadIds.contains(lead.getId()))
@@ -152,9 +153,22 @@ public class ProviderOpportunityService {
     if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "tu cuenta no está activa todavía");
     }
-    if (!leadRepository.existsById(leadId)) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    // Tráfico sintético del banco de pruebas (tools/agent_eval.py): invisible
+    // para proveedores reales, igual que en push/Telegram. 404 y no 403 para
+    // no revelar que el lead existe.
+    if (isSmokeLead(lead)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found");
     }
+  }
+
+  /** Mismo criterio que LeadAgentService/TelegramNotifyService: la marca
+   *  [smoke] en problem identifica tráfico sintético (incidente 2026-07-27:
+   *  un lead de humo llegó a la bandeja de un proveedor real). */
+  private boolean isSmokeLead(Lead lead) {
+    String problem = lead.getProblem();
+    return problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]");
   }
 
   private int urgencyRank(String urgency) {
