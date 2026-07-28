@@ -560,6 +560,19 @@ public class LeadAgentService {
         || (normalized.contains("numero") && normalized.contains("contact"));
   }
 
+  /**
+   * Anexa el pedido de WhatsApp a un mensaje del agente si corresponde
+   * (sin teléfono en el lead y sin haberlo pedido antes). Para los mensajes
+   * de matching, que ya implican categoría+zona resueltas.
+   */
+  private String withContactPhoneAsk(Lead lead, String message) {
+    boolean phoneMissing = lead.getPhone() == null || lead.getPhone().isBlank();
+    if (phoneMissing && !asksForContactPhone(message) && !contactPhoneAlreadyAsked(lead.getId())) {
+      return message + " " + CONTACT_PHONE_ASK;
+    }
+    return message;
+  }
+
   /** true si el agente ya pidió el WhatsApp en algún mensaje anterior — se pide UNA vez, no se insiste. */
   private boolean contactPhoneAlreadyAsked(Long leadId) {
     try {
@@ -1085,9 +1098,13 @@ public class LeadAgentService {
       List<ProviderCatalogItem> matches = providerCatalogService.findMatches(
           lead.getDetectedCategory(), lead.getLocation());
       if (matches == null || matches.isEmpty()) {
-        leadMessageService.postFromAgent(lead.getId(),
+        // "Te aviso por acá" sin teléfono es una promesa vacía si el cliente
+        // cierra la pestaña: este mensaje es EL lugar donde pedir el WhatsApp
+        // (verificación post-deploy 2026-07-28: el flujo de pedido completo
+        // saltea la respuesta conversacional y entra directo acá).
+        leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
             "Por ahora no tengo proveedores libres en %s para %s. Te aviso por acá apenas alguien levante el pedido."
-                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory())));
+                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
         safeTelegramNotifyDemandWithoutSupply(lead);
         return;
       }
@@ -1121,9 +1138,9 @@ public class LeadAgentService {
       // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
       // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
       // que le mintieron.
-      leadMessageService.postFromAgent(lead.getId(),
+      leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
           "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation()));
+              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())));
 
       // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
       // está configurado, WhatsAppService.sendTemplate retorna false y
