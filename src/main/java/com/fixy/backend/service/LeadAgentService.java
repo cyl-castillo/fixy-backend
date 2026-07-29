@@ -1108,64 +1108,121 @@ public class LeadAgentService {
         safeTelegramNotifyDemandWithoutSupply(lead);
         return;
       }
-      safeTelegramNotifyOpportunity(lead, matches);
-      ProviderCatalogItem top = matches.get(0);
-      com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
-
-      // Push al proveedor matcheado (si se suscribió): el camino AUTOMÁTICO
-      // también avisa, no solo el manual de generateMatches. Async y no-op
-      // sin claves VAPID — nunca interrumpe el matching.
-      if (providerEntity != null && !isSmokeLead(lead)) {
-        pushNotificationService.notifyProvider(
-            providerEntity.getId(),
-            providerEntity.getAccessToken(),
-            "Nueva oportunidad para vos",
-            "%s en %s — entrá a tu panel para aceptarla".formatted(
-                humanCategory(lead.getDetectedCategory()),
-                safe(lead.getLocation(), "tu zona")));
-      }
-
-      // Marco el lead como "esperando respuesta del proveedor" para que el
-      // webhook pueda vincular las respuestas de WhatsApp al lead correcto.
-      lead.setAssignedProviderId(top.id());
-      lead.setAssignedProvider(top.name());
-      lead.setStatus(com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED);
-      leadRepository.save(lead);
-      leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
-          "Contactando a %s via WhatsApp".formatted(top.name()));
-
-      // Aviso conversacional al cliente: contactando, NO "conseguido" — todavía
-      // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
-      // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
-      // que le mintieron.
-      leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
-          "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())));
-
-      // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
-      // está configurado, WhatsAppService.sendTemplate retorna false y
-      // queda solo el aviso al cliente (legacy manual con wa.me).
-      if (providerEntity != null && whatsappService.isEnabled()) {
-        String to = providerEntity.getWhatsappNumber();
-        if (to == null || to.isBlank()) to = providerEntity.getPhone();
-        if (to != null && !to.isBlank()) {
-          boolean sent = whatsappService.sendTemplate(
-              to,
-              whatsappTemplateName,
-              whatsappTemplateLang,
-              List.of(
-                  humanCategory(lead.getDetectedCategory()),
-                  lead.getLocation() == null ? "" : lead.getLocation(),
-                  lead.getUrgency() == null ? "media" : lead.getUrgency()
-              )
-          );
-          if (!sent) {
-            log.warn("autoMatch: WhatsApp template send failed para lead {} provider {}", lead.getId(), top.id());
-          }
-        }
-      }
+      contactTopMatch(lead, matches, false);
     } catch (Exception ex) {
       log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * Segunda oportunidad de matching para un lead que quedó HUÉRFANO: estaba
+   * listo, en ese momento no había proveedor para su categoría/zona y el
+   * sistema le prometió al cliente "te aviso apenas alguien levante el
+   * pedido". Nadie volvía a intentarlo nunca — {@link #tryAutoMatch} corre
+   * una sola vez, en el instante en que el lead cruza a readyForMatching
+   * ({@code !wasReady && nowReady}), así que un proveedor que se registra
+   * DESPUÉS jamás ve la demanda que ya estaba esperando.
+   *
+   * Dato que lo motivó (embudo de prod, 2026-07-29): 5 pedidos reales
+   * esperaban con proveedor ACTIVO ya registrado en su misma categoría y
+   * zona — 3 de aires (#128/#135/#147, Carnot Clima se registró el 23/07) y
+   * 2 de decoración (#150/#180, Daya Dream Deco se registró el 25/07). Sus
+   * timelines tenían UN solo evento: el de creación.
+   *
+   * Devuelve true si consiguió proveedor y lo contactó. La elegibilidad del
+   * lead la decide {@link OrphanMatchRetryScheduler}; acá solo se reintenta.
+   */
+  public boolean retryAutoMatch(Long leadId) {
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null) {
+        return false;
+      }
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatches(
+          lead.getDetectedCategory(), lead.getLocation());
+      if (matches == null || matches.isEmpty()) {
+        // Silencio a propósito: el cliente YA recibió el aviso honesto de
+        // "por ahora no tengo proveedores libres" cuando el pedido quedó
+        // listo. Repetirlo en cada ciclo del scheduler sería spam.
+        return false;
+      }
+      contactTopMatch(lead, matches, true);
+      return true;
+    } catch (Exception ex) {
+      log.warn("retryAutoMatch failed for lead {}: {}", leadId, ex.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Contacta al mejor proveedor de la lista: push, asignación, timeline,
+   * aviso al cliente y template de WhatsApp. Compartido por el matching del
+   * momento ({@link #tryAutoMatch}) y por el reintento diferido
+   * ({@link #retryAutoMatch}) — {@code retry} solo cambia el texto, para que
+   * el cliente entienda que esto es la promesa cumplida y no un mensaje
+   * suelto meses después.
+   */
+  private void contactTopMatch(Lead lead, List<ProviderCatalogItem> matches, boolean retry) {
+    safeTelegramNotifyOpportunity(lead, matches);
+    ProviderCatalogItem top = matches.get(0);
+    com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
+
+    // Push al proveedor matcheado (si se suscribió): el camino AUTOMÁTICO
+    // también avisa, no solo el manual de generateMatches. Async y no-op
+    // sin claves VAPID — nunca interrumpe el matching.
+    if (providerEntity != null && !isSmokeLead(lead)) {
+      pushNotificationService.notifyProvider(
+          providerEntity.getId(),
+          providerEntity.getAccessToken(),
+          "Nueva oportunidad para vos",
+          "%s en %s — entrá a tu panel para aceptarla".formatted(
+              humanCategory(lead.getDetectedCategory()),
+              safe(lead.getLocation(), "tu zona")));
+    }
+
+    // Marco el lead como "esperando respuesta del proveedor" para que el
+    // webhook pueda vincular las respuestas de WhatsApp al lead correcto.
+    lead.setAssignedProviderId(top.id());
+    lead.setAssignedProvider(top.name());
+    lead.setStatus(com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED);
+    leadRepository.save(lead);
+    leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
+        retry
+            ? "Reintento de matching: contactando a %s (el pedido esperaba sin proveedor)".formatted(top.name())
+            : "Contactando a %s via WhatsApp".formatted(top.name()));
+
+    // Aviso conversacional al cliente: contactando, NO "conseguido" — todavía
+    // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
+    // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
+    // que le mintieron.
+    leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
+        retry
+            ? "¡Buenas noticias! Apareció un proveedor para tu pedido: estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
+                .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())
+            : "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
+                .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())));
+
+    // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
+    // está configurado, WhatsAppService.sendTemplate retorna false y
+    // queda solo el aviso al cliente (legacy manual con wa.me).
+    if (providerEntity != null && whatsappService.isEnabled()) {
+      String to = providerEntity.getWhatsappNumber();
+      if (to == null || to.isBlank()) to = providerEntity.getPhone();
+      if (to != null && !to.isBlank()) {
+        boolean sent = whatsappService.sendTemplate(
+            to,
+            whatsappTemplateName,
+            whatsappTemplateLang,
+            List.of(
+                humanCategory(lead.getDetectedCategory()),
+                lead.getLocation() == null ? "" : lead.getLocation(),
+                lead.getUrgency() == null ? "media" : lead.getUrgency()
+            )
+        );
+        if (!sent) {
+          log.warn("autoMatch: WhatsApp template send failed para lead {} provider {}", lead.getId(), top.id());
+        }
+      }
     }
   }
 
