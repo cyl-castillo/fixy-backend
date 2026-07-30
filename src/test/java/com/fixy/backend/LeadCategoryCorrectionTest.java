@@ -83,6 +83,24 @@ class LeadCategoryCorrectionTest {
   }
 
   @Test
+  void laCorreccionRedisparaElMatchingParaLaCategoriaNueva() throws Exception {
+    // Pastelería en Lagomar: sin proveedor → NEW. Corrección a jardinería:
+    // el seed "Jardines del Este" cubre Lagomar — el re-matching tiene que
+    // contactarlo (sin re-disparo el pedido corregido quedaba NEW aunque
+    // hubiera proveedor, visto en prod con pastelería→decoración).
+    ChatSession s = openChat();
+    say(s, "[smoke] Quiero una torta para un cumpleaños, en Lagomar");
+    awaitCategory(s, "pasteleria");
+
+    say(s, "[smoke] Perdón, me equivoqué: es jardinería, cortar el pasto");
+    awaitCategory(s, "jardineria");
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> assertThat(
+            leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getStatus())
+            .isEqualTo(LeadStatus.PROVIDER_CONTACTED));
+  }
+
+  @Test
   void conProveedorContactadoLaCategoriaNoSePisaEnSilencio() throws Exception {
     // Plomería en Solymar SÍ tiene proveedor seed: el automatch real deja el
     // lead PROVIDER_CONTACTED — desde ahí la corrección silenciosa se bloquea.

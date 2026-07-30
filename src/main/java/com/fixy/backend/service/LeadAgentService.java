@@ -1030,8 +1030,10 @@ public class LeadAgentService {
       boolean categoryBlank = lead.getDetectedCategory() == null
           || lead.getDetectedCategory().isBlank()
           || "otro".equalsIgnoreCase(lead.getDetectedCategory());
+      boolean corrected = false;
       if (cat != null && !cat.equalsIgnoreCase("otro")
           && (categoryBlank || (preMatching && !cat.equalsIgnoreCase(lead.getDetectedCategory())))) {
+        corrected = corrected || !categoryBlank;
         lead.setDetectedCategory(cat.toLowerCase().trim());
         changed = true;
       }
@@ -1039,6 +1041,7 @@ public class LeadAgentService {
       boolean zoneBlank = lead.getLocation() == null || lead.getLocation().isBlank();
       if (zone != null && !zone.equalsIgnoreCase("otro")
           && (zoneBlank || (preMatching && !zone.trim().equalsIgnoreCase(lead.getLocation())))) {
+        corrected = corrected || !zoneBlank;
         lead.setLocation(zone.trim());
         changed = true;
       }
@@ -1093,7 +1096,13 @@ public class LeadAgentService {
         lead.setReadyForMatching(nowReady);
         leadRepository.save(lead);
         // Si justo cruzó a "ready" en este turno, intentar matching automático.
-        if (!wasReady && nowReady) {
+        // También si el cliente CORRIGIÓ categoría/zona con el pedido ya
+        // completo (2026-07-30): el automatch anterior corrió con los datos
+        // viejos — sin re-disparo, el pedido corregido quedaba NEW para
+        // siempre aunque hubiera proveedor para la categoría nueva (visto en
+        // la verificación en prod: pastelería→decoración nunca contactó a
+        // la proveedora de decoración).
+        if (nowReady && (!wasReady || corrected)) {
           tryAutoMatch(lead);
           return true;
         }
