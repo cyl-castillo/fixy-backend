@@ -89,6 +89,18 @@ public enum ServiceCategory {
           "decorar la fiesta", "decoracion de fiesta", "decoración de fiesta"),
       2000, 8000,
       "para cuándo es, qué tipo de evento (cumpleaños, 15, casamiento, empresa) y qué querés (globos, ambientación completa, un sector)"),
+  // Categoría 2026-07-28 (pedido de Carlos, con proveedor real): el mandadero
+  // de barrio — compras y trámites por encargo como oficio. Keywords sin "compra"
+  // a secas a propósito: "comprar un split/una torta/una cerradura" debe seguir
+  // cayendo en su categoría (todas declaradas antes, el orden ya lo resuelve),
+  // pero un "quiero comprar X" genérico no es un mandado seguro.
+  MANDADOS("mandados", "mandados y trámites", true,
+      List.of("mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras",
+          "compras del super", "compra del super", "supermercado", "farmacia", "feria",
+          "abitab", "redpagos", "correo", "encargo", "un tramite", "un trámite",
+          "hacer un tramite", "hacer un trámite", "pagar una factura"),
+      200, 500,
+      "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte"),
   OTRO("otro", "otro", false, List.of(), null, null, null);
 
   /**

@@ -25,7 +25,7 @@ class ServiceCategoryConsistencyTest {
   void allMvpCategoriesAreMarkedAsMvp() {
     assertThat(ServiceCategory.MVP_IDS).containsExactlyInAnyOrder(
         "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria",
-        "decoracion_fiestas");
+        "decoracion_fiestas", "mandados");
   }
 
   @Test
@@ -34,7 +34,8 @@ class ServiceCategoryConsistencyTest {
     // que Fixy clasifica pero no matchea (electricidad, cerrajería, reparaciones).
     assertThat(ServiceCategory.ALL_IDS_INCLUDING_OTRO).containsExactlyInAnyOrder(
         "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-        "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas", "otro");
+        "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas",
+        "mandados", "otro");
   }
 
   @Test
@@ -72,6 +73,14 @@ class ServiceCategoryConsistencyTest {
     assertThat(ServiceCategory.detectFromText("me quedé afuera, perdí la llave")).contains(ServiceCategory.CERRAJERIA);
     assertThat(ServiceCategory.detectFromText("quiero un arco de globos para ambientar la fiesta"))
         .contains(ServiceCategory.DECORACION_FIESTAS);
+    assertThat(ServiceCategory.detectFromText("necesito que alguien me haga un mandado a la farmacia"))
+        .contains(ServiceCategory.MANDADOS);
+    assertThat(ServiceCategory.detectFromText("¿pueden pagar una factura en abitab por mí?"))
+        .contains(ServiceCategory.MANDADOS);
+    // "comprar X para instalar/comer" sigue en su rubro: el orden de declaración
+    // (mandados al final) hace que la keyword específica gane primero.
+    assertThat(ServiceCategory.detectFromText("quiero comprar un split y que me lo instalen"))
+        .contains(ServiceCategory.AIRES_ACONDICIONADOS);
     assertThat(ServiceCategory.detectFromText("hola, ¿cómo estás?")).isEmpty();
   }
 
