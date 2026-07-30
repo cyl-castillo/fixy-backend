@@ -482,6 +482,20 @@ public class AgentService {
     return "sin definir";
   }
 
+  /**
+   * Zona detectada SOLO del texto del mensaje (sin el passthrough de la zona
+   * ya conocida que hace resolvedArea), o null si el mensaje no menciona
+   * ninguna. Para las correcciones del cliente en el fallback heurístico
+   * ("no, es en Lagomar") — ver LeadAgentService.respondWithHeuristicFallback.
+   */
+  String areaMentionedIn(String message) {
+    if (message == null || message.isBlank()) {
+      return null;
+    }
+    String area = detectArea(message);
+    return "sin definir".equals(area) ? null : area;
+  }
+
   private String resolvedArea(IntakeRequest request, String message) {
     if (hasText(request.zone())) {
       return request.zone().trim();

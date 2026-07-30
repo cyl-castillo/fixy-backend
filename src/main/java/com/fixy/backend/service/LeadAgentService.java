@@ -326,10 +326,22 @@ public class LeadAgentService {
       );
       IntakeResponse classified = agentService.classify(intakeRequest);
       Map<String, String> extracted = new java.util.HashMap<>();
-      if (classified.serviceCategory() != null && !"otro".equalsIgnoreCase(classified.serviceCategory())) {
+      // Corrección del cliente ("me equivoqué, es jardinería / no, es en
+      // Lagomar"): lo que dice EL MENSAJE actual pisa el passthrough del
+      // clasificador, que devuelve la categoría/zona ya conocida cuando
+      // existe (resolvedService/resolvedArea). applyExtractedFields decide
+      // después si corresponde actualizar (solo pre-matching).
+      String messageCategory = com.fixy.backend.model.ServiceCategory
+          .detectFromText(lastCustomerMessage).map(c -> c.id()).orElse(null);
+      if (messageCategory != null) {
+        extracted.put("category", messageCategory);
+      } else if (classified.serviceCategory() != null && !"otro".equalsIgnoreCase(classified.serviceCategory())) {
         extracted.put("category", classified.serviceCategory());
       }
-      if (classified.area() != null && !"sin definir".equalsIgnoreCase(classified.area())) {
+      String messageZone = agentService.areaMentionedIn(lastCustomerMessage);
+      if (messageZone != null) {
+        extracted.put("zone", messageZone);
+      } else if (classified.area() != null && !"sin definir".equalsIgnoreCase(classified.area())) {
         extracted.put("zone", classified.area());
       }
       if (classified.urgency() != null) {
@@ -1007,12 +1019,26 @@ public class LeadAgentService {
       if (cat != null) {
         cat = com.fixy.backend.model.ServiceCategory.refineCategoryId(lastCustomerText(leadId), cat);
       }
-      if (cat != null && !cat.equalsIgnoreCase("otro") && (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank() || "otro".equalsIgnoreCase(lead.getDetectedCategory()))) {
+      // "Me equivoqué, no es X" (pedido de Carlos 2026-07-30, pensando en
+      // personas mayores): mientras el pedido NO tenga proveedor contactado,
+      // la corrección natural del cliente en el chat actualiza categoría y
+      // zona — antes quedaban clavadas al primer valor y corregir charlando
+      // no hacía nada. Después del matching no se pisa en silencio: ahí ya
+      // hay un proveedor notificado y el cambio lo maneja ops.
+      boolean preMatching = lead.getAssignedProviderId() == null
+          && lead.getStatus() == com.fixy.backend.model.LeadStatus.NEW;
+      boolean categoryBlank = lead.getDetectedCategory() == null
+          || lead.getDetectedCategory().isBlank()
+          || "otro".equalsIgnoreCase(lead.getDetectedCategory());
+      if (cat != null && !cat.equalsIgnoreCase("otro")
+          && (categoryBlank || (preMatching && !cat.equalsIgnoreCase(lead.getDetectedCategory())))) {
         lead.setDetectedCategory(cat.toLowerCase().trim());
         changed = true;
       }
       String zone = extracted.get("zone");
-      if (zone != null && !zone.equalsIgnoreCase("otro") && (lead.getLocation() == null || lead.getLocation().isBlank())) {
+      boolean zoneBlank = lead.getLocation() == null || lead.getLocation().isBlank();
+      if (zone != null && !zone.equalsIgnoreCase("otro")
+          && (zoneBlank || (preMatching && !zone.trim().equalsIgnoreCase(lead.getLocation())))) {
         lead.setLocation(zone.trim());
         changed = true;
       }
