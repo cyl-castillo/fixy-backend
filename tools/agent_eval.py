@@ -187,6 +187,21 @@ SCENARIOS = [
         "lead": {"category": "jardineria", "location": "Lagomar"},
         "distinct_replies": True,
     },
+    {
+        "name": "correccion_es_aires",
+        "why": "prueba real de Carlos 2026-07-30 (lead #194): 'me equivoque es aires' debe "
+               "corregir la categoría pre-matching y re-disparar la búsqueda — gpt-5-mini "
+               "respondió eco de la categoría vieja hasta que la corrección se hizo determinista",
+        "turns": [
+            ("[smoke] Necesito un mandado: la compra del supermercado, en Solymar",
+             {"must": [], "must_not": [], "allowed_zones": ["solymar", "ciudad de la costa"]}),
+            ("[smoke] me equivoque es aires",
+             # La respuesta no puede seguir hablando de mandados: era el
+             # síntoma exacto del bug (eco de la categoría equivocada).
+             {"must": [], "must_not": [r"mandado"], "allowed_zones": ["solymar", "ciudad de la costa"]}),
+        ],
+        "lead": {"category": "aires_acondicionados", "location": "Solymar"},
+    },
 ]
 
 
