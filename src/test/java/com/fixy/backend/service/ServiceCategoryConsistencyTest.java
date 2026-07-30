@@ -81,6 +81,13 @@ class ServiceCategoryConsistencyTest {
         .contains(ServiceCategory.AIRES_ACONDICIONADOS);
     assertThat(ServiceCategory.detectFromText("en realidad es el aire que anda mal"))
         .contains(ServiceCategory.AIRES_ACONDICIONADOS);
+    // Prueba de Carlos lead #196: "error era pastel".
+    assertThat(ServiceCategory.detectFromText("error era pastel"))
+        .contains(ServiceCategory.PASTELERIA);
+    // "pastel" NO es señal fuerte del desempate: los tonos pastel son de
+    // decoración y el refine debe seguir ganando ahí.
+    assertThat(ServiceCategory.detectFromText("quiero decoración con globos en tonos pastel"))
+        .contains(ServiceCategory.DECORACION_FIESTAS);
     assertThat(ServiceCategory.detectFromText("¿pueden pagar una factura en abitab por mí?"))
         .contains(ServiceCategory.MANDADOS);
     // "comprar X para instalar/comer" sigue en su rubro: el orden de declaración

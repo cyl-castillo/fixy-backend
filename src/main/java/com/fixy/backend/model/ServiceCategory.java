@@ -76,9 +76,11 @@ public enum ServiceCategory {
       null, null,
       "qué hay que arreglar y de qué se trata (mueble, persiana, pared)"),
   PASTELERIA("pasteleria", "pastelería", true,
-      List.of("torta", "tortas", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake",
-          "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres",
-          "shots dulces", "candy bar"),
+      // "pastel"/"pasteles": coloquial real (prueba de Carlos lead #196,
+      // "error era pastel" no corregía porque solo existían torta/pastelería).
+      List.of("torta", "tortas", "pastel", "pasteles", "cumpleaños", "cumpleanos", "cumple ",
+          "mesa dulce", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería",
+          "postre", "postres", "shots dulces", "candy bar"),
       900, 3500,
       "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre"),
   // Declarada DESPUÉS de pastelería a propósito: detectFromText itera en orden
