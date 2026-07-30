@@ -255,6 +255,14 @@ public class LeadAgentService {
         extracted.remove("category");
         log.info("categoría extraída descartada (el cliente no dio rastro): lead={}", leadId);
       }
+      // Corrección determinista TAMBIÉN en el camino LLM (prueba de Carlos
+      // lead #194: "me equivoqué es aires" — gpt-5-mini no extrajo el cambio
+      // y respondió eco de la categoría vieja; la corrección no puede
+      // depender de que el modelo la entienda). Lo que el MENSAJE del
+      // cliente dice por keywords pisa la extracción; applyExtractedFields
+      // decide después si corresponde actualizar (solo pre-matching) y
+      // re-dispara el matching.
+      extracted = withMessageSignals(lastMsg, extracted);
       // Guard determinista de RESPUESTA (lead #138): con categoría conocida y
       // la zona como única traba, el 8B contestó "Dale, aire acondicionado en
       // Lomas. ¿Qué tipo de servicio necesitás?" — zona alucinada en el TEXTO
@@ -512,6 +520,29 @@ public class LeadAgentService {
   }
 
   /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
+  /**
+   * Señales explícitas del mensaje del cliente (keywords de categoría y
+   * zona) pisan lo extraído por el LLM — la base determinista de las
+   * correcciones "me equivoqué". Usado por el camino LLM y el fallback.
+   */
+  private Map<String, String> withMessageSignals(String message, Map<String, String> extracted) {
+    String cat = com.fixy.backend.model.ServiceCategory.detectFromText(message)
+        .map(com.fixy.backend.model.ServiceCategory::id).orElse(null);
+    String zone = agentService.areaMentionedIn(message);
+    if (cat == null && zone == null) {
+      return extracted;
+    }
+    Map<String, String> merged = extracted == null
+        ? new java.util.HashMap<>() : new java.util.HashMap<>(extracted);
+    if (cat != null) {
+      merged.put("category", cat);
+    }
+    if (zone != null) {
+      merged.put("zone", zone);
+    }
+    return merged;
+  }
+
   /** Último mensaje del cliente (para desempates de clasificación); "" si no hay. */
   private String lastCustomerText(Long leadId) {
     try {

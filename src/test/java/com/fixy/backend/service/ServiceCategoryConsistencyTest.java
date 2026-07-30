@@ -75,6 +75,12 @@ class ServiceCategoryConsistencyTest {
         .contains(ServiceCategory.DECORACION_FIESTAS);
     assertThat(ServiceCategory.detectFromText("necesito que alguien me haga un mandado a la farmacia"))
         .contains(ServiceCategory.MANDADOS);
+    // Coloquial de corrección (prueba real de Carlos, lead #194): "es aires"
+    // tiene que ser detectable para que la corrección determinista funcione.
+    assertThat(ServiceCategory.detectFromText("me equivoque es aires"))
+        .contains(ServiceCategory.AIRES_ACONDICIONADOS);
+    assertThat(ServiceCategory.detectFromText("en realidad es el aire que anda mal"))
+        .contains(ServiceCategory.AIRES_ACONDICIONADOS);
     assertThat(ServiceCategory.detectFromText("¿pueden pagar una factura en abitab por mí?"))
         .contains(ServiceCategory.MANDADOS);
     // "comprar X para instalar/comer" sigue en su rubro: el orden de declaración

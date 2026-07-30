@@ -61,9 +61,14 @@ public enum ServiceCategory {
       1200, 3000,
       "tamaño aproximado del jardín y qué trabajo necesita (corte, limpieza, poda)"),
   AIRES_ACONDICIONADOS("aires_acondicionados", "aire acondicionado", true,
+      // "aires"/"el aire"/"un aire": así habla la gente ("me equivoqué, es
+      // aires" — prueba de Carlos lead #194, la corrección no se entendía).
+      // Riesgo asumido: "buenos aires" matchearía — rarísimo en este contexto
+      // y las categorías con keyword más específica se evalúan antes.
       List.of("aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría",
           "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría",
-          "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración"),
+          "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración",
+          "aires", "el aire", "un aire"),
       1500, 4500,
       "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"),
   REPARACIONES("reparaciones", "reparaciones", false,
