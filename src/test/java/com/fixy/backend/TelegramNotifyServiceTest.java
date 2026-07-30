@@ -47,7 +47,16 @@ import org.springframework.test.context.TestPropertySource;
     "fixy.telegram.bot-token=test-bot-token",
     "fixy.telegram.chat-id=123456789",
     "fixy.telegram.base-url=http://127.0.0.1:18765",
-    "fixy.public-app-base-url=https://www.fixy.com.uy"
+    "fixy.public-app-base-url=https://www.fixy.com.uy",
+    // Este contexto es el ÚNICO de la suite con Telegram habilitado apuntando
+    // al mock, y queda cacheado vivo mientras corren las demás clases — con la
+    // H2 compartida (DB_CLOSE_DELAY=-1), sus schedulers ven leads de OTROS
+    // tests y postean avisos al mock en medio de las aserciones negativas
+    // (flake real 2026-07-30: OrphanMatchRetryScheduler re-matcheó un lead
+    // ajeno con proveedores seed). Acá no se testean schedulers: apagados.
+    "fixy.orphan-match-retry.enabled=false",
+    "fixy.stale-matching.enabled=false",
+    "fixy.closing-reminder.enabled=false"
 })
 class TelegramNotifyServiceTest {
 
@@ -124,16 +133,55 @@ class TelegramNotifyServiceTest {
     return providerRepository.save(provider);
   }
 
-  private String awaitOneMessage() {
-    String body;
+  /**
+   * Espera hasta 5s un POST del mock cuyo texto mencione al lead esperado.
+   * Cuerpos de OTROS leads se descartan en vez de atribuírselos a este test:
+   * el mock es compartido a nivel JVM y puede recibir tráfico async ajeno
+   * (ver nota sobre schedulers en @TestPropertySource).
+   */
+  private String awaitMessageForLead(Long leadId) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
     try {
-      body = receivedBodies.poll(5, TimeUnit.SECONDS);
+      while (System.nanoTime() < deadline) {
+        String body = receivedBodies.poll(200, TimeUnit.MILLISECONDS);
+        if (body != null && mentionsLead(body, leadId)) {
+          return body;
+        }
+      }
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException(e);
     }
-    assertThat(body).as("Telegram debería haber recibido un POST").isNotNull();
-    return body;
+    throw new AssertionError("Telegram debería haber recibido un POST para el lead #" + leadId);
+  }
+
+  /**
+   * Ventana de gracia de 1.5s: asegura que NO llegue ningún POST que mencione
+   * a este lead. POSTs de otros leads se ignoran (mismo motivo que
+   * {@link #awaitMessageForLead}).
+   */
+  private void assertNoMessageForLead(Long leadId, String description) {
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(1500);
+    try {
+      while (System.nanoTime() < deadline) {
+        String body = receivedBodies.poll(200, TimeUnit.MILLISECONDS);
+        if (body != null && mentionsLead(body, leadId)) {
+          throw new AssertionError(description + " — llegó: " + body);
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
+  }
+
+  /**
+   * Todos los textos de aviso referencian al lead como "#&lt;id&gt;" seguido de
+   * un no-dígito ("Oportunidad #5:", "lead #5 ("), así que el lookahead evita
+   * confundir #5 con #52.
+   */
+  private static boolean mentionsLead(String body, Long leadId) {
+    return java.util.regex.Pattern.compile("#" + leadId + "(?=\\D|$)").matcher(body).find();
   }
 
   @Test
@@ -147,7 +195,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
 
-    String body = awaitOneMessage();
+    String body = awaitMessageForLead(lead.getId());
     assertThat(body).contains("\"chat_id\":\"123456789\"");
     assertThat(body).contains("Oportunidad #" + lead.getId());
     assertThat(body).contains("plomería en Solymar");
@@ -172,7 +220,7 @@ class TelegramNotifyServiceTest {
     ));
 
     telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
-    awaitOneMessage();
+    awaitMessageForLead(lead.getId());
     // notifyOpportunityWithMatches es @Async: el POST llega antes de que el
     // evento de timeline (base de la idempotencia) quede committeado. Hay que
     // esperar el evento, no solo el POST, antes de disparar el segundo intento.
@@ -184,14 +232,7 @@ class TelegramNotifyServiceTest {
     // Segundo trigger del mismo lead (ej. otro camino que también llama al notify).
     telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
 
-    // Damos tiempo a que un eventual segundo POST llegue (no debería).
-    String second = null;
-    try {
-      second = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-    }
-    assertThat(second).as("no debería reenviarse un segundo aviso para el mismo lead").isNull();
+    assertNoMessageForLead(lead.getId(), "no debería reenviarse un segundo aviso para el mismo lead");
   }
 
   @Test
@@ -204,8 +245,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyOpportunityWithMatches(lead, matches);
 
-    String body = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
-    assertThat(body).as("lead [smoke] no debe generar aviso").isNull();
+    assertNoMessageForLead(lead.getId(), "lead [smoke] no debe generar aviso");
   }
 
   @Test
@@ -215,7 +255,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyCustomerMessageForProvider(lead, melissa, "Para el viernes");
 
-    String body = awaitOneMessage();
+    String body = awaitMessageForLead(lead.getId());
     assertThat(body).contains("Cliente escribi");
     assertThat(body).contains("lead #" + lead.getId());
     assertThat(body).contains("Melissa");
@@ -230,8 +270,7 @@ class TelegramNotifyServiceTest {
 
     // Throttle de 10 min: mensajes seguidos del cliente no spamean a ops.
     telegramNotifyService.notifyCustomerMessageForProvider(lead, melissa, "Y que sea de chocolate");
-    String second = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
-    assertThat(second).as("mensajes seguidos del cliente no deben spamear a ops").isNull();
+    assertNoMessageForLead(lead.getId(), "mensajes seguidos del cliente no deben spamear a ops");
   }
 
   @Test
@@ -240,7 +279,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyDisputeOpened(lead, "El trabajo quedó mal hecho");
 
-    String body = awaitOneMessage();
+    String body = awaitMessageForLead(lead.getId());
     assertThat(body).contains("Disputa abierta en lead #" + lead.getId());
     assertThat(body).contains("plomería en Solymar");
     assertThat(body).contains("El trabajo quedó mal hecho");
@@ -253,8 +292,7 @@ class TelegramNotifyServiceTest {
 
     // Idempotencia: segundo disparo del mismo lead no re-avisa.
     telegramNotifyService.notifyDisputeOpened(lead, "El trabajo quedó mal hecho");
-    String second = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
-    assertThat(second).as("una disputa = un aviso").isNull();
+    assertNoMessageForLead(lead.getId(), "una disputa = un aviso");
   }
 
   @Test
@@ -263,8 +301,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyCustomerMessageForProvider(lead, null, "hola");
 
-    String body = receivedBodies.poll(1500, TimeUnit.MILLISECONDS);
-    assertThat(body).as("lead [smoke] no debe generar aviso").isNull();
+    assertNoMessageForLead(lead.getId(), "lead [smoke] no debe generar aviso");
   }
 
   @Test
@@ -273,7 +310,7 @@ class TelegramNotifyServiceTest {
 
     telegramNotifyService.notifyDemandWithoutSupply(lead);
 
-    String body = awaitOneMessage();
+    String body = awaitMessageForLead(lead.getId());
     assertThat(body).contains("Oportunidad #" + lead.getId());
     assertThat(body).contains("jardinería en Lagomar");
     assertThat(body).contains("Sin proveedores para jardinería en Lagomar — conseguir uno");
