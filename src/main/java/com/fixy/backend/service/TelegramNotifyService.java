@@ -207,7 +207,7 @@ public class TelegramNotifyService {
   public void notifyCustomerMessageForProvider(Lead lead, Provider provider, String messageText) {
     if (!enabled || lead == null || lead.getId() == null) return;
     String problem = lead.getProblem();
-    if (problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]")) {
+    if (com.fixy.backend.model.SmokeTraffic.marks(problem)) {
       return;
     }
     List<com.fixy.backend.model.LeadEvent> recent = leadEventRepository
@@ -323,7 +323,7 @@ public class TelegramNotifyService {
     if (!enabled) return false;
     if (lead == null || lead.getId() == null) return false;
     String problem = lead.getProblem();
-    if (problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]")) {
+    if (com.fixy.backend.model.SmokeTraffic.marks(problem)) {
       return false;
     }
     boolean alreadyNotified = !leadEventRepository

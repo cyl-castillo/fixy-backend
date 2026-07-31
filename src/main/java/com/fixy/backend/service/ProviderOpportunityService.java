@@ -168,7 +168,7 @@ public class ProviderOpportunityService {
    *  un lead de humo llegó a la bandeja de un proveedor real). */
   private boolean isSmokeLead(Lead lead) {
     String problem = lead.getProblem();
-    return problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]");
+    return com.fixy.backend.model.SmokeTraffic.marks(problem);
   }
 
   private int urgencyRank(String urgency) {

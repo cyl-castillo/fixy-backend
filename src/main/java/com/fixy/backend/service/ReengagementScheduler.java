@@ -122,7 +122,7 @@ public class ReengagementScheduler {
       return false;
     }
     String problem = lead.getProblem();
-    if (problem != null && problem.toLowerCase(Locale.ROOT).contains("[smoke]")) {
+    if (com.fixy.backend.model.SmokeTraffic.marks(problem)) {
       return false;
     }
     if (lead.getCreatedAt() == null

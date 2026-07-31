@@ -117,7 +117,7 @@ public class CommissionReminderScheduler {
       return false; // misma regla que la escalada: disputa sin resolver frena todo
     }
     String problem = lead.getProblem();
-    if (problem != null && problem.toLowerCase(Locale.ROOT).contains("[smoke]")) {
+    if (com.fixy.backend.model.SmokeTraffic.marks(problem)) {
       return false;
     }
     long threshold = isFirstCommission(payment.getProviderId()) ? reminderHours * 2 : reminderHours;

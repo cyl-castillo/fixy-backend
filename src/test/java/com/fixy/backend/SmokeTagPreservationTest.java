@@ -45,6 +45,38 @@ class SmokeTagPreservationTest {
   @Autowired
   private LeadEventRepository leadEventRepository;
 
+  /**
+   * Convención de Carlos (2026-07-30): sus pruebas manuales empiezan con la
+   * palabra "smoke" a secas, sin corchetes. El problem derivado debe quedar
+   * con la marca canónica "[smoke]" igual, para que todos los guards
+   * (SmokeTraffic.marks) la reconozcan.
+   */
+  @Test
+  void laPalabraSmokeSinCorchetesTambienMarcaElProblem() throws Exception {
+    MvcResult chat = mockMvc.perform(post("/api/public/chats")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"channel\":\"web-chat\"}"))
+        .andExpect(status().is2xxSuccessful())
+        .andReturn();
+    Integer leadId = JsonPath.read(chat.getResponse().getContentAsString(), "$.id");
+    String token = JsonPath.read(chat.getResponse().getContentAsString(), "$.accessToken");
+
+    mockMvc.perform(post("/api/public/leads/{id}/messages", leadId)
+            .param("token", token)
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"smoke Necesito pastelería: una torta para el sábado, en Solymar\"}"))
+        .andExpect(status().isCreated());
+
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> {
+          Lead lead = leadRepository.findById(Long.valueOf(leadId)).orElseThrow();
+          assertThat(lead.getProblem()).isNotEqualTo("(pendiente)");
+        });
+
+    Lead lead = leadRepository.findById(Long.valueOf(leadId)).orElseThrow();
+    assertThat(lead.getProblem()).startsWith("[smoke]");
+  }
+
   @Test
   void elProblemDerivadoDeUnChatSmokeConservaLaMarca() throws Exception {
     MvcResult chat = mockMvc.perform(post("/api/public/chats")

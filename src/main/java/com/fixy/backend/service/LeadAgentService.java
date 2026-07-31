@@ -560,8 +560,7 @@ public class LeadAgentService {
     try {
       return leadMessageService.recentForAgent(leadId, 10).stream()
           .anyMatch(m -> "customer".equals(m.getSender())
-              && m.getText() != null
-              && m.getText().toLowerCase(Locale.ROOT).contains("[smoke]"));
+              && com.fixy.backend.model.SmokeTraffic.marks(m.getText()));
     } catch (Exception ex) {
       return false;
     }
@@ -1333,7 +1332,7 @@ public class LeadAgentService {
 
   private boolean isSmokeLead(Lead lead) {
     String problem = lead.getProblem();
-    return problem != null && problem.toLowerCase(java.util.Locale.ROOT).contains("[smoke]");
+    return com.fixy.backend.model.SmokeTraffic.marks(problem);
   }
 
   /** Nunca debe interrumpir tryAutoMatch: TelegramNotifyService ya se protege

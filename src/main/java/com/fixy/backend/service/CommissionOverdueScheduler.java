@@ -117,7 +117,7 @@ public class CommissionOverdueScheduler {
       return false; // disputa sin resolver: la escalera se frena
     }
     String problem = lead.getProblem();
-    if (problem != null && problem.toLowerCase(Locale.ROOT).contains("[smoke]")) {
+    if (com.fixy.backend.model.SmokeTraffic.marks(problem)) {
       return false;
     }
 
