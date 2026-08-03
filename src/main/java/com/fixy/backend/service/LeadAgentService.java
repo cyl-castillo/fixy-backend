@@ -1148,7 +1148,8 @@ public class LeadAgentService {
     String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
     String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
     if (cat.isBlank() || "otro".equals(cat) || !MVP_CATEGORIES.contains(cat)) return false;
-    if (loc.isBlank() || "sin definir".equals(loc) || !MVP_LOCATIONS.contains(loc)) return false;
+    if (loc.isBlank() || "sin definir".equals(loc)
+        || !com.fixy.backend.model.CoverageZone.isCovered(loc)) return false;
     return true;
   }
 
@@ -1713,10 +1714,9 @@ public class LeadAgentService {
   /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
   private static final java.util.Set<String> MVP_CATEGORIES =
       java.util.Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
-  private static final java.util.Set<String> MVP_LOCATIONS = java.util.Set.of(
-      "ciudad de la costa", "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
-      "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-      "lomas de solymar", "colinas de solymar", "montes de solymar", "aeroparque");
+  // Zonas cubiertas: fuente única en com.fixy.backend.model.CoverageZone
+  // (isCovered normaliza acentos, así que "Shangrilá" y "Shangrila" son la
+  // misma zona sin necesidad de listar las dos formas).
 
   private String deriveNextAction(Lead lead) {
     String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
@@ -1724,7 +1724,8 @@ public class LeadAgentService {
     if (!cat.isBlank() && !"otro".equals(cat) && !MVP_CATEGORIES.contains(cat)) {
       return "out_of_scope_category";
     }
-    if (!loc.isBlank() && !"sin definir".equals(loc) && !MVP_LOCATIONS.contains(loc)) {
+    if (!loc.isBlank() && !"sin definir".equals(loc)
+        && !com.fixy.backend.model.CoverageZone.isCovered(loc)) {
       return "out_of_coverage_area";
     }
     return "ok";

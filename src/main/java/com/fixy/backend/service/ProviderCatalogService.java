@@ -5,6 +5,7 @@ import com.fixy.backend.dto.ProviderCreateRequest;
 import com.fixy.backend.dto.ProviderResponse;
 import com.fixy.backend.dto.ProviderUpdateRequest;
 import com.fixy.backend.model.CommissionStatus;
+import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.model.ProviderStatus;
@@ -163,7 +164,18 @@ public class ProviderCatalogService {
         .filter(provider -> !overdueProviderIds.contains(provider.getId()))
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
-        .sorted((a, b) -> Double.compare(rankingScore(b), rankingScore(a)))
+        // Primero el que nombró TU barrio, después el que cubre la ciudad
+        // entera. Desde que la jerarquía dejó entrar a los proveedores del
+        // paraguas (Ciudad de la Costa), un generalista competía de igual a
+        // igual con el que declaró la zona puntual; a igualdad de reputación
+        // el vecino del barrio es mejor match y llega antes.
+        .sorted((a, b) -> {
+          int byZoneSpecificity = Boolean.compare(
+              declaresZoneExactly(b, normalizedLocation), declaresZoneExactly(a, normalizedLocation));
+          return byZoneSpecificity != 0
+              ? byZoneSpecificity
+              : Double.compare(rankingScore(b), rankingScore(a));
+        })
         .map(provider -> toCatalogItem(provider, normalizedCategory))
         .toList();
   }
@@ -235,20 +247,58 @@ public class ProviderCatalogService {
         .anyMatch(value -> value.equals(category));
   }
 
+  /**
+   * ¿Este proveedor cubre la zona del pedido? Compara lo que declaró como
+   * cobertura ({@code primaryZone} y {@code coverageZones}) con
+   * {@link CoverageZone#covers}, que entiende que "Ciudad de la Costa"
+   * contiene a Solymar, Lagomar y compañía en vez de tratarlas como strings
+   * sueltos e iguales entre sí. {@code city} queda aparte, en igualdad exacta.
+   *
+   * <p>Antes la comparación era igualdad exacta, y eso dejaba fuera dos casos
+   * reales del embudo de prod (detalle y números en el javadoc de
+   * {@code CoverageZone.covers}): el proveedor que declara la ciudad entera no
+   * veía los pedidos de cada barrio, y el 26% de los pedidos que llegan con la
+   * zona genérica "Ciudad de la Costa" no veía a ningún proveedor registrado
+   * por barrio.
+   */
   private boolean matchesLocation(Provider provider, String location) {
     if (location.isBlank()) {
       return true;
     }
 
-    if (normalize(provider.getPrimaryZone()).equals(location)) {
+    if (declaredCoverage(provider).stream().anyMatch(zone -> CoverageZone.covers(zone, location))) {
       return true;
     }
 
-    if (splitCsv(provider.getCoverageZones()).stream().map(this::normalize).anyMatch(value -> value.equals(location))) {
-      return true;
-    }
-
+    // city NO entra en la jerarquía a propósito: es la dirección del
+    // proveedor, no una declaración de cobertura. Expandirla haría que un
+    // proveedor que acotó su cobertura a "Solymar, Lagomar" recibiera pedidos
+    // de El Pinar solo porque su ciudad postal es Ciudad de la Costa — lo
+    // contrario de lo que eligió. Queda como igualdad exacta, como estaba.
     return normalize(provider.getCity()).equals(location);
+  }
+
+  /**
+   * true si el proveedor nombró esta zona puntualmente (no la alcanzó por el
+   * paraguas). Solo ordena — no filtra a nadie.
+   */
+  private boolean declaresZoneExactly(Provider provider, String location) {
+    if (location.isBlank()) {
+      return false;
+    }
+    return declaredCoverage(provider).stream().anyMatch(zone -> normalize(zone).equals(location));
+  }
+
+  /**
+   * Lo que el proveedor declaró como cobertura: {@code primaryZone} y
+   * {@code coverageZones}. Son las dos que expresan "hasta acá llego", así que
+   * son las únicas donde vale la jerarquía Ciudad de la Costa ⊃ barrios.
+   */
+  private List<String> declaredCoverage(Provider provider) {
+    List<String> zones = new java.util.ArrayList<>();
+    zones.add(provider.getPrimaryZone());
+    zones.addAll(splitCsv(provider.getCoverageZones()));
+    return zones.stream().filter(Objects::nonNull).filter(value -> !value.isBlank()).toList();
   }
 
   private Provider findProvider(Long id) {

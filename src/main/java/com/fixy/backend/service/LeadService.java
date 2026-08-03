@@ -34,21 +34,12 @@ public class LeadService {
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
   private static final Set<String> MVP_CATEGORIES = Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
-  private static final Set<String> MVP_LOCATIONS = Set.of(
-      "ciudad de la costa",
-      "solymar",
-      "lagomar",
-      "el pinar",
-      "shangrila",
-      "shangrilá",
-      "barra de carrasco",
-      "parque miramar",
-      "san jose de carrasco",
-      "san josé de carrasco",
-      "lomas de solymar",
-      "colinas de solymar",
-      "aeroparque"
-  );
+  // Las zonas cubiertas ya no viven acá: fuente única en
+  // com.fixy.backend.model.CoverageZone (se consulta con isCovered, que
+  // normaliza acentos). Esta lista estaba escrita a mano y se había quedado
+  // sin "Montes de Solymar" — agregada el 2026-07-16 solo en AgentService y
+  // LeadAgentService —, así que un pedido en esa zona salía marcado
+  // zona_fuera_de_cobertura mientras el agente lo daba por matcheable.
 
   private final LeadRepository leadRepository;
   private final AgentService agentService;
@@ -450,7 +441,7 @@ public class LeadService {
 
     if (location.isBlank() || "sin definir".equals(location)) {
       blockingFields.add("zona");
-    } else if (!MVP_LOCATIONS.contains(location)) {
+    } else if (!com.fixy.backend.model.CoverageZone.isCovered(location)) {
       blockingFields.add("zona_fuera_de_cobertura");
     }
     return blockingFields;

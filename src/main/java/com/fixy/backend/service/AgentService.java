@@ -23,11 +23,8 @@ public class AgentService {
 
   private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
-  private static final List<String> CIUDAD_DE_LA_COSTA_ZONES = List.of(
-      "solymar", "lagomar", "el pinar", "shangrila", "shangrilá",
-      "barra de carrasco", "parque miramar", "san jose de carrasco", "san josé de carrasco",
-      "lomas de solymar", "colinas de solymar", "montes de solymar", "aeroparque", "ciudad de la costa"
-  );
+  // El catálogo de zonas vive en com.fixy.backend.model.CoverageZone (fuente
+  // única). Acá se consulta con fromLabel, que ya normaliza mayúsculas y tildes.
 
   /**
    * Valores canónicos de "area" (display) + "sin definir", usados como enum estricto en el
@@ -340,10 +337,10 @@ public class AgentService {
     if ("sin definir".equals(normalized)) {
       return "sin definir";
     }
-    for (String zone : CIUDAD_DE_LA_COSTA_ZONES) {
-      if (stripAccents(zone).equals(normalized)) {
-        return toDisplayArea(zone);
-      }
+    java.util.Optional<com.fixy.backend.model.CoverageZone> canonical =
+        com.fixy.backend.model.CoverageZone.fromLabel(normalized);
+    if (canonical.isPresent()) {
+      return canonical.get().label();
     }
     if ("canelones".equals(normalized)) {
       return "Ciudad de la Costa";
@@ -598,21 +595,16 @@ public class AgentService {
     return false;
   }
 
+  /**
+   * Etiqueta canónica de una zona escrita como venga (mayúsculas, con o sin
+   * tilde). Era un switch con las 11 zonas escritas a mano — la quinta copia
+   * del mismo catálogo; ahora deriva de {@link com.fixy.backend.model.CoverageZone}.
+   * Lo que no reconoce cae al paraguas "Ciudad de la Costa", igual que antes.
+   */
   private static String toDisplayArea(String zone) {
-    return switch (zone) {
-      case "solymar" -> "Solymar";
-      case "lagomar" -> "Lagomar";
-      case "el pinar" -> "El Pinar";
-      case "shangrila", "shangrilá" -> "Shangrilá";
-      case "barra de carrasco" -> "Barra de Carrasco";
-      case "parque miramar" -> "Parque Miramar";
-      case "san jose de carrasco", "san josé de carrasco" -> "San José de Carrasco";
-      case "lomas de solymar" -> "Lomas de Solymar";
-      case "colinas de solymar" -> "Colinas de Solymar";
-      case "montes de solymar" -> "Montes de Solymar";
-      case "aeroparque" -> "Aeroparque";
-      default -> "Ciudad de la Costa";
-    };
+    return com.fixy.backend.model.CoverageZone.fromLabel(zone)
+        .map(com.fixy.backend.model.CoverageZone::label)
+        .orElse("Ciudad de la Costa");
   }
 
   private String normalizeServiceCategory(String serviceCategory) {
