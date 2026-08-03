@@ -6,14 +6,17 @@ import com.fixy.backend.dto.ProviderResponse;
 import com.fixy.backend.dto.ProviderUpdateRequest;
 import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadPaymentRepository;
+import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -23,10 +26,15 @@ public class ProviderCatalogService {
 
   private final ProviderRepository providerRepository;
   private final LeadPaymentRepository leadPaymentRepository;
+  private final ProviderLeadDeclineRepository declineRepository;
 
-  public ProviderCatalogService(ProviderRepository providerRepository, LeadPaymentRepository leadPaymentRepository) {
+  public ProviderCatalogService(
+      ProviderRepository providerRepository,
+      LeadPaymentRepository leadPaymentRepository,
+      ProviderLeadDeclineRepository declineRepository) {
     this.providerRepository = providerRepository;
     this.leadPaymentRepository = leadPaymentRepository;
+    this.declineRepository = declineRepository;
   }
 
   public List<ProviderCatalogItem> list() {
@@ -172,6 +180,39 @@ public class ProviderCatalogService {
       return NEW_PROVIDER_RATING_PRIOR;
     }
     return provider.getRatingAverage();
+  }
+
+  /**
+   * {@link #findMatches} para un lead concreto: además de los filtros de
+   * catálogo, saca a los proveedores que YA rechazaron ESTE pedido.
+   *
+   * Existe porque la ausencia de este filtro causó un bug real (guardia del
+   * 2026-07-29): el reintento de matching le volvió a ofrecer los leads
+   * #128/#135/#147 a Carnot Clima, que los había declinado el 23/07 — el
+   * cliente leyó "¡Buenas noticias! Apareció un proveedor" y 17 minutos
+   * después el proveedor los rechazó de nuevo. La bandeja del proveedor
+   * ({@code ProviderOpportunityService.listFor}) siempre respetó los
+   * declines; el matching automático no, así que los dos caminos decían
+   * cosas distintas sobre el mismo par (lead, proveedor).
+   *
+   * Todo camino que elija proveedor PARA UN LEAD debe usar este método;
+   * {@link #findMatches} queda para las preguntas genéricas de cobertura
+   * ("¿hay alguien en esta zona?"), donde no hay lead que rechazar.
+   */
+  public List<ProviderCatalogItem> findMatchesForLead(Long leadId, String category, String location) {
+    List<ProviderCatalogItem> matches = findMatches(category, location);
+    if (leadId == null || matches.isEmpty()) {
+      return matches;
+    }
+    Set<Long> declinedBy = declineRepository.findByLeadId(leadId).stream()
+        .map(ProviderLeadDecline::getProviderId)
+        .collect(Collectors.toSet());
+    if (declinedBy.isEmpty()) {
+      return matches;
+    }
+    return matches.stream()
+        .filter(item -> !declinedBy.contains(item.id()))
+        .toList();
   }
 
   /**

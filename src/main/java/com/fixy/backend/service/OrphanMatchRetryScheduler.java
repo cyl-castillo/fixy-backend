@@ -1,6 +1,7 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.model.Lead;
+import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
@@ -141,8 +142,37 @@ public class OrphanMatchRetryScheduler {
     return !hasMatchingStarted(lead.getId());
   }
 
+  /**
+   * ¿El matching de este lead ya arrancó y sigue vigente? Un PROVIDER_CONTACTED
+   * viejo NO alcanza para descartarlo: si después de ese contacto el proveedor
+   * canceló, {@code ProviderSelfService} liberó el pedido y dejó un
+   * PROVIDER_RELEASED más reciente. Ahí el lead volvió a estar huérfano y este
+   * job tiene que poder buscarle otro proveedor — sin esta comparación, un
+   * pedido rechazado quedaba esperando para siempre con nadie mirándolo.
+   */
   private boolean hasMatchingStarted(Long leadId) {
-    return MATCHING_STARTED_EVENT_TYPES.stream()
-        .anyMatch(type -> !leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, type).isEmpty());
+    OffsetDateTime lastMatching = latestEventAt(leadId, MATCHING_STARTED_EVENT_TYPES);
+    if (lastMatching == null) {
+      return false;
+    }
+    OffsetDateTime lastRelease =
+        latestEventAt(leadId, Set.of(ProviderSelfService.PROVIDER_RELEASED_EVENT_TYPE));
+    return lastRelease == null || !lastRelease.isAfter(lastMatching);
+  }
+
+  /** Fecha del evento más reciente entre los tipos dados, o null si no hay ninguno. */
+  private OffsetDateTime latestEventAt(Long leadId, Set<String> types) {
+    OffsetDateTime latest = null;
+    for (String type : types) {
+      List<LeadEvent> events = leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, type);
+      if (events.isEmpty()) {
+        continue;
+      }
+      OffsetDateTime at = events.get(0).getCreatedAt();
+      if (at != null && (latest == null || at.isAfter(latest))) {
+        latest = at;
+      }
+    }
+    return latest;
   }
 }

@@ -6,8 +6,10 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -50,12 +52,20 @@ public class ProviderSelfService {
    *  agente que construye la superficie del cliente). */
   static final String ON_THE_WAY_EVENT_TYPE = "PROVIDER_ON_THE_WAY";
 
+  /**
+   * El pedido volvió a estar sin proveedor porque el que lo tenía canceló.
+   * Lo lee {@code OrphanMatchRetryScheduler} para volver a considerarlo
+   * huérfano aunque su timeline ya tenga un PROVIDER_CONTACTED viejo.
+   */
+  public static final String PROVIDER_RELEASED_EVENT_TYPE = "PROVIDER_RELEASED";
+
   /** Anti-spam: como máximo un aviso "voy en camino" por hora por lead. */
   private static final Duration ON_THE_WAY_COOLDOWN = Duration.ofHours(1);
 
   private final ProviderRepository providerRepository;
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
+  private final ProviderLeadDeclineRepository declineRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
   private final LeadClosingService leadClosingService;
@@ -67,6 +77,7 @@ public class ProviderSelfService {
       ProviderRepository providerRepository,
       LeadRepository leadRepository,
       LeadEventRepository leadEventRepository,
+      ProviderLeadDeclineRepository declineRepository,
       LeadTimelineService timelineService,
       CommissionService commissionService,
       LeadClosingService leadClosingService,
@@ -77,6 +88,7 @@ public class ProviderSelfService {
     this.providerRepository = providerRepository;
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
+    this.declineRepository = declineRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
     this.leadClosingService = leadClosingService;
@@ -161,6 +173,14 @@ public class ProviderSelfService {
         case COMPLETED -> provider.setCompletedJobsCount(safeInc(provider.getCompletedJobsCount()));
         default -> { /* no counter */ }
       }
+      // Que un proveedor no pueda NO mata el pedido del cliente: se libera y
+      // vuelve a búsqueda (ver releaseAfterProviderCancel). Excepción: cancelar
+      // un trabajo YA COMPLETADO es una corrección administrativa, no un
+      // rechazo — resucitar ahí le buscaría proveedor a un trabajo hecho (y
+      // con payments ON la comisión ya existe).
+      if (newStatus == LeadStatus.CANCELLED && before != LeadStatus.COMPLETED) {
+        releaseAfterProviderCancel(lead, provider);
+      }
       leadRepository.save(lead);
       providerRepository.save(provider);
       if (paymentsEnabled && newStatus == LeadStatus.COMPLETED) {
@@ -174,6 +194,52 @@ public class ProviderSelfService {
       }
     }
     return lead;
+  }
+
+  /**
+   * El proveedor canceló un trabajo que tenía tomado. Antes esto dejaba el
+   * lead en CANCELLED terminal y en silencio: el cliente del #128 leyó
+   * "¡Buenas noticias! Apareció un proveedor" a las 14:29 del 2026-07-29 y a
+   * las 14:46 su pedido estaba muerto sin un solo mensaje; al del #187,
+   * Guillermo de Carnot Clima le escribió presentándose y dos horas después
+   * canceló, también sin aviso. Un rechazo del proveedor no es una decisión
+   * del cliente y no tiene por qué terminar su pedido.
+   *
+   * Ahora el pedido: (1) registra el rechazo, para que el matching no se lo
+   * vuelva a ofrecer al mismo proveedor — el mismo registro que usa la
+   * bandeja; (2) se libera y vuelve a NEW, así el reintento puede buscarle
+   * otro; (3) se lo cuenta al cliente con todas las letras.
+   *
+   * Converge solo: cada proveedor que cancela queda registrado, así que la
+   * lista de candidatos se achica en cada vuelta y nunca hay ping-pong. Si
+   * se agotan, el pedido queda esperando en NEW sin spamear a nadie (el
+   * reintento calla cuando no hay a quién ofrecer).
+   */
+  private void releaseAfterProviderCancel(Lead lead, Provider provider) {
+    if (lead.getId() != null && provider.getId() != null
+        && !declineRepository.existsByLeadIdAndProviderId(lead.getId(), provider.getId())) {
+      ProviderLeadDecline decline = new ProviderLeadDecline();
+      decline.setLeadId(lead.getId());
+      decline.setProviderId(provider.getId());
+      declineRepository.save(decline);
+    }
+
+    String providerName = hasText(provider.getName()) ? provider.getName() : "El proveedor";
+    lead.setAssignedProviderId(null);
+    lead.setAssignedProvider(null);
+    lead.setStatus(LeadStatus.NEW);
+
+    timelineService.appendEvent(lead, PROVIDER_RELEASED_EVENT_TYPE, "system",
+        "%s canceló: el pedido vuelve a búsqueda de proveedor".formatted(providerName));
+
+    String message = ("%s al final no va a poder tomar tu pedido. Ya estoy buscando a otra persona "
+        + "y te aviso por acá apenas tenga novedades.").formatted(providerName);
+    leadMessageService.postFromAgent(lead.getId(), message);
+    try {
+      pushNotificationService.notifyLeadHasNews(lead.getId(), "Novedades de tu pedido", message);
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
+    }
   }
 
   /**

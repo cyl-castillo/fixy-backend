@@ -9,6 +9,7 @@ import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadPaymentRepository;
+import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.util.List;
 import java.util.Set;
@@ -31,6 +32,9 @@ class ProviderCatalogServiceRankingTest {
 
   @Mock
   private LeadPaymentRepository leadPaymentRepository;
+
+  @Mock
+  private ProviderLeadDeclineRepository declineRepository;
 
   private ProviderCatalogService service;
 
@@ -55,7 +59,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void ordenaPorMejorReputacionPrimero() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
     Provider bueno = provider(1L, "Bueno", 4.8, 20);
     Provider regular = provider(2L, "Regular", 3.2, 15);
     Provider malo = provider(3L, "Malo", 2.0, 10);
@@ -70,7 +74,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void proveedorNuevoSinCalificacionesNoQuedaAlFondo() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
     // Nuevo con prior ~4.0 debe intercalarse entre el excelente (4.8) y el
     // mediocre (3.0), NUNCA último por el solo hecho de no tener rating.
     Provider excelente = provider(1L, "Excelente", 4.8, 30);
@@ -87,7 +91,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void empatadosVariosProveedoresNuevosNoRompenElMatching() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
     Provider nuevo1 = provider(1L, "Nuevo1", null, 0);
     Provider nuevo2 = provider(2L, "Nuevo2", null, 0);
 
@@ -109,7 +113,7 @@ class ProviderCatalogServiceRankingTest {
    */
   @Test
   void previewPublicoNoExponeRatingInfladoParaProveedorSinCalificaciones() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
     Provider nuevo = provider(1L, "Nuevo", null, 0);
 
     when(providerRepository.findAll()).thenReturn(List.of(nuevo));
@@ -125,7 +129,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void previewPublicoExponeElRatingRealParaProveedorConCalificaciones() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
     Provider calificado = provider(1L, "Calificado", 4.8, 12);
 
     when(providerRepository.findAll()).thenReturn(List.of(calificado));

@@ -199,7 +199,10 @@ public class LeadService {
       );
     }
 
-    List<ProviderCatalogItem> catalogMatches = providerCatalogService.findMatches(lead.getDetectedCategory(), lead.getLocation());
+    // Para lead concreto: no reofrece a quien ya rechazó ESTE pedido, mismo
+    // criterio que la bandeja del proveedor y que el matching automático.
+    List<ProviderCatalogItem> catalogMatches = providerCatalogService.findMatchesForLead(
+        lead.getId(), lead.getDetectedCategory(), lead.getLocation());
     List<ProviderMatchItem> matches = catalogMatches.stream()
         .map(provider -> toProviderMatch(provider, lead))
         .sorted((a, b) -> Integer.compare(b.score(), a.score()))

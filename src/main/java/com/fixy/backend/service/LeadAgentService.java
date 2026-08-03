@@ -1160,8 +1160,8 @@ public class LeadAgentService {
    */
   private void tryAutoMatch(Lead lead) {
     try {
-      List<ProviderCatalogItem> matches = providerCatalogService.findMatches(
-          lead.getDetectedCategory(), lead.getLocation());
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatchesForLead(
+          lead.getId(), lead.getDetectedCategory(), lead.getLocation());
       if (matches == null || matches.isEmpty()) {
         // "Te aviso por acá" sin teléfono es una promesa vacía si el cliente
         // cierra la pestaña: este mensaje es EL lugar donde pedir el WhatsApp
@@ -1203,8 +1203,11 @@ public class LeadAgentService {
       if (lead == null) {
         return false;
       }
-      List<ProviderCatalogItem> matches = providerCatalogService.findMatches(
-          lead.getDetectedCategory(), lead.getLocation());
+      // Para lead concreto: excluye a los que ya rechazaron ESTE pedido. Sin
+      // este filtro el reintento reofrecía el mismo lead al mismo proveedor
+      // en cada ciclo (bug real del 2026-07-29, leads #128/#135/#147).
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatchesForLead(
+          leadId, lead.getDetectedCategory(), lead.getLocation());
       if (matches == null || matches.isEmpty()) {
         // Silencio a propósito: el cliente YA recibió el aviso honesto de
         // "por ahora no tengo proveedores libres" cuando el pedido quedó
