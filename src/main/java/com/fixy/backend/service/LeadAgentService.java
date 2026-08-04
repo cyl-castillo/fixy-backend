@@ -53,6 +53,7 @@ public class LeadAgentService {
   private final String cloudflareModel;
   private final String whatsappTemplateName;
   private final String whatsappTemplateLang;
+  private final String publicAppBaseUrl;
   private final boolean enabled;
   private final LeadMessageService leadMessageService;
   private final LeadRepository leadRepository;
@@ -87,7 +88,8 @@ public class LeadAgentService {
       @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
       @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel,
       @Value("${fixy.whatsapp.template-name:provider_lead_notification}") String whatsappTemplateName,
-      @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang
+      @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang,
+      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.whatsappService = whatsappService;
     this.providerRepository = providerRepository;
@@ -97,6 +99,7 @@ public class LeadAgentService {
     this.pushNotificationService = pushNotificationService;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
+    this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
     this.objectMapper = objectMapper;
     this.leadMessageService = leadMessageService;
     this.leadRepository = leadRepository;
@@ -600,6 +603,66 @@ public class LeadAgentService {
     return normalized.contains("whatsapp")
         || normalized.contains("telefono")
         || (normalized.contains("numero") && normalized.contains("contact"));
+  }
+
+  /**
+   * "El ticket del pedido" (caso real lead #200, 2026-08-04): el pedido de
+   * un cliente anónimo vive solo en el navegador donde lo hizo — si lo
+   * pierde y no dejó WhatsApp, es irrecuperable. Tras el matching, el agente
+   * le muestra SU PROPIO link de recuperación (/c/{id}/{token}) para que lo
+   * guarde — funciona en cualquier dispositivo, no depende del teléfono.
+   * Una sola vez por pedido (las correcciones re-disparan el matching).
+   */
+  private void shareRecoveryLink(Lead lead) {
+    try {
+      if (lead.getAccessToken() == null || lead.getAccessToken().isBlank()) {
+        return;
+      }
+      // Solo para quien NO tiene otro canal de vuelta: si ya hay teléfono
+      // (dejó WhatsApp, o entró POR WhatsApp) el link es ruido — su canal
+      // de recuperación es el número.
+      if (lead.getPhone() != null && !lead.getPhone().isBlank()) {
+        return;
+      }
+      String marker = "/c/" + lead.getId() + "/";
+      boolean alreadyShared = leadMessageService.recentForAgent(lead.getId(), 30).stream()
+          .anyMatch(m -> !"customer".equals(m.getSender())
+              && m.getText() != null && m.getText().contains(marker));
+      if (alreadyShared) {
+        return;
+      }
+      leadMessageService.postFromAgent(lead.getId(),
+          "📌 Guardá este link para volver a tu pedido cuando quieras, desde cualquier celular o computadora: %s/c/%d/%s"
+              .formatted(publicAppBaseUrl, lead.getId(), lead.getAccessToken()));
+    } catch (Exception ex) {
+      log.warn("shareRecoveryLink failed for lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * Nudge post-respuesta del proveedor (mismo caso #200): si el proveedor
+   * escribió y el cliente sigue sin teléfono, una única insistencia — es el
+   * momento en que el valor del canal de vuelta es obvio. Llamado desde el
+   * posteo de mensajes del proveedor.
+   */
+  public void afterProviderMessage(Long leadId) {
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null || (lead.getPhone() != null && !lead.getPhone().isBlank())) {
+        return;
+      }
+      String marker = "El proveedor te escribió";
+      boolean alreadyNudged = leadMessageService.recentForAgent(leadId, 40).stream()
+          .anyMatch(m -> !"customer".equals(m.getSender())
+              && m.getText() != null && m.getText().contains(marker));
+      if (alreadyNudged) {
+        return;
+      }
+      leadMessageService.postFromAgent(leadId,
+          "El proveedor te escribió 👆 Si me dejás un WhatsApp te aviso también por ahí cuando haya novedades — así no dependés de tener esta página abierta.");
+    } catch (Exception ex) {
+      log.warn("afterProviderMessage failed for lead {}: {}", leadId, ex.getMessage());
+    }
   }
 
   /**
@@ -1171,6 +1234,7 @@ public class LeadAgentService {
         leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
             "Por ahora no tengo proveedores libres en %s para %s. Te aviso por acá apenas alguien levante el pedido."
                 .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
+        shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
         return;
       }
@@ -1270,6 +1334,7 @@ public class LeadAgentService {
                 .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())
             : "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
                 .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())));
+    shareRecoveryLink(lead);
 
     // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
     // está configurado, WhatsAppService.sendTemplate retorna false y

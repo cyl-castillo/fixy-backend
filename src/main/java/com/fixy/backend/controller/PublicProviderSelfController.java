@@ -40,19 +40,22 @@ public class PublicProviderSelfController {
   private final ProviderOpportunityService opportunityService;
   private final LeadPaymentQueryService leadPaymentQueryService;
   private final ProviderGoogleAuthService providerGoogleAuthService;
+  private final com.fixy.backend.service.LeadAgentService leadAgentService;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
       LeadMessageService messageService,
       ProviderOpportunityService opportunityService,
       LeadPaymentQueryService leadPaymentQueryService,
-      ProviderGoogleAuthService providerGoogleAuthService
+      ProviderGoogleAuthService providerGoogleAuthService,
+      com.fixy.backend.service.LeadAgentService leadAgentService
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
     this.opportunityService = opportunityService;
     this.leadPaymentQueryService = leadPaymentQueryService;
     this.providerGoogleAuthService = providerGoogleAuthService;
+    this.leadAgentService = leadAgentService;
   }
 
   @GetMapping("/opportunities")
@@ -256,7 +259,11 @@ public class PublicProviderSelfController {
     Provider provider = selfService.authenticate(providerId, token);
     selfService.requireAssignedLead(provider, leadId);
     // El proveedor manda mensaje vía LeadMessageService.postFromOps con sender=provider.
-    return messageService.postFromOps(leadId, "provider", request.text());
+    LeadMessageResponse posted = messageService.postFromOps(leadId, "provider", request.text());
+    // Caso lead #200: si el cliente sigue sin WhatsApp, este es EL momento
+    // de insistir una única vez — hay una respuesta real esperándolo.
+    leadAgentService.afterProviderMessage(leadId);
+    return posted;
   }
 
   public record StatusUpdateRequest(@NotNull LeadStatus status, BigDecimal amountCharged) {
