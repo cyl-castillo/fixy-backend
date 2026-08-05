@@ -215,6 +215,46 @@ public class ProviderSelfService {
    * se agotan, el pedido queda esperando en NEW sin spamear a nadie (el
    * reintento calla cuando no hay a quién ofrecer).
    */
+  /**
+   * Historial "no concretados" del panel (feedback de Guillermo vía Carlos
+   * 2026-08-05): las oportunidades que el proveedor soltó, con qué pasó
+   * después. Sin datos sensibles del cliente (el pedido pudo pasar a otro).
+   * Se excluye el tráfico de prueba y se limita a las últimas 20.
+   */
+  public List<com.fixy.backend.dto.ProviderDeclinedLeadSummary> declinedLeadsFor(Provider provider) {
+    return declineRepository.findByProviderId(provider.getId()).stream()
+        .sorted(java.util.Comparator.comparing(
+            com.fixy.backend.model.ProviderLeadDecline::getCreatedAt,
+            java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+        .limit(20)
+        .map(decline -> {
+          Lead lead = leadRepository.findById(decline.getLeadId()).orElse(null);
+          if (lead == null || com.fixy.backend.model.SmokeTraffic.marks(lead.getProblem())) {
+            return null;
+          }
+          String outcome;
+          if (lead.getStatus() == LeadStatus.COMPLETED) {
+            outcome = "completado";
+          } else if (lead.getStatus() == LeadStatus.CANCELLED) {
+            outcome = "cancelado";
+          } else if (lead.getAssignedProviderId() != null) {
+            outcome = "tomado_por_otro";
+          } else {
+            outcome = "en_busqueda";
+          }
+          String problem = lead.getProblem() == null ? "" : lead.getProblem();
+          return new com.fixy.backend.dto.ProviderDeclinedLeadSummary(
+              lead.getId(),
+              lead.getDetectedCategory(),
+              lead.getLocation(),
+              problem.length() > 120 ? problem.substring(0, 120) + "…" : problem,
+              decline.getCreatedAt(),
+              outcome);
+        })
+        .filter(java.util.Objects::nonNull)
+        .toList();
+  }
+
   private void releaseAfterProviderCancel(Lead lead, Provider provider) {
     if (lead.getId() != null && provider.getId() != null
         && !declineRepository.existsByLeadIdAndProviderId(lead.getId(), provider.getId())) {

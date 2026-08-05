@@ -21,9 +21,18 @@ public record ProviderSelfResponse(
     Boolean acceptingWork,
     /** Email de la cuenta Google vinculada para login sin link magico — null si nunca vinculo. */
     String googleEmail,
-    List<ProviderAssignedLeadSummary> assignedLeads
+    List<ProviderAssignedLeadSummary> assignedLeads,
+    /** Historial "no concretados": oportunidades que el proveedor soltó (ver ProviderDeclinedLeadSummary). */
+    List<ProviderDeclinedLeadSummary> declinedLeads
 ) {
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
+    return fromEntity(provider, leads, List.of());
+  }
+
+  public static ProviderSelfResponse fromEntity(
+      Provider provider,
+      List<ProviderAssignedLeadSummary> leads,
+      List<ProviderDeclinedLeadSummary> declinedLeads) {
     Integer ratingCount = provider.getRatingCount() == null ? 0 : provider.getRatingCount();
     // Sin calificaciones todavía: no forzar 0.0, que el front distinga
     // "nuevo en Fixy" de una nota real de 0.
@@ -45,7 +54,8 @@ public record ProviderSelfResponse(
         ratingCount,
         provider.getAcceptingWork() == null || provider.getAcceptingWork(),
         provider.getGoogleEmail(),
-        leads
+        leads,
+        declinedLeads
     );
   }
 }

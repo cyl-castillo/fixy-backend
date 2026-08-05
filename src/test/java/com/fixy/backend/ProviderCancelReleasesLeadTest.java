@@ -222,4 +222,35 @@ class ProviderCancelReleasesLeadTest {
     assertThat(untouched.getAssignedProviderId()).isNull();
     assertThat(messagesContaining(lead.getId(), "Buenas noticias")).isZero();
   }
+
+  /**
+   * Historial "no concretados" (feedback de Guillermo vía Carlos 2026-08-05):
+   * al soltar un pedido, el proveedor lo ve después en su /me como
+   * declinedLeads — con el desenlace — en vez de que desaparezca sin rastro.
+   */
+  @Test
+  void elPedidoSoltadoApareceEnElHistorialDeNoConcretados() throws Exception {
+    Lead lead = makeOrphanWaiting("Zona Historial Test");
+    Provider provider = createPlomero("Plomero Historial", "Zona Historial Test");
+    lead.setAssignedProviderId(provider.getId());
+    lead.setAssignedProvider(provider.getName());
+    lead.setStatus(LeadStatus.PROVIDER_CONTACTED);
+    leadRepository.save(lead);
+
+    cancelAsProvider(provider, lead.getId());
+
+    MvcResult me = mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .get("/api/public/providers/{pid}/me", provider.getId())
+            .param("token", provider.getAccessToken()))
+        .andExpect(status().isOk())
+        .andReturn();
+    String body = me.getResponse().getContentAsString();
+    java.util.List<Integer> ids = JsonPath.read(body, "$.declinedLeads[*].leadId");
+    assertThat(ids).contains(lead.getId().intValue());
+    String outcome = JsonPath.read(body, "$.declinedLeads[0].outcome");
+    assertThat(outcome).isEqualTo("en_busqueda");
+    // Y ya no está entre los trabajos activos.
+    java.util.List<Integer> activos = JsonPath.read(body, "$.assignedLeads[*].id");
+    assertThat(activos).doesNotContain(lead.getId().intValue());
+  }
 }

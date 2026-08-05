@@ -97,7 +97,7 @@ public class PublicProviderSelfController {
     List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(provider).stream()
         .map(ProviderAssignedLeadSummary::fromEntity)
         .toList();
-    return ProviderSelfResponse.fromEntity(provider, leads);
+    return ProviderSelfResponse.fromEntity(provider, leads, selfService.declinedLeadsFor(provider));
   }
 
   @PatchMapping("/availability")
