@@ -140,4 +140,54 @@ class ProviderCatalogServiceRankingTest {
     assertThat(item.ratingAverage()).isEqualTo(4.8);
     assertThat(item.ratingCount()).isEqualTo(12);
   }
+
+  /**
+   * Caso real de la guardia del 2026-08-04, medido en prod: el preview
+   * público devolvía {@code count=1} con Barométrica Nueva Era para
+   * (barometrica, Montes de Solymar), y el mismo pedido por el chat en el
+   * mismo minuto (lead #204) contestaba "Por ahora no tengo proveedores
+   * libres en Montes de Solymar para barometrica" — Nueva Era estaba OVERDUE
+   * desde el 30/07 por la comisión #3 y solo {@code findMatches} la filtraba.
+   * El preview le prometía al cliente un proveedor que el matching nunca le
+   * iba a asignar.
+   */
+  @Test
+  void previewPublicoNoPrometeAlProveedorConComisionVencidaQueElMatchingYaExcluye() {
+    Provider nuevaEra = provider(12L, "Barometrica Nueva Era", 5.0, 1);
+    nuevaEra.setCategories("barometrica");
+    nuevaEra.setPrimaryZone("Montes de Solymar");
+
+    when(providerRepository.findAll()).thenReturn(List.of(nuevaEra));
+    when(leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE))
+        .thenReturn(Set.of(12L));
+
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+
+    var preview = service.publicPreview("barometrica", "Montes de Solymar", 3);
+
+    assertThat(preview.count()).isZero();
+    assertThat(preview.sample()).isEmpty();
+    // La otra cara del producto ya decía esto mismo; ahora coinciden.
+    assertThat(service.findMatches("barometrica", "Montes de Solymar")).isEmpty();
+  }
+
+  /**
+   * Control negativo: sin comisión vencida el preview sigue mostrando al
+   * proveedor. El fix filtra la deuda, no la categoría.
+   */
+  @Test
+  void previewPublicoSigueMostrandoAlProveedorSinComisionVencida() {
+    Provider nuevaEra = provider(12L, "Barometrica Nueva Era", 5.0, 1);
+    nuevaEra.setCategories("barometrica");
+    nuevaEra.setPrimaryZone("Montes de Solymar");
+
+    when(providerRepository.findAll()).thenReturn(List.of(nuevaEra));
+
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+
+    var preview = service.publicPreview("barometrica", "Montes de Solymar", 3);
+
+    assertThat(preview.count()).isEqualTo(1);
+    assertThat(preview.sample()).hasSize(1);
+  }
 }

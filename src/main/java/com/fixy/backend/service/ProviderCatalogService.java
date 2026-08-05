@@ -104,15 +104,21 @@ public class ProviderCatalogService {
    * Preview público para mostrar confianza al cliente: cuántos proveedores
    * matchean por (category, zone) y un sample corto con campos no-sensibles.
    * NO incluye teléfono ni notas.
+   *
+   * <p>Usa exactamente los mismos filtros de disponibilidad que
+   * {@link #findMatches} ({@link #availableForNewWork}) porque son las dos
+   * caras del mismo producto: lo que el preview promete tiene que ser lo que
+   * el matching después entrega.
    */
   public com.fixy.backend.dto.ProviderPublicPreview publicPreview(String category, String zone, int sampleLimit) {
     String normalizedCategory = normalize(category);
     String normalizedLocation = normalize(zone);
     int limit = Math.max(0, Math.min(sampleLimit, 10));
 
+    Set<Long> overdueProviderIds = leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE);
+
     List<Provider> matched = providerRepository.findAll().stream()
-        .filter(provider -> provider.getStatus() != ProviderStatus.BLOCKED)
-        .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
+        .filter(provider -> availableForNewWork(provider, overdueProviderIds))
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
         .toList();
@@ -159,9 +165,7 @@ public class ProviderCatalogService {
     Set<Long> overdueProviderIds = leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE);
 
     return providerRepository.findAll().stream()
-        .filter(provider -> provider.getStatus() != ProviderStatus.BLOCKED)
-        .filter(provider -> provider.getStatus() != ProviderStatus.INACTIVE)
-        .filter(provider -> !overdueProviderIds.contains(provider.getId()))
+        .filter(provider -> availableForNewWork(provider, overdueProviderIds))
         .filter(provider -> matchesCategory(provider, normalizedCategory))
         .filter(provider -> matchesLocation(provider, normalizedLocation))
         // Primero el que nombró TU barrio, después el que cubre la ciudad
@@ -236,6 +240,29 @@ public class ProviderCatalogService {
    */
   public boolean matchesProvider(Provider provider, String category, String location) {
     return matchesCategory(provider, normalize(category)) && matchesLocation(provider, normalize(location));
+  }
+
+  /**
+   * ¿Este proveedor puede recibir trabajo nuevo hoy? Fuente única de los
+   * filtros de disponibilidad (estado del padrón + comisión vencida), para que
+   * el preview público y el matching no puedan volver a contestar distinto
+   * sobre el mismo par (categoría, zona).
+   *
+   * <p>Existe porque la divergencia causó un caso real (guardia del
+   * 2026-08-04): {@code GET /api/public/providers/preview?category=barometrica
+   * &zone=Montes%20de%20Solymar} devolvía {@code count=1} con Barométrica
+   * Nueva Era, y el mismo pedido por el chat (lead #204, el mismo minuto)
+   * contestaba "Por ahora no tengo proveedores libres en Montes de Solymar
+   * para barométrica" — Nueva Era estaba OVERDUE desde el 30/07 y solo
+   * {@code findMatches} lo miraba. El preview es justo la superficie que
+   * existe para dar confianza ANTES de pedir: prometer ahí a alguien que el
+   * matching nunca va a asignar rompe la honestidad radical (principio 1 de
+   * la Carta de Autonomía).
+   */
+  private boolean availableForNewWork(Provider provider, Set<Long> overdueProviderIds) {
+    return provider.getStatus() != ProviderStatus.BLOCKED
+        && provider.getStatus() != ProviderStatus.INACTIVE
+        && !overdueProviderIds.contains(provider.getId());
   }
 
   private boolean matchesCategory(Provider provider, String category) {
