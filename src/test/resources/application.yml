@@ -1,6 +1,12 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:fixytest;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    # Base ÚNICA POR CONTEXTO de Spring (${random.uuid}): antes todos los
+    # contextos compartían jdbc:h2:mem:fixytest y cada contexto nuevo hacía
+    # create-drop sobre la base del anterior MIENTRAS sus schedulers seguían
+    # vivos — la raíz de los flakes de interferencia (TelegramNotifyService
+    # re-notificando con seeds ajenos, ProviderOpportunityController con
+    # listas vacías según el ORDEN de ejecución: local rojo / CI verde).
+    url: jdbc:h2:mem:fixytest-${random.uuid};MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     driver-class-name: org.h2.Driver
     username: sa
     password:
@@ -17,6 +23,16 @@ spring:
       enabled: false
 
 fixy:
+  # Schedulers de fondo APAGADOS en tests (lección ya aprendida y re-aprendida:
+  # memoria "interferencia entre contextos" + corrida roja 2026-08-06): un
+  # @Scheduled sin initialDelay dispara al arrancar CADA contexto — el retry
+  # de huérfanos asignaba el lead del test al proveedor antes de que el test
+  # mirara la bandeja (rojo local, verde CI: depende del caché de contextos).
+  # Los tests que los prueban los instancian a mano con enabled=true.
+  orphan-match-retry:
+    enabled: false
+  reengagement:
+    enabled: false
   security:
     username: test-ops
     password: test-pass
