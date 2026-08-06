@@ -258,11 +258,54 @@ public class ProviderCatalogService {
    * existe para dar confianza ANTES de pedir: prometer ahí a alguien que el
    * matching nunca va a asignar rompe la honestidad radical (principio 1 de
    * la Carta de Autonomía).
+   *
+   * <p>La pausa del proveedor ({@code acceptingWork=false}) entró acá el
+   * 2026-08-05 por la misma clase de divergencia, medida sobre datos reales:
+   * {@link ProviderOpportunityService#listFor} ya escondía las oportunidades
+   * del que está en pausa, pero el matching seguía asignándole pedidos. A
+   * Melissa (proveedora 10) le asignamos 6 pedidos de pastelería entre el
+   * 15/07 y el 31/07 —y al cliente le dijimos "estoy contactando a Melissa"—
+   * mientras su bandeja le mostraba cero. Los 6 terminaron CANCELLED. Si el
+   * proveedor no puede VER el trabajo, el matching no puede prometerlo.
    */
   private boolean availableForNewWork(Provider provider, Set<Long> overdueProviderIds) {
+    return availableForNewWork(provider, overdueProviderIds.contains(provider.getId()));
+  }
+
+  /**
+   * Variante por proveedor único (resuelve la comisión vencida con su propio
+   * query). Para listas usar la sobrecarga con el set batcheado: evita un
+   * query por proveedor dentro del stream.
+   */
+  public boolean canReceiveNewWork(Provider provider) {
+    boolean commissionOverdue = leadPaymentRepository
+        .findByProviderIdOrderByCreatedAtDesc(provider.getId()).stream()
+        .anyMatch(payment -> payment.getCommissionStatus() == CommissionStatus.OVERDUE);
+    return availableForNewWork(provider, commissionOverdue);
+  }
+
+  /** Igual que {@link #canReceiveNewWork(Provider)} pero con el set de
+   * comisiones vencidas ya resuelto, para recorrer el padrón entero. */
+  public boolean canReceiveNewWork(Provider provider, Set<Long> overdueProviderIds) {
+    return availableForNewWork(provider, overdueProviderIds);
+  }
+
+  /** Un solo query con los providerIds que tienen comisión vencida. */
+  public Set<Long> overdueProviderIds() {
+    return leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE);
+  }
+
+  private boolean availableForNewWork(Provider provider, boolean commissionOverdue) {
     return provider.getStatus() != ProviderStatus.BLOCKED
         && provider.getStatus() != ProviderStatus.INACTIVE
-        && !overdueProviderIds.contains(provider.getId());
+        && !isPaused(provider)
+        && !commissionOverdue;
+  }
+
+  /** En pausa por decisión del propio proveedor. {@code null} es el default
+   * histórico de la columna y significa disponible ({@link Provider}). */
+  private boolean isPaused(Provider provider) {
+    return provider.getAcceptingWork() != null && !provider.getAcceptingWork();
   }
 
   private boolean matchesCategory(Provider provider, String category) {

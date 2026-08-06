@@ -177,8 +177,13 @@ public class MatchingStaleScheduler {
       return;
     }
 
+    // Misma disponibilidad que el matching y la bandeja: no tiene sentido
+    // golpear con un push a quien no va a ver la oportunidad al entrar al
+    // panel. Antes acá solo se miraba la pausa, así que un proveedor
+    // BLOCKED / INACTIVE / con comisión vencida igual recibía el aviso.
+    Set<Long> overdueProviderIds = providerCatalogService.overdueProviderIds();
     providerRepository.findAll().stream()
-        .filter(p -> p.getAcceptingWork() == null || p.getAcceptingWork())
+        .filter(p -> providerCatalogService.canReceiveNewWork(p, overdueProviderIds))
         .filter(p -> providerCatalogService.matchesProvider(p, lead.getDetectedCategory(), lead.getLocation()))
         .sorted(Comparator.comparing(Provider::getId))
         .limit(MAX_PROVIDER_PUSHES)

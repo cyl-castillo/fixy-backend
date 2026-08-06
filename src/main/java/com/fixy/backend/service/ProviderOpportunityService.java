@@ -2,13 +2,11 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
 import com.fixy.backend.dto.ProviderOpportunitySummary;
-import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderLeadDecline;
-import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadPhotoRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
@@ -48,7 +46,6 @@ public class ProviderOpportunityService {
   private final ProviderCatalogService catalogService;
   private final LeadAssignmentService leadAssignmentService;
   private final LeadTimelineService timelineService;
-  private final LeadPaymentRepository leadPaymentRepository;
 
   public ProviderOpportunityService(
       LeadRepository leadRepository,
@@ -56,8 +53,7 @@ public class ProviderOpportunityService {
       LeadPhotoRepository photoRepository,
       ProviderCatalogService catalogService,
       LeadAssignmentService leadAssignmentService,
-      LeadTimelineService timelineService,
-      LeadPaymentRepository leadPaymentRepository
+      LeadTimelineService timelineService
   ) {
     this.leadRepository = leadRepository;
     this.declineRepository = declineRepository;
@@ -65,27 +61,20 @@ public class ProviderOpportunityService {
     this.catalogService = catalogService;
     this.leadAssignmentService = leadAssignmentService;
     this.timelineService = timelineService;
-    this.leadPaymentRepository = leadPaymentRepository;
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
-    // Estado no operativo: BLOCKED nunca debió ver la bandeja (agujero
-    // latente detectado 2026-07-22) e INACTIVE cubre además al autoregistrado
-    // pendiente de aprobación — mismos estados que excluye findMatches. Como
-    // accept() exige oportunidad visible, esto también bloquea el accept.
-    if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
-      return List.of();
-    }
-    // Disponibilidad MVP: en pausa (acceptingWork=false) no ve oportunidades
-    // nuevas. No afecta trabajos ya asignados (assignedLeadsFor).
-    if (provider.getAcceptingWork() != null && !provider.getAcceptingWork()) {
-      return List.of();
-    }
-    // Comisión vencida pausa el matching (FIXY_COBRANZAS.md): bandeja vacía
-    // de oportunidades NUEVAS hasta saldar. Trabajos ya asignados
-    // (assignedLeadsFor) no se tocan.
-    if (leadPaymentRepository.findByProviderIdOrderByCreatedAtDesc(provider.getId()).stream()
-        .anyMatch(payment -> payment.getCommissionStatus() == CommissionStatus.OVERDUE)) {
+    // Disponibilidad: una sola fuente compartida con el matching y el preview
+    // público ({@link ProviderCatalogService#canReceiveNewWork}) — padrón no
+    // operativo (BLOCKED / INACTIVE, que cubre al autoregistrado pendiente de
+    // aprobación), pausa del propio proveedor y comisión vencida
+    // (FIXY_COBRANZAS.md). Antes esta bandeja tenía su propia copia de las
+    // reglas y se desincronizó: escondía las oportunidades del proveedor en
+    // pausa mientras el matching le seguía asignando pedidos (caso Melissa,
+    // 6 pedidos entre el 15/07 y el 31/07). Como accept() exige oportunidad
+    // visible, esto también bloquea el accept. Trabajos YA asignados no se
+    // tocan: viven en assignedLeadsFor.
+    if (!catalogService.canReceiveNewWork(provider)) {
       return List.of();
     }
 
@@ -152,6 +141,12 @@ public class ProviderOpportunityService {
     // aunque su bandeja estuviera vacía.
     if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "tu cuenta no está activa todavía");
+    }
+    // El resto de la disponibilidad (pausa propia, comisión vencida) también
+    // tiene que valer acá: sin esto la bandeja mostraba vacío pero el POST
+    // directo al endpoint de aceptar seguía funcionando.
+    if (!catalogService.canReceiveNewWork(provider)) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "no estás recibiendo trabajos nuevos por ahora");
     }
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
