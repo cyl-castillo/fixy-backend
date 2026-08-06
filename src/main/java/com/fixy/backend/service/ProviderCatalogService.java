@@ -287,6 +287,24 @@ public class ProviderCatalogService {
    * 15/07 y el 31/07 —y al cliente le dijimos "estoy contactando a Melissa"—
    * mientras su bandeja le mostraba cero. Los 6 terminaron CANCELLED. Si el
    * proveedor no puede VER el trabajo, el matching no puede prometerlo.
+   *
+   * <p>{@code NEW} = ficha cargada, todavía SIN aprobar, y entró acá el
+   * 2026-08-06 (decisión de Carlos) para cerrar la otra mitad del mismo caso:
+   * Melissa estuvo {@code NEW} desde su alta hasta que Carlos la aprobó el
+   * 05/08, y durante esas tres semanas el matching le asignó los 6 pedidos y
+   * le dijo al cliente "estoy contactando a Melissa" — sin que ningún humano
+   * hubiera dado el visto bueno todavía. El autoregistro ya nace
+   * {@code INACTIVE} y estaba cubierto ({@link ProviderRegistrationService});
+   * el alta manual por la API de ops nace {@code NEW} ({@link #create}) y no
+   * lo estaba. Ahora aprobar es lo que enciende el matching: {@code NEW} →
+   * {@code AVAILABLE} en el admin. Importa hacia adelante, con la captación
+   * dando de alta hasta 10 proveedores nuevos por semana.
+   *
+   * <p>Deliberadamente NO se tocan {@code REJECTED}, {@code UNAVAILABLE} ni
+   * los estados de prospección ({@code CONTACT_PENDING}, {@code CONTACTED},
+   * {@code RESPONDED}): hoy nada en el código los escribe —solo el
+   * {@code PATCH} de ops— y decidir si cada uno corta el trabajo es de Carlos,
+   * no de un fix nocturno.
    */
   private boolean availableForNewWork(Provider provider, Set<Long> overdueProviderIds) {
     return availableForNewWork(provider, overdueProviderIds.contains(provider.getId()));
@@ -318,6 +336,7 @@ public class ProviderCatalogService {
   private boolean availableForNewWork(Provider provider, boolean commissionOverdue) {
     return provider.getStatus() != ProviderStatus.BLOCKED
         && provider.getStatus() != ProviderStatus.INACTIVE
+        && provider.getStatus() != ProviderStatus.NEW
         && !isPaused(provider)
         && !commissionOverdue;
   }

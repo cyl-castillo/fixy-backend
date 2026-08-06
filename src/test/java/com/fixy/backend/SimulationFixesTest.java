@@ -103,6 +103,32 @@ class SimulationFixesTest {
   }
 
   @Test
+  void laPreguntaDeConfianzaRecibeRespuestaDigna() throws Exception {
+    // Pastelería no tiene seed: el lead queda NEW sin proveedor — el caso
+    // real de prod (con proveedor asignado el agente se calla a propósito:
+    // la conversación es del proveedor).
+    ChatSession s = openChatAndSend("[smoke] quiero una torta en Solymar");
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> assertThat(
+            leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
+            .isEqualTo("pasteleria"));
+
+    mockMvc.perform(post("/api/public/leads/{id}/messages", s.leadId())
+            .param("token", s.token())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"quien es el que viene? es de confianza?\"}"))
+        .andExpect(status().isCreated());
+
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> {
+          boolean digna = leadMessageService.recentForAgent(Long.valueOf(s.leadId()), 10).stream()
+              .anyMatch(m -> !"customer".equals(m.getSender()) && m.getText() != null
+                  && m.getText().contains("verificados por el equipo"));
+          assertThat(digna).as("la pregunta de confianza nunca recibe un guion genérico").isTrue();
+        });
+  }
+
+  @Test
   void elPrecioOfreceProximoPaso() throws Exception {
     ChatSession s = openChatAndSend("[smoke] cuanto sale instalar un split?");
     Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))

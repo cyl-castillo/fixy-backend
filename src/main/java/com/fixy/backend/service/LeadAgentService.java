@@ -222,6 +222,9 @@ public class LeadAgentService {
       if (result == null || result.reply() == null || result.reply().isBlank()) {
         // El LLM falló, hizo timeout, o está deshabilitado: procesamos el
         // mensaje del cliente igual con la heurística (no un enlatado ciego).
+        // (Log agregado 2026-08-06: este camino era MUDO y la simulación de
+        // clientes mostró turnos cayendo acá sin rastro en el log.)
+        log.info("turno LLM sin respuesta utilizable en lead {}: fallback heurístico", leadId);
         respondWithHeuristicFallback(leadId, lead);
         return;
       }
@@ -378,6 +381,19 @@ public class LeadAgentService {
       return;
     }
     leadMessageService.postFromAgent(leadId, heuristicFallbackReply(refreshed));
+  }
+
+  /** Señales de pregunta de confianza/seguridad sobre quién viene a la casa. */
+  private static final List<String> TRUST_QUESTION_KEYWORDS = List.of(
+      "de confianza", "confiable", "quien viene", "quién viene", "quien es el que viene",
+      "es seguro", "son seguros", "verificado", "verificados", "antecedentes");
+
+  static boolean isTrustQuestion(String message) {
+    if (message == null || message.isBlank()) {
+      return false;
+    }
+    String normalized = message.toLowerCase(Locale.ROOT);
+    return TRUST_QUESTION_KEYWORDS.stream().anyMatch(normalized::contains);
   }
 
   private static final List<String> PRICE_QUESTION_KEYWORDS =
@@ -898,6 +914,17 @@ public class LeadAgentService {
     if (hasCategory && !MVP_CATEGORIES.contains(lead.getDetectedCategory().toLowerCase().trim())) {
       return "Todavía no tenemos proveedores de %s en Fixy. Anoté tu pedido igual y te aviso por acá apenas sumemos uno — estamos creciendo."
           .formatted(humanCategory(lead.getDetectedCategory()));
+    }
+
+    // Pregunta de confianza ("¿quién viene? ¿es de confianza?") — simulación
+    // 2026-08-06, persona "desconfiado": dos corridas seguidas cayeron al
+    // guion genérico. La confianza es EL producto: respuesta digna en
+    // código, pase lo que pase con el LLM.
+    String lastMsg = lastCustomerMessage(lead.getId());
+    if (isTrustQuestion(lastMsg)) {
+      return "Todos los proveedores de Fixy están verificados por el equipo. Apenas se asigne el tuyo "
+          + "vas a ver acá mismo su nombre, su calificación y los trabajos que ya hizo — y siempre decidís vos. "
+          + "Cualquier problema, tocás \"Hablá con una persona\" y entra alguien del equipo.";
     }
 
     if (lead.isReadyForMatching()) {
