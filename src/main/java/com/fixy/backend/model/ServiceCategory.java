@@ -68,7 +68,7 @@ public enum ServiceCategory {
       List.of("aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría",
           "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría",
           "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración",
-          "aires", "el aire", "un aire"),
+          "aires", "el aire", "un aire", "aire"),
       1500, 4500,
       "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"),
   REPARACIONES("reparaciones", "reparaciones", false,
@@ -216,7 +216,10 @@ public enum ServiceCategory {
     if (text == null || text.isBlank()) {
       return Optional.empty();
     }
-    String normalized = text.toLowerCase(Locale.ROOT);
+    // "aire libre" no es el aire acondicionado: se quita ANTES de matchear
+    // para que "decoración al aire libre" no caiga en aires (el keyword
+    // suelto "aire" existe porque así habla la gente: "aire roto").
+    String normalized = text.toLowerCase(Locale.ROOT).replace("aire libre", " ");
     for (ServiceCategory category : values()) {
       for (String keyword : category.keywords) {
         if (normalized.contains(keyword)) {

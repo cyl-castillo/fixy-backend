@@ -355,6 +355,10 @@ public class LeadAgentService {
       } else if (classified.area() != null && !"sin definir".equalsIgnoreCase(classified.area())) {
         extracted.put("zone", classified.area());
       }
+      String messagePhone = phoneMentionedIn(lastCustomerMessage);
+      if (messagePhone != null) {
+        extracted.put("phone", messagePhone);
+      }
       if (classified.urgency() != null) {
         extracted.put("urgency", classified.urgency());
       }
@@ -408,8 +412,16 @@ public class LeadAgentService {
       return "El precio de %s lo termina de confirmar el proveedor cuando vea el trabajo, así que no te quiero tirar un número inventado."
           .formatted(category);
     }
-    return "Para %s el rango orientativo ronda %s (visita + trabajo simple), pero el precio final te lo confirma el proveedor cuando vea el trabajo."
-        .formatted(category, range);
+    // CTA post-precio (simulación 2026-08-06, persona "pregunta_precio": la
+    // conversación moría después del rango — precio sin próximo paso es un
+    // callejón sin salida).
+    boolean zoneKnown = lead.getLocation() != null && !lead.getLocation().isBlank()
+        && !"sin definir".equalsIgnoreCase(lead.getLocation());
+    String cta = zoneKnown
+        ? " ¿Querés que te busque uno en %s?".formatted(lead.getLocation())
+        : " Si querés te consigo uno: ¿en qué zona estás?";
+    return "Para %s el rango orientativo ronda %s (visita + trabajo simple), pero el precio final te lo confirma el proveedor cuando vea el trabajo.%s"
+        .formatted(category, range, cta);
   }
 
   /** Una zona extraída por el LLM solo se acepta si aparece textualmente
@@ -532,7 +544,8 @@ public class LeadAgentService {
     String cat = com.fixy.backend.model.ServiceCategory.detectFromText(message)
         .map(com.fixy.backend.model.ServiceCategory::id).orElse(null);
     String zone = agentService.areaMentionedIn(message);
-    if (cat == null && zone == null) {
+    String phone = phoneMentionedIn(message);
+    if (cat == null && zone == null && phone == null) {
       return extracted;
     }
     Map<String, String> merged = extracted == null
@@ -543,7 +556,33 @@ public class LeadAgentService {
     if (zone != null) {
       merged.put("zone", zone);
     }
+    if (phone != null && !merged.containsKey("phone")) {
+      merged.put("phone", phone);
+    }
     return merged;
+  }
+
+  /** Patrón de celular uruguayo: 09X + 7 dígitos, con o sin +598/espacios/guiones. */
+  private static final java.util.regex.Pattern UY_PHONE = java.util.regex.Pattern.compile(
+      "(?:(?:\\+?598)[\\s.-]?0?|0)(9\\d(?:[\\s.-]?\\d){6})(?!\\d)");
+
+  /**
+   * Teléfono detectado por REGEX en el texto del cliente (simulación
+   * 2026-08-06, persona "happy_path": escribió 'mi teléfono es 099888111'
+   * en el primer mensaje, el lead quedó sin teléfono, y encima el agente le
+   * volvió a pedir el WhatsApp — doble vergüenza). Lo crítico va en código:
+   * si el cliente YA dio el número, se captura pase lo que pase con el LLM.
+   */
+  public static String phoneMentionedIn(String message) {
+    if (message == null || message.isBlank()) {
+      return null;
+    }
+    java.util.regex.Matcher m = UY_PHONE.matcher(message);
+    if (!m.find()) {
+      return null;
+    }
+    String digits = "0" + m.group(1).replaceAll("\\D", "");
+    return digits.length() == 9 ? digits : null;
   }
 
   /**
@@ -851,6 +890,14 @@ public class LeadAgentService {
     if (!hasCategory && !hasZone) {
       // Mensaje vacío/ambiguo ("hola", "??"): no hay nada que reconocer, repregunta honesta.
       return "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
+    }
+
+    // Categoría que Fixy AÚN no cubre (simulación de clientes 2026-08-06,
+    // persona "electricista": el guion pedía "dirección exacta para
+    // coordinar" una coordinación imposible). Honestidad primero.
+    if (hasCategory && !MVP_CATEGORIES.contains(lead.getDetectedCategory().toLowerCase().trim())) {
+      return "Todavía no tenemos proveedores de %s en Fixy. Anoté tu pedido igual y te aviso por acá apenas sumemos uno — estamos creciendo."
+          .formatted(humanCategory(lead.getDetectedCategory()));
     }
 
     if (lead.isReadyForMatching()) {
