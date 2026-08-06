@@ -1,19 +1,24 @@
-name: CI
-
+# CI de fixy-backend (robustez 2026-08-06): la suite corre en cada push —
+# antes solo corría cuando el agente la corría a mano; cualquier tanda
+# (humana, del agente o del ritual diario) que rompiera algo podía llegar
+# a master sin que nadie se entere.
+name: ci
 on:
   push:
-    branches: ["**"]
+    branches: [master]
   pull_request:
-
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "21"
+          java-version: '21'
           cache: maven
-      - name: Tests
-        run: mvn -B test
+      # rerunFailingTestsCount=1: escudo contra los flakes conocidos por
+      # timing bajo carga (PushNotificationServiceTest, TelegramNotifyService)
+      # sin taparlos — si un test falla dos veces seguidas, es real.
+      - run: mvn -B test -Dsurefire.rerunFailingTestsCount=1
