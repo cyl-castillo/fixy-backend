@@ -48,13 +48,14 @@ class ProviderPauseMatchingConsistencyTest {
   @Mock private LeadPhotoRepository photoRepository;
   @Mock private LeadAssignmentService leadAssignmentService;
   @Mock private LeadTimelineService timelineService;
+  @Mock private com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
 
   private ProviderCatalogService catalogService;
   private ProviderOpportunityService opportunityService;
 
   @BeforeEach
   void setUp() {
-    catalogService = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    catalogService = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     opportunityService = new ProviderOpportunityService(
         leadRepository, declineRepository, photoRepository, catalogService,
         leadAssignmentService, timelineService);

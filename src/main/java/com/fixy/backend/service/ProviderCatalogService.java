@@ -29,13 +29,32 @@ public class ProviderCatalogService {
   private final LeadPaymentRepository leadPaymentRepository;
   private final ProviderLeadDeclineRepository declineRepository;
 
+  private final com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+
   public ProviderCatalogService(
       ProviderRepository providerRepository,
       LeadPaymentRepository leadPaymentRepository,
-      ProviderLeadDeclineRepository declineRepository) {
+      ProviderLeadDeclineRepository declineRepository,
+      com.fixy.backend.repository.LeadRatingRepository leadRatingRepository) {
     this.providerRepository = providerRepository;
     this.leadPaymentRepository = leadPaymentRepository;
     this.declineRepository = declineRepository;
+    this.leadRatingRepository = leadRatingRepository;
+  }
+
+  /**
+   * Últimas reseñas CON TEXTO del proveedor (máx 2, anónimas) — prueba
+   * social del preview público y de la ficha del asignado (UX 2026-08).
+   * Mismo criterio de honestidad que el rating: solo reseñas reales.
+   */
+  public java.util.List<com.fixy.backend.dto.LeadResponse.ReviewSnippet> reviewSnippetsFor(Long providerId) {
+    return leadRatingRepository.findByProviderId(providerId).stream()
+        .filter(r -> r.getComment() != null && !r.getComment().isBlank())
+        .sorted(java.util.Comparator.comparing(com.fixy.backend.model.LeadRating::getCreatedAt,
+            java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+        .limit(2)
+        .map(r -> new com.fixy.backend.dto.LeadResponse.ReviewSnippet(r.getScore(), r.getComment().trim()))
+        .toList();
   }
 
   public List<ProviderCatalogItem> list() {
@@ -137,7 +156,8 @@ public class ProviderCatalogService {
               p.getCategories(),
               p.getCompletedJobsCount(),
               ratingAverage,
-              ratingCount
+              ratingCount,
+              reviewSnippetsFor(p.getId())
           );
         })
         .toList();

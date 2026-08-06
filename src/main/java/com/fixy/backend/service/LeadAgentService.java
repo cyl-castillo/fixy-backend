@@ -546,6 +546,34 @@ public class LeadAgentService {
     return merged;
   }
 
+  /**
+   * "Hablar con una persona" (mejoras UX 2026-08, error #4 del mercado:
+   * soporte inalcanzable). El cliente lo pide con un toque desde su pedido:
+   * evento de timeline + Telegram a ops (idempotente por lead y con guard
+   * de smoke, vía notifyEscalation) + confirmación honesta en el chat (una
+   * sola vez — los toques repetidos no spamean).
+   */
+  public void requestHumanHelp(Long leadId) {
+    Lead lead = leadRepository.findById(leadId).orElse(null);
+    if (lead == null) {
+      return;
+    }
+    leadTimelineService.appendEvent(lead, "HUMAN_HELP_REQUESTED", "customer",
+        "El cliente pidió hablar con una persona");
+    telegramNotifyService.notifyEscalation(lead, "el cliente pidió hablar con una persona",
+        lastCustomerText(leadId));
+    String confirmationMarker = "le avisé a una persona del equipo";
+    boolean alreadyConfirmed = leadMessageService.recentForAgent(leadId, 15).stream()
+        .anyMatch(m -> !"customer".equals(m.getSender())
+            && m.getText() != null
+            && m.getText().toLowerCase(Locale.ROOT).contains(confirmationMarker));
+    if (!alreadyConfirmed) {
+      leadMessageService.postFromAgent(leadId,
+          "Listo, le avisé a una persona del equipo de Fixy 🙋 Te va a escribir por acá. "
+              + "Mientras tanto podés seguir contándome lo que necesites.");
+    }
+  }
+
   /** Último mensaje del cliente (para desempates de clasificación); "" si no hay. */
   private String lastCustomerText(Long leadId) {
     try {

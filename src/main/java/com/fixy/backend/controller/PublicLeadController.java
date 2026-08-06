@@ -6,6 +6,7 @@ import com.fixy.backend.dto.LeadMatchResponse;
 import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.PublicChatStartRequest;
 import com.fixy.backend.dto.PublicLeadContextUpdateRequest;
+import com.fixy.backend.service.LeadAgentService;
 import com.fixy.backend.service.LeadScheduleService;
 import com.fixy.backend.service.LeadService;
 import com.fixy.backend.service.LeadTimelineService;
@@ -33,17 +34,19 @@ public class PublicLeadController {
   private final LeadTimelineService leadTimelineService;
   private final PublicLeadAbuseProtectionService abuseProtectionService;
   private final LeadScheduleService leadScheduleService;
+  private final LeadAgentService leadAgentService;
 
   public PublicLeadController(
       LeadService leadService,
       LeadTimelineService leadTimelineService,
       PublicLeadAbuseProtectionService abuseProtectionService,
-      LeadScheduleService leadScheduleService
-  ) {
+      LeadScheduleService leadScheduleService,
+      LeadAgentService leadAgentService) {
     this.leadService = leadService;
     this.leadTimelineService = leadTimelineService;
     this.abuseProtectionService = abuseProtectionService;
     this.leadScheduleService = leadScheduleService;
+    this.leadAgentService = leadAgentService;
   }
 
   @PostMapping("/leads")
@@ -120,5 +123,17 @@ public class PublicLeadController {
   public LeadMatchResponse generateMatches(@PathVariable Long id, @RequestParam("token") String token) {
     leadService.requirePublicToken(id, token);
     return leadService.generateMatches(id);
+  }
+
+  /**
+   * "Hablar con una persona" (UX 2026-08): un toque desde el pedido escala
+   * a humano — Telegram a ops + confirmación honesta en el chat. Ver
+   * LeadAgentService.requestHumanHelp (idempotencias y guard de smoke).
+   */
+  @PostMapping("/leads/{id}/human-help")
+  public Map<String, Object> requestHumanHelp(@PathVariable Long id, @RequestParam("token") String token) {
+    leadService.requirePublicToken(id, token);
+    leadAgentService.requestHumanHelp(id);
+    return Map.of("ok", true);
   }
 }

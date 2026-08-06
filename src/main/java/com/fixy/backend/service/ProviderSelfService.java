@@ -71,6 +71,7 @@ public class ProviderSelfService {
   private final LeadClosingService leadClosingService;
   private final LeadMessageService leadMessageService;
   private final PushNotificationService pushNotificationService;
+  private final ProviderCatalogService providerCatalogService;
   private final boolean paymentsEnabled;
 
   public ProviderSelfService(
@@ -83,6 +84,7 @@ public class ProviderSelfService {
       LeadClosingService leadClosingService,
       LeadMessageService leadMessageService,
       PushNotificationService pushNotificationService,
+      ProviderCatalogService providerCatalogService,
       @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
   ) {
     this.providerRepository = providerRepository;
@@ -94,6 +96,7 @@ public class ProviderSelfService {
     this.leadClosingService = leadClosingService;
     this.leadMessageService = leadMessageService;
     this.pushNotificationService = pushNotificationService;
+    this.providerCatalogService = providerCatalogService;
     this.paymentsEnabled = paymentsEnabled;
   }
 
@@ -419,7 +422,11 @@ public class ProviderSelfService {
         ratingAverage,
         ratingCount,
         provider.getCompletedJobsCount(),
-        provider.getPrimaryZone()
+        provider.getPrimaryZone(),
+        // Teléfono para el botón Llamar del cliente (UX 2026-08): recién
+        // post-asignación — nuestro modelo no castiga el contacto directo.
+        provider.getPhone(),
+        providerCatalogService.reviewSnippetsFor(provider.getId())
     );
   }
 

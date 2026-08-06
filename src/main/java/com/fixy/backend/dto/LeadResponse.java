@@ -44,7 +44,15 @@ public record LeadResponse(
       Double ratingAverage,
       Integer ratingCount,
       Integer completedJobs,
-      String primaryZone
+      String primaryZone,
+      /** Teléfono del proveedor asignado — botón Llamar del cliente (mejoras UX 2026-08). */
+      String phone,
+      /** Últimas reseñas CON TEXTO de este proveedor (máx 2, anónimas). */
+      java.util.List<ReviewSnippet> recentReviews
   ) {
+  }
+
+  /** Reseña pública anónima: solo estrella y texto (mejoras UX 2026-08). */
+  public record ReviewSnippet(Integer score, String comment) {
   }
 }

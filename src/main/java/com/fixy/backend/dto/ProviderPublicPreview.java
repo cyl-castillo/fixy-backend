@@ -17,7 +17,9 @@ public record ProviderPublicPreview(
       String categories,
       Integer completedJobsCount,
       Double ratingAverage,
-      Integer ratingCount
+      Integer ratingCount,
+      /** Últimas reseñas con texto (máx 2, anónimas) — prueba social pre-pedido (UX 2026-08). */
+      java.util.List<com.fixy.backend.dto.LeadResponse.ReviewSnippet> recentReviews
   ) {
   }
 }

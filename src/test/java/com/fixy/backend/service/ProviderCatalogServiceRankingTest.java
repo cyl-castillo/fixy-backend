@@ -36,6 +36,9 @@ class ProviderCatalogServiceRankingTest {
   @Mock
   private ProviderLeadDeclineRepository declineRepository;
 
+  @Mock
+  private com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+
   private ProviderCatalogService service;
 
   @BeforeEach
@@ -59,7 +62,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void ordenaPorMejorReputacionPrimero() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     Provider bueno = provider(1L, "Bueno", 4.8, 20);
     Provider regular = provider(2L, "Regular", 3.2, 15);
     Provider malo = provider(3L, "Malo", 2.0, 10);
@@ -74,7 +77,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void proveedorNuevoSinCalificacionesNoQuedaAlFondo() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     // Nuevo con prior ~4.0 debe intercalarse entre el excelente (4.8) y el
     // mediocre (3.0), NUNCA último por el solo hecho de no tener rating.
     Provider excelente = provider(1L, "Excelente", 4.8, 30);
@@ -91,7 +94,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void empatadosVariosProveedoresNuevosNoRompenElMatching() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     Provider nuevo1 = provider(1L, "Nuevo1", null, 0);
     Provider nuevo2 = provider(2L, "Nuevo2", null, 0);
 
@@ -113,7 +116,7 @@ class ProviderCatalogServiceRankingTest {
    */
   @Test
   void previewPublicoNoExponeRatingInfladoParaProveedorSinCalificaciones() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     Provider nuevo = provider(1L, "Nuevo", null, 0);
 
     when(providerRepository.findAll()).thenReturn(List.of(nuevo));
@@ -129,7 +132,7 @@ class ProviderCatalogServiceRankingTest {
 
   @Test
   void previewPublicoExponeElRatingRealParaProveedorConCalificaciones() {
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
     Provider calificado = provider(1L, "Calificado", 4.8, 12);
 
     when(providerRepository.findAll()).thenReturn(List.of(calificado));
@@ -161,7 +164,7 @@ class ProviderCatalogServiceRankingTest {
     when(leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE))
         .thenReturn(Set.of(12L));
 
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
 
     var preview = service.publicPreview("barometrica", "Montes de Solymar", 3);
 
@@ -183,7 +186,7 @@ class ProviderCatalogServiceRankingTest {
 
     when(providerRepository.findAll()).thenReturn(List.of(nuevaEra));
 
-    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository);
+    service = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
 
     var preview = service.publicPreview("barometrica", "Montes de Solymar", 3);
 
