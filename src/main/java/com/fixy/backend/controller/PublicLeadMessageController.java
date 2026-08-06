@@ -80,11 +80,15 @@ public class PublicLeadMessageController {
     // Si además WhatsApp está habilitado, hacemos relay del mensaje del
     // cliente directo al WhatsApp del proveedor.
     Lead lead = leadRepository.findById(leadId).orElse(null);
+    // Modelo Uber (equipo de Carlos, 2026-08-06): Fixy acompaña al cliente
+    // hasta que el proveedor ACEPTA. PROVIDER_CONTACTED = todavía esperando
+    // esa aceptación — antes el agente ya se callaba ahí y, si el cliente
+    // preguntaba algo mientras tanto, le hablaba al vacío (el proveedor
+    // podía no aceptar nunca). El pase de manos es en ASSIGNED.
     boolean assignedToProvider = lead != null
         && lead.getAssignedProviderId() != null
         && (lead.getStatus() == LeadStatus.ASSIGNED
-            || lead.getStatus() == LeadStatus.IN_PROGRESS
-            || lead.getStatus() == LeadStatus.PROVIDER_CONTACTED);
+            || lead.getStatus() == LeadStatus.IN_PROGRESS);
     if (assignedToProvider) {
       if (whatsappService.isEnabled()) {
         try {

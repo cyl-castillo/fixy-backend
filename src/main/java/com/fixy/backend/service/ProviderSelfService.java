@@ -171,7 +171,24 @@ public class ProviderSelfService {
           "%s → %s".formatted(before, newStatus));
       // bumps de contadores en el provider para visibilidad ops
       switch (newStatus) {
-        case ASSIGNED -> provider.setAcceptedJobsCount(safeInc(provider.getAcceptedJobsCount()));
+        case ASSIGNED -> {
+          provider.setAcceptedJobsCount(safeInc(provider.getAcceptedJobsCount()));
+          // Momento Uber (equipo de Carlos 2026-08-06): la ACEPTACIÓN es la
+          // noticia que el cliente espera — antes este camino (automatch →
+          // "Aceptar el trabajo" en el panel) no le decía nada y el pase de
+          // manos era invisible. El camino de la bandeja ya lo hacía
+          // (LeadAssignmentService.acceptForProvider); ahora los dos.
+          if (before == LeadStatus.PROVIDER_CONTACTED || before == LeadStatus.NEW) {
+            String news = "¡Buenas noticias! %s aceptó tu pedido ✅ Desde acá hablan directo — cualquier cosa, el equipo de Fixy sigue cerca."
+                .formatted(provider.getName());
+            leadMessageService.postFromOps(lead.getId(), "fixy", news);
+            try {
+              pushNotificationService.notifyLeadHasNews(lead.getId(), "¡Aceptaron tu pedido!", news);
+            } catch (Exception ex) {
+              // best-effort, como el resto de los push
+            }
+          }
+        }
         case CANCELLED -> provider.setRejectedJobsCount(safeInc(provider.getRejectedJobsCount()));
         case COMPLETED -> provider.setCompletedJobsCount(safeInc(provider.getCompletedJobsCount()));
         default -> { /* no counter */ }

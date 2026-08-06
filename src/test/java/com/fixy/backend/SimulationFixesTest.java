@@ -128,6 +128,34 @@ class SimulationFixesTest {
         });
   }
 
+  /**
+   * Modelo Uber (equipo de Carlos 2026-08-06): Fixy acompaña al cliente
+   * hasta que el proveedor ACEPTA; el pase de manos es explícito.
+   */
+  @Test
+  void fixySigueRespondiendoHastaQueElProveedorAcepta() throws Exception {
+    // Plomería en Solymar: automatch al seed → PROVIDER_CONTACTED (aún sin aceptar).
+    ChatSession s = openChatAndSend("[smoke] Necesito plomería: pérdida de agua, en Solymar");
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> assertThat(
+            leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getStatus().name())
+            .isEqualTo("PROVIDER_CONTACTED"));
+
+    // El cliente pregunta mientras espera la aceptación: Fixy DEBE responder.
+    mockMvc.perform(post("/api/public/leads/{id}/messages", s.leadId())
+            .param("token", s.token())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"text\": \"quien es el que viene? es de confianza?\"}"))
+        .andExpect(status().isCreated());
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> {
+          boolean respondio = leadMessageService.recentForAgent(Long.valueOf(s.leadId()), 10).stream()
+              .anyMatch(m -> !"customer".equals(m.getSender()) && m.getText() != null
+                  && m.getText().contains("verificados por el equipo"));
+          assertThat(respondio).as("Fixy responde mientras nadie aceptó").isTrue();
+        });
+  }
+
   @Test
   void elPrecioOfreceProximoPaso() throws Exception {
     ChatSession s = openChatAndSend("[smoke] cuanto sale instalar un split?");
