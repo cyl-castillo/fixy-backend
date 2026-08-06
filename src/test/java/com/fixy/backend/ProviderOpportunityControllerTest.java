@@ -55,7 +55,16 @@ class ProviderOpportunityControllerTest {
             .content(payload))
         .andExpect(status().isCreated())
         .andReturn();
-    return JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+    Integer providerId = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+    // El alta de ops nace NEW y desde el 2026-08-06 NEW no recibe trabajo
+    // (ProviderCatalogService): estos fixtures son proveedores operativos, así
+    // que se aprueban igual que en el admin antes de esperar oportunidades.
+    mockMvc.perform(patch("/api/providers/{id}", providerId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"AVAILABLE\"}"))
+        .andExpect(status().isOk());
+    return providerId;
   }
 
   private String accessTokenFor(Integer providerId) throws Exception {

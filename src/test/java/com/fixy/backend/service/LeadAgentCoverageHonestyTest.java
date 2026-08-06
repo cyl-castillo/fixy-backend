@@ -2,18 +2,21 @@ package com.fixy.backend.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.repository.LeadRepository;
+import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
@@ -33,6 +36,12 @@ class LeadAgentCoverageHonestyTest {
   @Autowired private LeadAgentService leadAgentService;
   @Autowired private LeadRepository leadRepository;
 
+  /**
+   * Alta por la API de ops + aprobación, como lo hace Carlos en el admin: el
+   * alta nace {@code NEW} y desde el 2026-08-06 el estado {@code NEW} no
+   * recibe trabajo ({@link ProviderCatalogService}), así que un proveedor de
+   * fixture que tiene que matchear se aprueba explícitamente.
+   */
   private void createProvider(String name, String phone, String zone, String category) throws Exception {
     String payload = """
         {
@@ -43,11 +52,18 @@ class LeadAgentCoverageHonestyTest {
           "categories": "%s"
         }
         """.formatted(name, phone, zone, category);
-    mockMvc.perform(post("/api/providers")
+    MvcResult created = mockMvc.perform(post("/api/providers")
             .with(httpBasic("test-ops", "test-pass"))
             .contentType(MediaType.APPLICATION_JSON)
             .content(payload))
-        .andExpect(status().isCreated());
+        .andExpect(status().isCreated())
+        .andReturn();
+    Integer providerId = JsonPath.read(created.getResponse().getContentAsString(), "$.id");
+    mockMvc.perform(patch("/api/providers/{id}", providerId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"AVAILABLE\"}"))
+        .andExpect(status().isOk());
   }
 
   private Lead persistLead(String category, String location) {

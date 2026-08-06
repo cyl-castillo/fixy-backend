@@ -138,8 +138,12 @@ public class ProviderOpportunityService {
   private void requireVisibleOpportunity(Provider provider, Long leadId) {
     // Mismo gate de estado que listFor: sin él, un proveedor BLOCKED o
     // INACTIVE (autoregistrado sin aprobar) podía aceptar por POST directo
-    // aunque su bandeja estuviera vacía.
-    if (provider.getStatus() == ProviderStatus.BLOCKED || provider.getStatus() == ProviderStatus.INACTIVE) {
+    // aunque su bandeja estuviera vacía. NEW (alta manual sin aprobar) va
+    // acá y no en el gate de abajo sólo por el mensaje: "tu cuenta no está
+    // activa todavía" es lo que le pasa, y no "no estás recibiendo trabajos".
+    if (provider.getStatus() == ProviderStatus.BLOCKED
+        || provider.getStatus() == ProviderStatus.INACTIVE
+        || provider.getStatus() == ProviderStatus.NEW) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "tu cuenta no está activa todavía");
     }
     // El resto de la disponibilidad (pausa propia, comisión vencida) también

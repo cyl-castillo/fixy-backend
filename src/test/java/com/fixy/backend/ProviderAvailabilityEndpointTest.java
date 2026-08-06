@@ -49,7 +49,17 @@ class ProviderAvailabilityEndpointTest {
             .content(payload))
         .andExpect(status().isCreated())
         .andReturn();
-    return JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+    Integer providerId = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+    // El alta de ops nace NEW y desde el 2026-08-06 NEW no recibe trabajo:
+    // este fixture necesita un proveedor aprobado, así que lo aprueba igual
+    // que Carlos en el admin. La pausa (lo que este test mide) es un flag
+    // aparte y sigue siendo del proveedor.
+    mockMvc.perform(patch("/api/providers/{id}", providerId)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"AVAILABLE\"}"))
+        .andExpect(status().isOk());
+    return providerId;
   }
 
   private String accessTokenFor(Integer providerId) throws Exception {

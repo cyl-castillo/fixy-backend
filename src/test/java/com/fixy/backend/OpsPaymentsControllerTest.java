@@ -12,6 +12,7 @@ import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
@@ -70,6 +71,10 @@ class OpsPaymentsControllerTest {
     provider.setPhone(providerPhone);
     provider.setCategories("plomeria");
     provider.setCoverageZones("Solymar");
+    // Aprobado: el default de la ficha es NEW y desde el 2026-08-06 NEW no
+    // recibe trabajo. Lo que este test mide es la pausa por comisión vencida,
+    // que necesita un proveedor que sin deuda SÍ matchearía.
+    provider.setStatus(ProviderStatus.AVAILABLE);
     provider = providerRepository.save(provider);
 
     LeadPayment payment = new LeadPayment();
