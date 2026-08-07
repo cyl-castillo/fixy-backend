@@ -169,40 +169,104 @@ public class LeadAgentService {
   }
 
   /**
-   * Genera la respuesta del agente al último mensaje del cliente Y extrae
-   * datos estructurados (categoría, zona, urgencia, teléfono, etc.) para
-   * actualizar el Lead progresivamente. Async — el frontend recoge la respuesta
-   * por polling.
+   * Genera la respuesta del agente a los mensajes PENDIENTES del cliente Y
+   * extrae datos estructurados (categoría, zona, urgencia, teléfono, etc.)
+   * para actualizar el Lead progresivamente. Async — el frontend recoge la
+   * respuesta por polling.
+   *
+   * Turnos COALESCIDOS por lead (smoke lead #236, 2026-08-07): dos mensajes
+   * seguidos del cliente antes de que el agente contestara disparaban dos
+   * turnos concurrentes — el que corría clasificaba solo por el ÚLTIMO
+   * mensaje ("agua enlatada" → plomería, ignorando el mandado del primero)
+   * y una de las dos respuestas podía perderse. Acá corre UN turno por lead
+   * a la vez; los disparos que llegan mientras tanto marcan pending y el
+   * dueño del turno los drena al terminar — cada tanda de mensajes nuevos
+   * recibe exactamente un turno, que los considera a todos.
    */
   @Async
   public void respondToCustomerAsync(Long leadId) {
     if (!enabled) return;
+    TurnGate gate = turnGates.computeIfAbsent(leadId, k -> new TurnGate());
+    gate.pending.set(true);
+    while (gate.running.compareAndSet(false, true)) {
+      try {
+        while (gate.pending.compareAndSet(true, false)) {
+          respondToCustomerTurn(leadId, gate);
+        }
+      } finally {
+        gate.running.set(false);
+      }
+      // pending pudo setearse entre la salida del while interno y la
+      // liberación de running: re-chequear. Si otro hilo ya tomó el gate,
+      // el compareAndSet externo falla y ese hilo drena el pendiente.
+      if (!gate.pending.get()) {
+        return;
+      }
+    }
+  }
+
+  /** Estado de coalescing de turnos de UN lead. Ver respondToCustomerAsync. */
+  private static final class TurnGate {
+    final java.util.concurrent.atomic.AtomicBoolean running = new java.util.concurrent.atomic.AtomicBoolean();
+    final java.util.concurrent.atomic.AtomicBoolean pending = new java.util.concurrent.atomic.AtomicBoolean();
+    /** id del último mensaje del cliente ya cubierto por un turno de este
+     * proceso (0 = ninguno todavía). Volatile: lo escribe el hilo del turno
+     * que termina y lo lee el del siguiente. */
+    volatile long lastProcessedMessageId;
+  }
+
+  /** Gates por lead. Las entradas no se remueven a propósito: borrarlas
+   * reabriría la carrera que el gate cierra, y el costo es ínfimo (dos
+   * booleans y un long por lead que chateó desde el último restart). */
+  private final java.util.concurrent.ConcurrentHashMap<Long, TurnGate> turnGates =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  /** Un turno real del agente: cubre TODOS los mensajes del cliente aún no
+   * procesados (no solo el último). Solo lo llama respondToCustomerAsync,
+   * ya serializado por lead vía TurnGate. */
+  private void respondToCustomerTurn(Long leadId, TurnGate gate) {
     Lead lead = leadRepository.findById(leadId).orElse(null);
     if (lead == null) {
       log.warn("respondToCustomer: lead {} not found", leadId);
       return;
     }
+    List<LeadMessage> pendingMessages = pendingCustomerMessages(leadId, gate.lastProcessedMessageId);
+    if (pendingMessages.isEmpty()) {
+      // El turno anterior ya cubrió estos mensajes (drenaje del gate):
+      // no hay nada nuevo que contestar y repetir sería spam.
+      log.info("turno sin mensajes nuevos del cliente en lead {}: no-op", leadId);
+      return;
+    }
+    long maxSeenId = 0;
+    for (LeadMessage m : pendingMessages) {
+      if (m.getId() != null && m.getId() > maxSeenId) {
+        maxSeenId = m.getId();
+      }
+    }
+    List<String> pendingTexts = pendingMessages.stream().map(LeadMessage::getText).toList();
+    // Tanda completa concatenada, para los detectores por keywords que operan
+    // sobre texto plano (precio, ack, "¿el cliente preguntó algo?").
+    String pendingText = String.join("\n", pendingTexts);
     try {
       // Pregunta de precio con categoría ya definida: respuesta DETERMINISTA.
       // El 8B demostró en prod (lead #111) que regatea el rango aunque la
       // instrucción se lo ordene, y "¿cuánto sale?" es demasiado crítico para
       // dejarlo al azar del modelo. El camino heurístico además extrae zona/
       // urgencia del mismo mensaje y dispara el auto-match si completa datos.
-      String lastMsg = lastCustomerMessage(leadId);
       // Estado de espera (pedido ya en búsqueda, sin proveedor asignado): un
       // "ok/gracias/dale" del cliente NO se responde — un humano tampoco lo
       // haría. Antes el agente reabría el interrogatorio ante un "ok"
       // (captura de Carlos, 2026-07-16 17:47).
       if (lead.isReadyForMatching() && lead.getAssignedProviderId() == null
-          && isAcknowledgment(lastMsg)) {
+          && isAcknowledgment(pendingText)) {
         log.info("ack del cliente en espera, sin respuesta: lead={}", leadId);
         return;
       }
       boolean categoryKnown = lead.getDetectedCategory() != null
           && !lead.getDetectedCategory().isBlank()
           && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
-      if (categoryKnown && isPriceQuestion(lastMsg)) {
-        respondWithHeuristicFallback(leadId, lead);
+      if (categoryKnown && isPriceQuestion(pendingText)) {
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
       // Captura determinista pregunta→respuesta: si el agente preguntó algo y
@@ -212,9 +276,7 @@ public class LeadAgentService {
       recordShortAnswerToLastQuestion(leadId, lead);
       String provisionalCategory = null;
       if (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank()) {
-        provisionalCategory = com.fixy.backend.model.ServiceCategory.detectFromText(lastMsg)
-            .map(com.fixy.backend.model.ServiceCategory::id)
-            .orElse(null);
+        provisionalCategory = detectCategoryFromMessages(pendingTexts);
       }
       String context = buildContext(lead, provisionalCategory);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
@@ -225,7 +287,7 @@ public class LeadAgentService {
         // (Log agregado 2026-08-06: este camino era MUDO y la simulación de
         // clientes mostró turnos cayendo acá sin rastro en el log.)
         log.info("turno LLM sin respuesta utilizable en lead {}: fallback heurístico", leadId);
-        respondWithHeuristicFallback(leadId, lead);
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
       if (isStuckRepeatingItself(leadId, result.reply())) {
@@ -233,7 +295,7 @@ public class LeadAgentService {
         // lead #123: repitió textual "¿instalación, servicio o reparación?"
         // tras la respuesta del cliente). LLM atascado = turno determinista.
         log.info("LLM atascado repitiéndose en lead {}: fallback heurístico", leadId);
-        respondWithHeuristicFallback(leadId, lead);
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
       Map<String, String> extracted = result.extracted();
@@ -268,7 +330,7 @@ public class LeadAgentService {
       // cliente dice por keywords pisa la extracción; applyExtractedFields
       // decide después si corresponde actualizar (solo pre-matching) y
       // re-dispara el matching.
-      extracted = withMessageSignals(lastMsg, extracted);
+      extracted = withMessageSignals(pendingTexts, extracted);
       // Guard determinista de RESPUESTA (lead #138): con categoría conocida y
       // la zona como única traba, el 8B contestó "Dale, aire acondicionado en
       // Lomas. ¿Qué tipo de servicio necesitás?" — zona alucinada en el TEXTO
@@ -283,9 +345,9 @@ public class LeadAgentService {
       boolean categoryKnownForReply = categoryKnown
           || provisionalCategory != null
           || (extracted != null && extracted.get("category") != null);
-      if (shouldForceZoneQuestion(categoryKnownForReply, lead.getLocation(), lastMsg, result.reply(), zoneArrivedThisTurn)) {
+      if (shouldForceZoneQuestion(categoryKnownForReply, lead.getLocation(), pendingText, result.reply(), zoneArrivedThisTurn)) {
         log.info("respuesta del LLM no pide la zona (única traba) en lead {}: fallback determinista", leadId);
-        respondWithHeuristicFallback(leadId, lead);
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
       String reply = result.reply();
@@ -308,27 +370,107 @@ public class LeadAgentService {
     } catch (Exception ex) {
       log.warn("respondToCustomer failed for lead {}: {}", leadId, ex.getMessage());
       try {
-        respondWithHeuristicFallback(leadId, lead);
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
       } catch (Exception fallbackEx) {
         log.error("heuristic fallback also failed for lead {}: {}", leadId, fallbackEx.getMessage());
         safePost(leadId, "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?");
+      }
+    } finally {
+      // El turno intentó cubrir esta tanda (con LLM, heurística o el enlatado
+      // del catch): avanzar el marcador pase lo que pase, para que el drenaje
+      // del gate no vuelva a contestar los mismos mensajes.
+      if (maxSeenId > 0) {
+        gate.lastProcessedMessageId = Math.max(gate.lastProcessedMessageId, maxSeenId);
       }
     }
   }
 
   /**
+   * Mensajes del cliente que este turno debe cubrir. Con marcador (ya corrió
+   * un turno de este lead en este proceso): todo mensaje del cliente más
+   * nuevo que el último cubierto. Sin marcador: el bloque de cola de
+   * mensajes del cliente posteriores al último mensaje del agente — y si ese
+   * bloque queda vacío (carrera con greet(): el saludo async puede postearse
+   * DESPUÉS del primer mensaje del cliente), se degrada al comportamiento
+   * histórico de tomar el último mensaje del cliente antes que quedarse mudo.
+   */
+  private List<LeadMessage> pendingCustomerMessages(Long leadId, long lastProcessedId) {
+    List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
+    if (lastProcessedId > 0) {
+      return recent.stream()
+          .filter(m -> "customer".equals(m.getSender())
+              && m.getText() != null && !m.getText().isBlank()
+              && m.getId() != null && m.getId() > lastProcessedId)
+          .toList();
+    }
+    java.util.ArrayList<LeadMessage> tail = new java.util.ArrayList<>();
+    for (int i = recent.size() - 1; i >= 0; i--) {
+      LeadMessage m = recent.get(i);
+      if (!"customer".equals(m.getSender())) {
+        break;
+      }
+      if (m.getText() != null && !m.getText().isBlank()) {
+        tail.add(0, m);
+      }
+    }
+    if (!tail.isEmpty()) {
+      return tail;
+    }
+    for (int i = recent.size() - 1; i >= 0; i--) {
+      LeadMessage m = recent.get(i);
+      if ("customer".equals(m.getSender()) && m.getText() != null && !m.getText().isBlank()) {
+        return List.of(m);
+      }
+    }
+    return List.of();
+  }
+
+  /**
+   * Detección de categoría sobre una tanda de mensajes pendientes,
+   * reproduciendo la semántica secuencial (un turno por mensaje): el PRIMER
+   * mensaje que detecta categoría gana, y uno posterior solo la pisa si trae
+   * intención explícita de corrección. detectFromText sobre el texto
+   * concatenado NO sirve acá: itera categorías en orden de declaración
+   * (plomería antes que mandados) y el "agua" del segundo mensaje ganaría
+   * sobre el "supermercado" del primero — exactamente el bug del smoke #236.
+   * Package-private estático para testear sin contexto, mismo patrón que
+   * shouldForceZoneQuestion.
+   */
+  static String detectCategoryFromMessages(List<String> messages) {
+    String category = null;
+    for (String message : messages) {
+      String detected = com.fixy.backend.model.ServiceCategory.detectFromText(message)
+          .map(com.fixy.backend.model.ServiceCategory::id)
+          .orElse(null);
+      if (detected == null) {
+        continue;
+      }
+      if (category == null || isExplicitCorrection(message)) {
+        category = detected;
+      }
+    }
+    return category;
+  }
+
+  /**
    * Fallback determinista cuando el LLM no está disponible: reutiliza el
    * clasificador heurístico de AgentService (mismo que usa el intake inicial)
-   * sobre el último mensaje del cliente, actualiza el lead con lo que se pudo
-   * extraer, y arma una respuesta que reconoce esos datos y pide solo lo que
-   * falta. Nunca promete matching de proveedor sin chequear disponibilidad real.
+   * sobre los mensajes PENDIENTES del cliente (la tanda que cubre este turno,
+   * no solo el último), actualiza el lead con lo que se pudo extraer, y arma
+   * una respuesta que reconoce esos datos y pide solo lo que falta. Nunca
+   * promete matching de proveedor sin chequear disponibilidad real.
    */
-  private void respondWithHeuristicFallback(Long leadId, Lead lead) {
-    String lastCustomerMessage = lastCustomerMessage(leadId);
+  private void respondWithHeuristicFallback(Long leadId, Lead lead, List<String> pendingMessages) {
+    List<String> messages = pendingMessages;
+    if (messages == null || messages.isEmpty()) {
+      String last = lastCustomerMessage(leadId);
+      messages = last == null ? List.of() : List.of(last);
+    }
+    String pendingText = String.join("\n", messages);
     boolean autoMatchAlreadyPosted = false;
-    if (lastCustomerMessage != null && !lastCustomerMessage.isBlank()) {
+    if (!pendingText.isBlank()) {
       IntakeRequest intakeRequest = new IntakeRequest(
-          lastCustomerMessage,
+          pendingText,
           lead.getName(),
           lead.getPhone(),
           "chat",
@@ -341,24 +483,33 @@ public class LeadAgentService {
       IntakeResponse classified = agentService.classify(intakeRequest);
       Map<String, String> extracted = new java.util.HashMap<>();
       // Corrección del cliente ("me equivoqué, es jardinería / no, es en
-      // Lagomar"): lo que dice EL MENSAJE actual pisa el passthrough del
-      // clasificador, que devuelve la categoría/zona ya conocida cuando
-      // existe (resolvedService/resolvedArea). applyExtractedFields decide
-      // después si corresponde actualizar (solo pre-matching).
-      String messageCategory = com.fixy.backend.model.ServiceCategory
-          .detectFromText(lastCustomerMessage).map(c -> c.id()).orElse(null);
+      // Lagomar"): lo que dicen LOS MENSAJES de esta tanda pisa el
+      // passthrough del clasificador, que devuelve la categoría/zona ya
+      // conocida cuando existe (resolvedService/resolvedArea).
+      // applyExtractedFields decide después si corresponde actualizar (solo
+      // pre-matching).
+      String messageCategory = detectCategoryFromMessages(messages);
       if (messageCategory != null) {
         extracted.put("category", messageCategory);
       } else if (classified.serviceCategory() != null && !"otro".equalsIgnoreCase(classified.serviceCategory())) {
         extracted.put("category", classified.serviceCategory());
       }
-      String messageZone = agentService.areaMentionedIn(lastCustomerMessage);
+      String messageZone = null;
+      String messagePhone = null;
+      for (String message : messages) {
+        String zone = agentService.areaMentionedIn(message);
+        if (zone != null) {
+          messageZone = zone; // la última mención gana, igual que en turnos secuenciales
+        }
+        if (messagePhone == null) {
+          messagePhone = phoneMentionedIn(message);
+        }
+      }
       if (messageZone != null) {
         extracted.put("zone", messageZone);
       } else if (classified.area() != null && !"sin definir".equalsIgnoreCase(classified.area())) {
         extracted.put("zone", classified.area());
       }
-      String messagePhone = phoneMentionedIn(lastCustomerMessage);
       if (messagePhone != null) {
         extracted.put("phone", messagePhone);
       }
@@ -376,7 +527,7 @@ public class LeadAgentService {
     }
     // Releer el lead: applyExtractedFields pudo haber actualizado categoría/zona.
     Lead refreshed = leadRepository.findById(leadId).orElse(lead);
-    if (isPriceQuestion(lastCustomerMessage)) {
+    if (isPriceQuestion(pendingText)) {
       leadMessageService.postFromAgent(leadId, heuristicPriceReply(refreshed));
       return;
     }
@@ -570,15 +721,25 @@ public class LeadAgentService {
 
   /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
   /**
-   * Señales explícitas del mensaje del cliente (keywords de categoría y
+   * Señales explícitas de los mensajes del cliente (keywords de categoría y
    * zona) pisan lo extraído por el LLM — la base determinista de las
-   * correcciones "me equivoqué". Usado por el camino LLM y el fallback.
+   * correcciones "me equivoqué". Usado por el camino LLM; opera sobre la
+   * tanda de mensajes pendientes del turno con la misma semántica secuencial
+   * que detectCategoryFromMessages.
    */
-  private Map<String, String> withMessageSignals(String message, Map<String, String> extracted) {
-    String cat = com.fixy.backend.model.ServiceCategory.detectFromText(message)
-        .map(com.fixy.backend.model.ServiceCategory::id).orElse(null);
-    String zone = agentService.areaMentionedIn(message);
-    String phone = phoneMentionedIn(message);
+  private Map<String, String> withMessageSignals(List<String> messages, Map<String, String> extracted) {
+    String cat = detectCategoryFromMessages(messages);
+    String zone = null;
+    String phone = null;
+    for (String message : messages) {
+      String z = agentService.areaMentionedIn(message);
+      if (z != null) {
+        zone = z; // la última mención gana, igual que en turnos secuenciales
+      }
+      if (phone == null) {
+        phone = phoneMentionedIn(message);
+      }
+    }
     if (cat == null && zone == null && phone == null) {
       return extracted;
     }

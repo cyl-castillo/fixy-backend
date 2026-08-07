@@ -42,6 +42,9 @@ class LeadCategoryCorrectionTest {
   @Autowired
   private LeadRepository leadRepository;
 
+  @Autowired
+  private com.fixy.backend.service.LeadMessageService leadMessageService;
+
   private record ChatSession(Integer leadId, String token) {}
 
   private ChatSession openChat() throws Exception {
@@ -143,6 +146,47 @@ class LeadCategoryCorrectionTest {
     Thread.sleep(3000);
     assertThat(leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
         .isEqualTo("mandados");
+  }
+
+  /**
+   * Smoke lead #236 (2026-08-07): dos mensajes seguidos ANTES de que el
+   * agente termine su primer turno. Los turnos concurrentes clasificaban
+   * solo por el segundo mensaje ("agua" → plomería) ignorando el mandado del
+   * primero, y una respuesta podía perderse. Con el gate por lead y la
+   * extracción sobre la tanda pendiente, la categoría queda mandados sin
+   * importar cómo se intercalen los turnos, y el agente contesta.
+   */
+  @Test
+  void dosMensajesSeguidosAntesDelPrimerTurnoClasificanPorElPrimero() throws Exception {
+    ChatSession s = openChat();
+    say(s, "[smoke] Necesito un mandado: la compra del supermercado, en Lomas de Solymar");
+    say(s, "[smoke] Hola, necesito comprar agua enlatada."); // sin esperar el turno
+    awaitCategory(s, "mandados");
+    // El agente respondió (saludo de greet + al menos un turno): la carrera
+    // vieja también podía dejar la tanda sin respuesta.
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> assertThat(
+            leadMessageService.recentForAgent(Long.valueOf(s.leadId()), 20).stream()
+                .filter(m -> "fixy".equals(m.getSender())).count())
+            .isGreaterThanOrEqualTo(2));
+    // Margen para cualquier turno rezagado: la categoría no se flipea después.
+    Thread.sleep(3000);
+    assertThat(leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
+        .isEqualTo("mandados");
+  }
+
+  @Test
+  void elSegundoMensajeRapidoAportaSuDatoSinPisarLaCategoria() throws Exception {
+    // msg1 trae la categoría, msg2 (inmediato) la zona: los dos datos tienen
+    // que quedar en el lead aunque los turnos se coalescen.
+    ChatSession s = openChat();
+    say(s, "[smoke] Necesito cortar el pasto del fondo");
+    say(s, "[smoke] estoy en Lagomar");
+    awaitCategory(s, "jardineria");
+    Awaitility.await().atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(200))
+        .untilAsserted(() -> assertThat(
+            leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getLocation())
+            .containsIgnoringCase("lagomar"));
   }
 
   @Test
