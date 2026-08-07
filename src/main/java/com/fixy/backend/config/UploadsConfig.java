@@ -24,10 +24,28 @@ public class UploadsConfig implements WebMvcConfigurer {
     this.urlPrefix = urlPrefix.replaceAll("/+$", "");
   }
 
+  /**
+   * Patrón LOCAL del handler a partir del url-prefix configurado. En prod el
+   * prefix es una URL ABSOLUTA ("https://api.fixy.com.uy/uploads", para que
+   * las URLs devueltas al cliente sean completas) — usarla entera como
+   * patrón hacía que el handler nunca matcheara y NINGÚN upload se sirviera
+   * (bug real de prod destapado por las notas de voz 2026-08-07: las fotos
+   * daban 404 igual). El handler debe registrarse solo con el path.
+   */
+  public static String handlerPathFor(String urlPrefix) {
+    String prefix = urlPrefix.replaceAll("/+$", "");
+    int scheme = prefix.indexOf("://");
+    if (scheme >= 0) {
+      int path = prefix.indexOf('/', scheme + 3);
+      prefix = path >= 0 ? prefix.substring(path) : "/uploads";
+    }
+    return prefix.isEmpty() ? "/uploads" : prefix;
+  }
+
   @Override
   public void addResourceHandlers(ResourceHandlerRegistry registry) {
     String location = "file:" + uploadsDir + (uploadsDir.endsWith("/") ? "" : "/");
-    registry.addResourceHandler(urlPrefix + "/**")
+    registry.addResourceHandler(handlerPathFor(urlPrefix) + "/**")
         .addResourceLocations(location)
         .setCachePeriod(60 * 60 * 24 * 30); // 30 días
   }
