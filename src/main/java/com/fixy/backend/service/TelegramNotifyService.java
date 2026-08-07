@@ -3,7 +3,9 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadEventRepository;
+import com.fixy.backend.repository.ProviderRepository;
 import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
@@ -66,6 +68,7 @@ public class TelegramNotifyService {
   private final LeadEventRepository leadEventRepository;
   private final LeadTimelineService leadTimelineService;
   private final ProviderSelfService providerSelfService;
+  private final ProviderRepository providerRepository;
   private final String botToken;
   private final String chatId;
   private final String publicAppBaseUrl;
@@ -79,6 +82,7 @@ public class TelegramNotifyService {
       // TelegramNotify (LeadClosing avisa disputas por acá). Telegram es un
       // notificador hoja — cualquier servicio puede depender de él.
       @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService,
+      ProviderRepository providerRepository,
       @Value("${fixy.telegram.bot-token:}") String botToken,
       @Value("${fixy.telegram.chat-id:}") String chatId,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
@@ -87,6 +91,7 @@ public class TelegramNotifyService {
     this.leadEventRepository = leadEventRepository;
     this.leadTimelineService = leadTimelineService;
     this.providerSelfService = providerSelfService;
+    this.providerRepository = providerRepository;
     this.botToken = botToken;
     this.chatId = chatId;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
@@ -135,21 +140,88 @@ public class TelegramNotifyService {
    * Carlos se entere de qué conseguir. Misma idempotencia que el caso con
    * matches (un solo evento OPS_NOTIFIED_OPPORTUNITY por lead). Async por la
    * misma razón que {@link #notifyOpportunityWithMatches}.
+   *
+   * <p>"Sin proveedores" tiene DOS causas distintas y la acción de Carlos no
+   * es la misma: o no hay nadie registrado en el rubro (hay que salir a
+   * captar, días de trabajo), o hay alguien registrado que sigue en
+   * {@code NEW} y por eso el matching no lo ve (un click en /admin). Desde
+   * que el gate de aprobación entró en producción (2026-08-06, "Proveedores
+   * NEW no reciben trabajo"), el segundo caso es indistinguible del primero
+   * en el aviso — y ahí se pierden pedidos reales.
+   *
+   * <p>Dato que lo motivó (embudo de prod, 2026-08-06): mandados fue la
+   * categoría más pedida de la semana (4 de 7 leads reales con categoría) y
+   * su único proveedor estaba en NEW; los pedidos #230 y #231 (Lagomar)
+   * quedaron con {@code readyForMatching=true} y cero contactos. Barométrica
+   * igual con el pedido #227. En los tres casos el aviso decía "conseguir
+   * uno" cuando el proveedor ya estaba registrado esperando aprobación.
    */
   @Async
   public void notifyDemandWithoutSupply(Lead lead) {
     if (!shouldNotify(lead)) return;
-    String text = "🔔 Oportunidad #%d: %s en %s (urgencia %s). %s. Sin proveedores para %s en %s — conseguir uno."
+    String text = "🔔 Oportunidad #%d: %s en %s (urgencia %s). %s. %s"
         .formatted(
             lead.getId(),
             humanCategory(lead.getDetectedCategory()),
             safe(lead.getLocation()),
             safe(lead.getUrgency()),
             truncate(safe(lead.getProblem()), 100),
-            humanCategory(lead.getDetectedCategory()),
-            safe(lead.getLocation())
+            supplyActionLine(lead)
         );
     send(lead, text);
+  }
+
+  /**
+   * La frase accionable del aviso de demanda sin oferta: aprobar a quien ya
+   * está registrado, o salir a captar. Best-effort — si la consulta falla,
+   * el aviso sale igual con el texto genérico (el objetivo es que Carlos se
+   * entere del pedido, no que el mensaje sea perfecto).
+   */
+  private String supplyActionLine(Lead lead) {
+    String category = humanCategory(lead.getDetectedCategory());
+    List<Provider> pending;
+    try {
+      pending = pendingApprovalInCategory(lead.getDetectedCategory());
+    } catch (Exception ex) {
+      log.warn("no pude buscar proveedores sin aprobar para el lead {}: {}", lead.getId(), ex.getMessage());
+      pending = List.of();
+    }
+    if (pending.isEmpty()) {
+      return "Sin proveedores para %s en %s — conseguir uno.".formatted(category, safe(lead.getLocation()));
+    }
+    StringBuilder line = new StringBuilder();
+    line.append("Nadie matchea, pero ").append(pending.size() == 1 ? "hay 1 proveedor" : "hay " + pending.size() + " proveedores")
+        .append(" de ").append(category).append(" SIN APROBAR:");
+    for (Provider provider : pending) {
+      line.append('\n').append(safe(provider.getName())).append(" (tel ").append(safe(provider.getPhone())).append(')');
+    }
+    line.append("\nAprobalo en ").append(publicAppBaseUrl).append("/admin → Proveedores y el pedido sale solo.");
+    return line.toString();
+  }
+
+  /**
+   * Proveedores registrados en la categoría del lead que el matching NO ve
+   * por seguir en {@code NEW}. Filtro en memoria a propósito: el catálogo es
+   * de decenas de filas y {@code categories} es un CSV — un LIKE en SQL
+   * confundiría "aires_acondicionados" con un prefijo ajeno. La zona NO se
+   * filtra: un proveedor sin aprobar todavía no tiene zonas cargadas de
+   * verdad, y el punto del aviso es que Carlos lo mire, no descartarlo.
+   */
+  private List<Provider> pendingApprovalInCategory(String rawCategory) {
+    if (rawCategory == null || rawCategory.isBlank()) return List.of();
+    String category = rawCategory.trim().toLowerCase(java.util.Locale.ROOT);
+    return providerRepository.findAll().stream()
+        .filter(provider -> provider.getStatus() == ProviderStatus.NEW)
+        .filter(provider -> categoriesOf(provider).contains(category))
+        .toList();
+  }
+
+  private static List<String> categoriesOf(Provider provider) {
+    if (provider.getCategories() == null || provider.getCategories().isBlank()) return List.of();
+    return java.util.Arrays.stream(provider.getCategories().split(","))
+        .map(part -> part.trim().toLowerCase(java.util.Locale.ROOT))
+        .filter(part -> !part.isEmpty())
+        .toList();
   }
 
   /**

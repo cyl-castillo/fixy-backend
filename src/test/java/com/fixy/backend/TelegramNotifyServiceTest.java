@@ -315,4 +315,78 @@ class TelegramNotifyServiceTest {
     assertThat(body).contains("jardinería en Lagomar");
     assertThat(body).contains("Sin proveedores para jardinería en Lagomar — conseguir uno");
   }
+
+  /**
+   * Dato de prod 2026-08-06: mandados fue la categoría más pedida de la
+   * semana y su único proveedor estaba en NEW, así que el matching no lo veía
+   * (gate de aprobación) y el aviso mandaba a Carlos a "conseguir uno" — con
+   * el proveedor ya registrado. Pedidos #230/#231 perdidos por eso.
+   */
+  @Test
+  void categoryWithUnapprovedProvider_tellsCarlosToApproveInsteadOfRecruit() {
+    Lead lead = persistLead("mandados", "Lagomar", "Necesito que me hagan unos mandados");
+    Provider pendiente = persistProviderWithCategory("Mandados Costa", "093640983", "mandados", ProviderStatus.NEW);
+
+    telegramNotifyService.notifyDemandWithoutSupply(lead);
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("Oportunidad #" + lead.getId());
+    assertThat(body).contains("SIN APROBAR");
+    assertThat(body).contains("Mandados Costa");
+    assertThat(body).contains("tel 093640983");
+    assertThat(body).contains("/admin");
+    assertThat(body).doesNotContain("conseguir uno");
+
+    providerRepository.delete(pendiente);
+  }
+
+  /**
+   * El proveedor sin aprobar de OTRA categoría no cuenta: si nadie hace
+   * barométrica, la acción sigue siendo captar.
+   */
+  @Test
+  void unapprovedProviderOfAnotherCategory_keepsTheRecruitMessage() {
+    Lead lead = persistLead("barometrica", "Solymar", "Necesito camión barométrico");
+    Provider otroRubro = persistProviderWithCategory("Aires del Este", "099777666",
+        "aires_acondicionados", ProviderStatus.NEW);
+
+    telegramNotifyService.notifyDemandWithoutSupply(lead);
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("Sin proveedores para barométrica en Solymar — conseguir uno");
+    assertThat(body).doesNotContain("Aires del Este");
+
+    providerRepository.delete(otroRubro);
+  }
+
+  /**
+   * Un proveedor ya aprobado que simplemente no matcheó (zona, pausa,
+   * comisión vencida) no es un click pendiente de Carlos: el aviso no debe
+   * mandarlo a "aprobar" a alguien que ya está aprobado.
+   */
+  @Test
+  void approvedProviderThatDidNotMatch_isNotReportedAsPendingApproval() {
+    Lead lead = persistLead("decoracion_fiestas", "El Pinar", "Decoración para un cumpleaños");
+    Provider aprobado = persistProviderWithCategory("Deco Ya", "099555444",
+        "decoracion_fiestas", ProviderStatus.AVAILABLE);
+
+    telegramNotifyService.notifyDemandWithoutSupply(lead);
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).doesNotContain("SIN APROBAR");
+    assertThat(body).doesNotContain("Deco Ya");
+
+    providerRepository.delete(aprobado);
+  }
+
+  private Provider persistProviderWithCategory(String name, String phone, String categories,
+      ProviderStatus status) {
+    Provider provider = new Provider();
+    provider.setName(name);
+    provider.setPhone(phone);
+    provider.setCategories(categories);
+    provider.setPrimaryZone("Solymar");
+    provider.setStatus(status);
+    return providerRepository.save(provider);
+  }
 }
