@@ -27,6 +27,19 @@ public class TranscriptionService {
   private static final Logger log = LoggerFactory.getLogger(TranscriptionService.class);
   private static final Duration TIMEOUT = Duration.ofSeconds(40);
 
+  /**
+   * Contexto para el transcriptor: vocabulario local que el modelo no
+   * adivina solo. Prueba real de Carlos 2026-08-07: "agua en el Tata"
+   * salió "agua enlatada" y "estoy en Shangrilá" salió "Etuen çangida" —
+   * el prompt sesga la decodificación hacia los nombres que acá SÍ existen
+   * (súper Tata, las zonas de la Costa, barométrica).
+   */
+  static final String CONTEXT_PROMPT =
+      "Nota de voz en español rioplatense de Uruguay, sobre servicios del hogar o mandados en "
+          + "Ciudad de la Costa. Nombres frecuentes: Tata, Abitab, Redpagos, barométrica, "
+          + "Solymar, Lomas de Solymar, Lagomar, El Pinar, Shangrilá, Barra de Carrasco, "
+          + "Parque Miramar, San José de Carrasco, Colinas de Solymar, Aeroparque.";
+
   private final WebClient webClient;
   private final ObjectMapper objectMapper;
   private final String apiKey;
@@ -69,6 +82,7 @@ public class TranscriptionService {
       }).contentType(MediaType.parseMediaType(contentType));
       body.part("model", model);
       body.part("language", "es");
+      body.part("prompt", CONTEXT_PROMPT);
 
       String raw = webClient.post()
           .uri("/audio/transcriptions")

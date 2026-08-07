@@ -118,4 +118,42 @@ class LeadCategoryCorrectionTest {
     assertThat(leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
         .isEqualTo("plomeria");
   }
+
+  /**
+   * Prueba real de Carlos 2026-08-07 (lead #235, al banco como las de
+   * #194/#196): pidió mandados y la nota de voz "quiero agua en el Tata"
+   * (transcripta "agua enlatada") re-clasificó el pedido a plomería. La
+   * lista de un mandado SIEMPRE nombra productos que son keywords de otras
+   * categorías — mencionar una keyword suelta NO es corregir.
+   */
+  @Test
+  void laListaDelMandadoNoCambiaLaCategoriaAunqueNombreProductos() throws Exception {
+    ChatSession s = openChat();
+    say(s, "[smoke] Necesito un mandado: la compra del supermercado, en Lomas de Solymar");
+    awaitCategory(s, "mandados");
+
+    // El caso exacto de la prueba (transcripción incluida): "agua" es
+    // keyword de plomería, "torta" de pastelería — nada de eso corrige.
+    say(s, "[smoke] Hola, necesito comprar agua enlatada.");
+    Thread.sleep(3000);
+    assertThat(leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
+        .isEqualTo("mandados");
+
+    say(s, "[smoke] y también una torta de cumpleaños del Tata y yerba");
+    Thread.sleep(3000);
+    assertThat(leadRepository.findById(Long.valueOf(s.leadId())).orElseThrow().getDetectedCategory())
+        .isEqualTo("mandados");
+  }
+
+  @Test
+  void laCorreccionExplicitaSigueFuncionandoDespuesDelGate() throws Exception {
+    // El gate no puede matar la corrección real: mandados → "me equivoqué,
+    // es plomería" tiene que seguir cambiando la categoría.
+    ChatSession s = openChat();
+    say(s, "[smoke] Necesito un mandado: la compra del supermercado, en Lomas de Solymar");
+    awaitCategory(s, "mandados");
+
+    say(s, "[smoke] Perdón, me equivoqué: es plomería, tengo una pérdida de agua");
+    awaitCategory(s, "plomeria");
+  }
 }

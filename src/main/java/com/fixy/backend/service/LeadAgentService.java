@@ -383,6 +383,24 @@ public class LeadAgentService {
     leadMessageService.postFromAgent(leadId, heuristicFallbackReply(refreshed));
   }
 
+  /**
+   * Frases explícitas de corrección de categoría ("me equivoqué", "error,
+   * era...", "en realidad es...", "no, mejor..."). Prueba real de Carlos
+   * 2026-08-07 (lead #235): pidió mandados y su nota de voz "quiero agua en
+   * el Tata" (transcripta "agua enlatada") re-clasificó el pedido a plomería
+   * — la lista de un mandado SIEMPRE va a nombrar productos que coinciden
+   * con keywords de otras categorías (agua, torta, pasto...). Regla nueva:
+   * con categoría ya puesta, cambiarla exige intención explícita de
+   * corrección; sin ella, la mención suelta de una keyword no toca nada.
+   */
+  private static final java.util.regex.Pattern CORRECTION_PHRASES = java.util.regex.Pattern.compile(
+      "(?i)me\\s+equivoq|\\berror\\b|en\\s+realidad|quise\\s+decir|no\\s+era\\s+eso|no\\s+es\\s+eso"
+          + "|no,?\\s+mejor|cambi[aá]\\w*\\s+(la\\s+)?categor[ií]a|no\\s+es\\s+de\\s|era\\s+de\\s");
+
+  static boolean isExplicitCorrection(String message) {
+    return message != null && CORRECTION_PHRASES.matcher(message).find();
+  }
+
   /** Señales de pregunta de confianza/seguridad sobre quién viene a la casa. */
   private static final List<String> TRUST_QUESTION_KEYWORDS = List.of(
       "de confianza", "confiable", "quien viene", "quién viene", "quien es el que viene",
@@ -1226,8 +1244,15 @@ public class LeadAgentService {
           || lead.getDetectedCategory().isBlank()
           || "otro".equalsIgnoreCase(lead.getDetectedCategory());
       boolean corrected = false;
+      // Cambiar una categoría YA puesta exige intención explícita de
+      // corrección en el mensaje (prueba de Carlos lead #235: "quiero agua
+      // en el Tata" en un pedido de mandados lo pasaba a plomería — la
+      // lista del mandado siempre nombra productos que son keywords de
+      // otras categorías). Ver CORRECTION_PHRASES.
+      boolean correctionIntent = isExplicitCorrection(lastCustomerText(leadId));
       if (cat != null && !cat.equalsIgnoreCase("otro")
-          && (categoryBlank || (preMatching && !cat.equalsIgnoreCase(lead.getDetectedCategory())))) {
+          && (categoryBlank
+              || (preMatching && correctionIntent && !cat.equalsIgnoreCase(lead.getDetectedCategory())))) {
         corrected = corrected || !categoryBlank;
         lead.setDetectedCategory(cat.toLowerCase().trim());
         changed = true;
