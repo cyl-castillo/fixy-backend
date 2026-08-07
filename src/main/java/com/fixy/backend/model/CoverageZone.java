@@ -34,10 +34,31 @@ import java.util.Set;
  * <p>Los alias existen porque el mismo barrio llega escrito de varias formas
  * (con y sin tilde, "san jose"/"san josé"). La normalización saca acentos, así
  * que acá solo hacen falta los alias que NO son diferencia de acento.
+ *
+ * <h2>Por qué los alias dejaron de ser teóricos (embudo de prod, 2026-08-07)</h2>
+ * El javadoc prometía alias desde el principio, pero el enum no tenía dónde
+ * ponerlos: la única flexibilidad real era la de acentos. Y la zona que más
+ * usa el vecino para nombrar Ciudad de la Costa —"La Costa"— no es una
+ * diferencia de acento, es otro nombre.
+ *
+ * <p>Costó demanda medible: el proveedor #16 (mandados, la categoría más
+ * pedida del embudo — 9 de 12 toques de categoría y 10 de 18 pedidos reales
+ * en 7 días) se autoregistró con {@code primaryZone = "La Costa"}. Como
+ * {@code fromLabel("la costa")} daba vacío, {@link #covers(String, String)}
+ * caía a igualdad exacta y el proveedor era invisible para TODO pedido de
+ * Lagomar, Solymar o Lomas de Solymar. Los pedidos #230, #231, #240 y #244
+ * quedaron {@code readyForMatching} sin un solo match, con el agente
+ * prometiéndole al cliente "te aviso apenas alguien levante el pedido".
+ * Nadie se enteró: ni el proveedor, ni ops — el matching no tiene forma de
+ * avisar que una zona declarada no existe.
  */
 public enum CoverageZone {
-  /** El paraguas. Contiene a todas las demás. */
-  CIUDAD_DE_LA_COSTA("Ciudad de la Costa", null),
+  /**
+   * El paraguas. Contiene a todas las demás. "La Costa" es como le dice el
+   * vecino en la calle, y es lo que un proveedor escribe cuando el campo es
+   * texto libre.
+   */
+  CIUDAD_DE_LA_COSTA("Ciudad de la Costa", null, "La Costa"),
 
   SOLYMAR("Solymar", CIUDAD_DE_LA_COSTA),
   LAGOMAR("Lagomar", CIUDAD_DE_LA_COSTA),
@@ -53,10 +74,12 @@ public enum CoverageZone {
 
   private final String label;
   private final CoverageZone parent;
+  private final List<String> aliases;
 
-  CoverageZone(String label, CoverageZone parent) {
+  CoverageZone(String label, CoverageZone parent, String... aliases) {
     this.label = label;
     this.parent = parent;
+    this.aliases = List.of(aliases);
   }
 
   /** Etiqueta humana canónica, tal como se le muestra al cliente. */
@@ -88,6 +111,9 @@ public enum CoverageZone {
     Set<String> tokens = new LinkedHashSet<>();
     for (CoverageZone zone : values()) {
       tokens.add(normalize(zone.label));
+      for (String alias : zone.aliases) {
+        tokens.add(normalize(alias));
+      }
     }
     return Set.copyOf(tokens);
   }
@@ -107,15 +133,58 @@ public enum CoverageZone {
         .replaceAll("\\p{M}", "");
   }
 
-  /** La zona canónica correspondiente a un texto libre, si Fixy la cubre. */
+  /**
+   * La zona canónica correspondiente a un texto libre, si Fixy la cubre —
+   * por su etiqueta o por cualquiera de sus alias. Devolver la canónica es lo
+   * que hace que "La Costa" se comporte igual que "Ciudad de la Costa" en
+   * todo el sistema: {@link #covers(String, String)} le da la jerarquía del
+   * paraguas y {@code AgentService.toDisplayArea} la muestra con el nombre
+   * canónico.
+   */
   public static Optional<CoverageZone> fromLabel(String value) {
     String normalized = normalize(value);
     if (normalized.isBlank()) {
       return Optional.empty();
     }
     return Arrays.stream(values())
-        .filter(zone -> normalize(zone.label).equals(normalized))
+        .filter(zone -> zone.matches(normalized))
         .findFirst();
+  }
+
+  private boolean matches(String normalized) {
+    if (normalize(label).equals(normalized)) {
+      return true;
+    }
+    return aliases.stream().anyMatch(alias -> normalize(alias).equals(normalized));
+  }
+
+  /**
+   * De las zonas que un proveedor declaró (texto libre), las que Fixy NO
+   * reconoce — o sea, las que no le van a traer ni un pedido.
+   *
+   * <p>Existe porque hasta hoy declarar una zona inexistente no fallaba: se
+   * guardaba, se mostraba en el perfil y simplemente no matcheaba nunca.
+   * Un proveedor puede quedar meses creyendo que cubre su barrio mientras el
+   * matching lo saltea. Devolver la lista deja que la superficie que la pide
+   * se lo diga de frente (ver {@code ProviderSelfResponse.unrecognizedZones}).
+   *
+   * <p>Preserva el texto tal cual lo escribió el proveedor: el aviso tiene
+   * que mostrarle SU palabra, no una versión normalizada que no reconocería.
+   */
+  public static List<String> unrecognized(String... declaredZones) {
+    LinkedHashSet<String> unknown = new LinkedHashSet<>();
+    for (String declared : declaredZones) {
+      if (declared == null) {
+        continue;
+      }
+      for (String piece : declared.split(",")) {
+        String trimmed = piece.trim();
+        if (!trimmed.isBlank() && !isCovered(trimmed)) {
+          unknown.add(trimmed);
+        }
+      }
+    }
+    return List.copyOf(unknown);
   }
 
   /** true si Fixy declara cobertura en esta zona (cualquier alias). */

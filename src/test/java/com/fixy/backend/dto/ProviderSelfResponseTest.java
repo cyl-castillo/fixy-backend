@@ -83,4 +83,31 @@ class ProviderSelfResponseTest {
 
     assertThat(response.acceptingWork()).isFalse();
   }
+
+  /**
+   * El panel tiene que poder decirle al proveedor que una zona que declaró no
+   * existe para Fixy — hasta hoy se guardaba, se mostraba y no matcheaba nunca
+   * (caso del proveedor #16 en prod, 2026-08-07).
+   */
+  @Test
+  void exposesZonesFixyDoesNotRecognize() {
+    Provider provider = baseProvider();
+    provider.setPrimaryZone("Solymar");
+    provider.setCoverageZones("Lagomar, Pocitos");
+
+    ProviderSelfResponse response = ProviderSelfResponse.fromEntity(provider, List.of());
+
+    assertThat(response.unrecognizedZones()).containsExactly("Pocitos");
+  }
+
+  @Test
+  void reportsNoUnrecognizedZonesForAProviderWithACleanCatalog() {
+    Provider provider = baseProvider();
+    provider.setPrimaryZone("La Costa");
+    provider.setCoverageZones(null);
+
+    ProviderSelfResponse response = ProviderSelfResponse.fromEntity(provider, List.of());
+
+    assertThat(response.unrecognizedZones()).isEmpty();
+  }
 }

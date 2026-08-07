@@ -1,5 +1,6 @@
 package com.fixy.backend.dto;
 
+import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Provider;
 import java.util.List;
 
@@ -23,7 +24,14 @@ public record ProviderSelfResponse(
     String googleEmail,
     List<ProviderAssignedLeadSummary> assignedLeads,
     /** Historial "no concretados": oportunidades que el proveedor soltó (ver ProviderDeclinedLeadSummary). */
-    List<ProviderDeclinedLeadSummary> declinedLeads
+    List<ProviderDeclinedLeadSummary> declinedLeads,
+    /**
+     * Zonas que el proveedor declaró y Fixy no reconoce: NO le van a traer
+     * pedidos. Vacío en el caso normal. Ver {@link CoverageZone#unrecognized}
+     * — el panel las muestra para que se entere él y no las descubra ops seis
+     * semanas después mirando por qué no le llega trabajo.
+     */
+    List<String> unrecognizedZones
 ) {
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
     return fromEntity(provider, leads, List.of());
@@ -55,7 +63,8 @@ public record ProviderSelfResponse(
         provider.getAcceptingWork() == null || provider.getAcceptingWork(),
         provider.getGoogleEmail(),
         leads,
-        declinedLeads
+        declinedLeads,
+        CoverageZone.unrecognized(provider.getPrimaryZone(), provider.getCoverageZones())
     );
   }
 }

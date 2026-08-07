@@ -89,6 +89,47 @@ class CoverageZoneHierarchyTest {
     assertThat(CoverageZone.isCovered("montes de solymar")).isTrue();
   }
 
+  /**
+   * El caso de prod del 2026-08-07: el proveedor #16 (mandados, la categoría
+   * más pedida) se autoregistró con {@code primaryZone = "La Costa"} y quedó
+   * invisible para todo pedido de la ciudad. "La Costa" es el nombre que usa
+   * el vecino y no es una diferencia de acento — necesita alias de verdad.
+   */
+  @Test
+  void laCostaEsAliasDeCiudadDeLaCosta() {
+    assertThat(CoverageZone.fromLabel("La Costa")).contains(CoverageZone.CIUDAD_DE_LA_COSTA);
+    assertThat(CoverageZone.fromLabel("la costa")).contains(CoverageZone.CIUDAD_DE_LA_COSTA);
+    assertThat(CoverageZone.isCovered("La Costa")).isTrue();
+  }
+
+  /** Y como alias del paraguas, hereda su jerarquía: los 4 pedidos que se perdían. */
+  @Test
+  void quienDeclaraLaCostaCubreLosBarriosDeLaCiudad() {
+    assertThat(CoverageZone.covers("La Costa", "Lagomar")).isTrue();
+    assertThat(CoverageZone.covers("La Costa", "Lomas de Solymar")).isTrue();
+    assertThat(CoverageZone.covers("La Costa", "Solymar")).isTrue();
+    assertThat(CoverageZone.covers("La Costa", "Ciudad de la Costa")).isTrue();
+    // El alias no ensancha la cobertura de Fixy: afuera sigue afuera.
+    assertThat(CoverageZone.covers("La Costa", "Pocitos")).isFalse();
+  }
+
+  @Test
+  void unrecognizedDelataLasZonasQueNuncaVanATraerPedidos() {
+    assertThat(CoverageZone.unrecognized("Ciudad de la Costa", "Solymar, Lagomar")).isEmpty();
+    assertThat(CoverageZone.unrecognized("La Costa", null)).isEmpty();
+    assertThat(CoverageZone.unrecognized("Solymar", "Pocitos, Lagomar, Cordón"))
+        .containsExactly("Pocitos", "Cordón");
+  }
+
+  /** El aviso tiene que mostrarle SU palabra, y una sola vez aunque la repita. */
+  @Test
+  void unrecognizedPreservaElTextoDelProveedorYNoDuplica() {
+    assertThat(CoverageZone.unrecognized("Pocitos", "Pocitos ,  Punta Gorda"))
+        .containsExactly("Pocitos", "Punta Gorda");
+    assertThat(CoverageZone.unrecognized(null, "  ,  ")).isEmpty();
+    assertThat(CoverageZone.unrecognized()).isEmpty();
+  }
+
   /** Toda etiqueta canónica tiene que reconocerse a sí misma; si no, el catálogo miente. */
   @Test
   void todaEtiquetaCanonicaSeReconoceASiMisma() {
