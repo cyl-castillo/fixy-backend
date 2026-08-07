@@ -125,6 +125,31 @@ public class LeadMessageService {
   }
 
   /**
+   * Persiste una nota de voz del cliente: text = transcripción (o el
+   * fallback si no se pudo transcribir), audioUrl = el audio original.
+   * Mantiene rate limit (anti-abuso) pero NO el anti-link ni el
+   * anti-repetido: la transcripción no la tipeó el cliente — castigarlo
+   * porque el transcriptor produjo dos veces lo mismo sería injusto.
+   */
+  public LeadMessageResponse postVoiceNoteFromCustomer(Long leadId, String token, String rawText, String audioUrl) {
+    Lead lead = requireLeadAndToken(leadId, token);
+    String text = sanitize(rawText);
+    enforceCustomerRateLimit(lead.getId());
+    LeadMessage message = new LeadMessage();
+    message.setLeadId(lead.getId());
+    message.setSender("customer");
+    message.setText(text);
+    message.setAudience("all");
+    message.setAudioUrl(audioUrl);
+    LeadMessage saved = messageRepository.save(message);
+    lastTextByLead.put(lead.getId(), text);
+    timelineService.appendEvent(lead, "VOICE_NOTE_FROM_CUSTOMER", "user",
+        "🎙️ " + (text.length() > 80 ? text.substring(0, 80) + "…" : text));
+    notifyAssignedProviderOfCustomerMessage(lead, text);
+    return LeadMessageResponse.fromEntity(saved);
+  }
+
+  /**
    * Persiste un mensaje generado por el agente Fixy. Saltea las validaciones
    * del cliente (rate limit, anti-link, anti-repetido) porque el agente las
    * controla en su propio servicio.

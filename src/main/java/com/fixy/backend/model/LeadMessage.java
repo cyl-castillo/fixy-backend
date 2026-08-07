@@ -45,6 +45,16 @@ public class LeadMessage {
   @Column(nullable = false, length = 16)
   private String audience = "all";
 
+  /**
+   * URL relativa del audio de una nota de voz del cliente (ej.
+   * "/uploads/lead-12/ab34cd.webm"), o null para mensajes de texto normales.
+   * Cuando está presente, `text` es la TRANSCRIPCIÓN de ese audio: el agente
+   * y el proveedor leen el texto, y el audio original queda disponible para
+   * escucharlo si la transcripción le erró a algo.
+   */
+  @Column(length = 300)
+  private String audioUrl;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -68,6 +78,8 @@ public class LeadMessage {
   public void setText(String text) { this.text = text; }
   public String getAudience() { return audience; }
   public void setAudience(String audience) { this.audience = audience; }
+  public String getAudioUrl() { return audioUrl; }
+  public void setAudioUrl(String audioUrl) { this.audioUrl = audioUrl; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

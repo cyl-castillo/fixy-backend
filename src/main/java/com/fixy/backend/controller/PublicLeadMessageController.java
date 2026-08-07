@@ -2,19 +2,10 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
-import com.fixy.backend.model.Lead;
-import com.fixy.backend.model.LeadStatus;
-import com.fixy.backend.model.Provider;
-import com.fixy.backend.repository.LeadRepository;
-import com.fixy.backend.repository.ProviderRepository;
-import com.fixy.backend.service.LeadAgentService;
+import com.fixy.backend.service.CustomerMessageRouter;
 import com.fixy.backend.service.LeadMessageService;
-import com.fixy.backend.service.TelegramNotifyService;
-import com.fixy.backend.service.WhatsAppService;
 import jakarta.validation.Valid;
 import java.util.List;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,29 +20,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/public/leads/{leadId}/messages")
 public class PublicLeadMessageController {
 
-  private static final Logger log = LoggerFactory.getLogger(PublicLeadMessageController.class);
-
   private final LeadMessageService messageService;
-  private final LeadAgentService agentService;
-  private final LeadRepository leadRepository;
-  private final ProviderRepository providerRepository;
-  private final WhatsAppService whatsappService;
-  private final TelegramNotifyService telegramNotifyService;
+  private final CustomerMessageRouter messageRouter;
 
   public PublicLeadMessageController(
       LeadMessageService messageService,
-      LeadAgentService agentService,
-      LeadRepository leadRepository,
-      ProviderRepository providerRepository,
-      WhatsAppService whatsappService,
-      TelegramNotifyService telegramNotifyService
+      CustomerMessageRouter messageRouter
   ) {
     this.messageService = messageService;
-    this.agentService = agentService;
-    this.leadRepository = leadRepository;
-    this.providerRepository = providerRepository;
-    this.whatsappService = whatsappService;
-    this.telegramNotifyService = telegramNotifyService;
+    this.messageRouter = messageRouter;
   }
 
   @GetMapping
@@ -74,45 +51,9 @@ public class PublicLeadMessageController {
       @Valid @RequestBody LeadMessageCreateRequest request
   ) {
     LeadMessageResponse persisted = messageService.postFromCustomer(leadId, token, request.text());
-    // Si el lead ya está asignado a un proveedor, la conversación es entre
-    // humanos: el agente NO responde (aunque WhatsApp esté apagado — antes el
-    // else lo hacía interrumpir la charla cliente↔proveedor con enlatados).
-    // Si además WhatsApp está habilitado, hacemos relay del mensaje del
-    // cliente directo al WhatsApp del proveedor.
-    Lead lead = leadRepository.findById(leadId).orElse(null);
-    // Modelo Uber (equipo de Carlos, 2026-08-06): Fixy acompaña al cliente
-    // hasta que el proveedor ACEPTA. PROVIDER_CONTACTED = todavía esperando
-    // esa aceptación — antes el agente ya se callaba ahí y, si el cliente
-    // preguntaba algo mientras tanto, le hablaba al vacío (el proveedor
-    // podía no aceptar nunca). El pase de manos es en ASSIGNED.
-    boolean assignedToProvider = lead != null
-        && lead.getAssignedProviderId() != null
-        && (lead.getStatus() == LeadStatus.ASSIGNED
-            || lead.getStatus() == LeadStatus.IN_PROGRESS);
-    if (assignedToProvider) {
-      if (whatsappService.isEnabled()) {
-        try {
-          Provider p = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
-          if (p != null) {
-            String to = (p.getWhatsappNumber() == null || p.getWhatsappNumber().isBlank())
-                ? p.getPhone() : p.getWhatsappNumber();
-            if (to != null && !to.isBlank()) {
-              String customerName = lead.getName() == null ? "Cliente" : lead.getName();
-              whatsappService.sendText(to, customerName + " (lead #" + lead.getId() + "): " + request.text());
-            }
-          }
-        } catch (Exception ex) {
-          log.warn("relay customer→provider failed: {}", ex.getMessage());
-        }
-      } else {
-        // Interino sin WhatsApp: el proveedor no ve el mensaje salvo que tenga
-        // el panel abierto — avisamos a ops (Telegram) para cerrar el loop.
-        Provider p = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
-        telegramNotifyService.notifyCustomerMessageForProvider(lead, p, request.text());
-      }
-    } else {
-      agentService.respondToCustomerAsync(leadId);
-    }
+    // Relay al proveedor aceptado o turno del agente — la regla vive en
+    // CustomerMessageRouter (compartida con las notas de voz).
+    messageRouter.route(leadId, request.text());
     return persisted;
   }
 }

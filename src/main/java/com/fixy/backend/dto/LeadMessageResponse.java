@@ -10,7 +10,9 @@ public record LeadMessageResponse(
     String text,
     OffsetDateTime createdAt,
     String audience,
-    String senderName
+    String senderName,
+    /** URL relativa del audio si el mensaje es una nota de voz (text = transcripción), null si es texto. */
+    String audioUrl
 ) {
   public static LeadMessageResponse fromEntity(LeadMessage message) {
     return fromEntity(message, null);
@@ -29,7 +31,8 @@ public record LeadMessageResponse(
         message.getText(),
         message.getCreatedAt(),
         message.getAudience(),
-        "provider".equals(message.getSender()) ? senderName : null
+        "provider".equals(message.getSender()) ? senderName : null,
+        message.getAudioUrl()
     );
   }
 }
