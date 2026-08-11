@@ -7,6 +7,7 @@ import com.fixy.backend.service.OfferService;
 import jakarta.validation.Valid;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 /**
  * CRUD admin de ofertas + cola de aprobación (mismo httpBasic + rol OPS que
@@ -62,5 +64,11 @@ public class OfferController {
   @PostMapping("/{id}/reject")
   public OfferResponse reject(@PathVariable Long id) {
     return offerService.reject(id);
+  }
+
+  /** Sube/reemplaza la foto de la oferta (multipart). Mismo patrón de storage que las fotos de lead. */
+  @PostMapping(value = "/{id}/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public OfferResponse uploadPhoto(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
+    return offerService.uploadPhoto(id, file);
   }
 }

@@ -7,11 +7,21 @@ import com.fixy.backend.model.Offer;
 import com.fixy.backend.model.OfferStatus;
 import com.fixy.backend.repository.BusinessRepository;
 import com.fixy.backend.repository.OfferRepository;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -26,14 +36,36 @@ public class OfferService {
   /** Vigencia default cuando ops aprueba sin cargar validUntil (diseño §5). */
   private static final long DEFAULT_VALIDITY_DAYS = 14;
 
+  /** Mismo límite y mismos tipos que LeadPhotoService — sin razón para divergir. */
+  private static final long MAX_PHOTO_BYTES = 6 * 1024 * 1024; // 6 MB
+  private static final Set<String> ALLOWED_PHOTO_CONTENT_TYPES = Set.of(
+      "image/jpeg", "image/jpg", "image/png", "image/webp"
+  );
+
   private final OfferRepository offerRepository;
   private final BusinessRepository businessRepository;
   private final Clock clock;
+  private final Path uploadsRoot;
+  private final String urlPrefix;
+  private final SecureRandom random = new SecureRandom();
 
-  public OfferService(OfferRepository offerRepository, BusinessRepository businessRepository, Clock clock) {
+  public OfferService(
+      OfferRepository offerRepository,
+      BusinessRepository businessRepository,
+      Clock clock,
+      @Value("${fixy.uploads.dir:./data/uploads}") String uploadsDir,
+      @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix
+  ) {
     this.offerRepository = offerRepository;
     this.businessRepository = businessRepository;
     this.clock = clock;
+    this.uploadsRoot = Path.of(uploadsDir).toAbsolutePath().normalize();
+    this.urlPrefix = urlPrefix.replaceAll("/+$", "");
+    try {
+      Files.createDirectories(this.uploadsRoot);
+    } catch (IOException e) {
+      throw new IllegalStateException("cannot create uploads dir: " + this.uploadsRoot, e);
+    }
   }
 
   public List<OfferResponse> list(String status) {
@@ -124,6 +156,70 @@ public class OfferService {
     }
     offer.setStatus(OfferStatus.REJECTED);
     return toResponse(offerRepository.save(offer));
+  }
+
+  /**
+   * Sube/reemplaza la foto de una oferta (mismo patrón de storage que
+   * {@code LeadPhotoService.store}: uploads/ + urlPrefix, nombre random,
+   * validación de tipo/tamaño, chequeo de path traversal). No borra el
+   * archivo anterior si lo hubiera — mismo criterio liviano que el resto
+   * del repo, el huérfano no tiene costo real a este volumen.
+   */
+  public OfferResponse uploadPhoto(Long id, MultipartFile file) {
+    Offer offer = findOffer(id);
+    validatePhoto(file);
+
+    String extension = extensionFor(file.getContentType(), file.getOriginalFilename());
+    String relative = "offer-" + id + "/" + randomHex(8) + extension;
+    Path target = uploadsRoot.resolve(relative).normalize();
+    if (!target.startsWith(uploadsRoot)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid filename");
+    }
+
+    try {
+      Files.createDirectories(target.getParent());
+      try (var in = file.getInputStream()) {
+        Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
+      }
+    } catch (IOException e) {
+      throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "no se pudo guardar la foto");
+    }
+
+    offer.setPhotoUrl(urlPrefix + "/" + relative);
+    return toResponse(offerRepository.save(offer));
+  }
+
+  private void validatePhoto(MultipartFile file) {
+    if (file == null || file.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "archivo vacio");
+    }
+    if (file.getSize() > MAX_PHOTO_BYTES) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "archivo demasiado grande (max 6 MB)");
+    }
+    String ct = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
+    if (!ALLOWED_PHOTO_CONTENT_TYPES.contains(ct)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "formato no permitido (usa jpg, png o webp)");
+    }
+  }
+
+  private String extensionFor(String contentType, String original) {
+    String ct = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
+    return switch (ct) {
+      case "image/jpeg", "image/jpg" -> ".jpg";
+      case "image/png" -> ".png";
+      case "image/webp" -> ".webp";
+      default -> {
+        if (original == null) yield "";
+        int dot = original.lastIndexOf('.');
+        yield dot >= 0 ? original.substring(dot).toLowerCase(Locale.ROOT) : "";
+      }
+    };
+  }
+
+  private String randomHex(int bytes) {
+    byte[] buf = new byte[bytes];
+    random.nextBytes(buf);
+    return HexFormat.of().formatHex(buf);
   }
 
   private Offer findOffer(Long id) {
