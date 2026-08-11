@@ -1,6 +1,8 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.OfferCreateRequest;
+import com.fixy.backend.dto.OfferIngestRequest;
+import com.fixy.backend.dto.OfferIngestResponse;
 import com.fixy.backend.dto.OfferResponse;
 import com.fixy.backend.dto.OfferUpdateRequest;
 import com.fixy.backend.service.OfferService;
@@ -64,6 +66,17 @@ public class OfferController {
   @PostMapping("/{id}/reject")
   public OfferResponse reject(@PathVariable Long id) {
     return offerService.reject(id);
+  }
+
+  /**
+   * Ingesta idempotente de la corrida diaria de scraping (ver
+   * maquina/scripts/ofertas-fuentes/). Mismo httpBasic + rol OPS que el
+   * resto de /api/offers/** — publicación sigue mediada por
+   * aprobación humana, todo entra/actualiza en DRAFT.
+   */
+  @PostMapping("/ingest")
+  public OfferIngestResponse ingest(@Valid @RequestBody OfferIngestRequest request) {
+    return offerService.ingest(request);
   }
 
   /** Sube/reemplaza la foto de la oferta (multipart). Mismo patrón de storage que las fotos de lead. */

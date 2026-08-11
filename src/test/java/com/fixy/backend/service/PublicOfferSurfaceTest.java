@@ -121,6 +121,59 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
+  void allZonesApareceEnCualquierFiltroDeZonaAunqueNoTengaZonaPropia() throws Exception {
+    Business business = persistBusiness("Cadena All Zones Test", "098444008");
+    Offer allZones = persistOffer(business, OfferStatus.ACTIVE, "otro", null, OffsetDateTime.now().plusDays(5));
+    allZones.setAllZones(true);
+    offerRepository.save(allZones);
+
+    MvcResult resElPinar = mockMvc.perform(get("/api/public/offers").param("zone", "El Pinar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> idsElPinar = com.jayway.jsonpath.JsonPath.read(
+        resElPinar.getResponse().getContentAsString(), "$[*].id");
+    assertThat(idsElPinar).contains(allZones.getId().intValue());
+
+    MvcResult resSolymar = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> idsSolymar = com.jayway.jsonpath.JsonPath.read(
+        resSolymar.getResponse().getContentAsString(), "$[*].id");
+    assertThat(idsSolymar).contains(allZones.getId().intValue());
+  }
+
+  @Test
+  void sinZonaYSinAllZonesSigueExcluidaDeUnFiltroDeZona() throws Exception {
+    Business business = persistBusiness("Comercio Sin Zona Test", "098444009");
+    Offer sinZona = persistOffer(business, OfferStatus.ACTIVE, "otro", null, OffsetDateTime.now().plusDays(5));
+    // allZones queda false por default — decisión: distinto de "vale en toda zona".
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
+    assertThat(ids).doesNotContain(sinZona.getId().intValue());
+  }
+
+  @Test
+  void sourceNameSeExponeEnElDtoPublicoPeroSourceUrlYExternalKeyNo() throws Exception {
+    Business business = persistBusiness("Comercio Fuente Test", "098444010");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+    offer.setSourceName("Itaú beneficios");
+    offer.setSourceUrl("https://itau.com.uy/beneficios/secreto-interno");
+    offer.setExternalKey("itau-comercio-fuente-test-abc123");
+    offerRepository.save(offer);
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains("Itaú beneficios");
+    assertThat(body).doesNotContain("itau.com.uy");
+    assertThat(body).doesNotContain("itau-comercio-fuente-test-abc123");
+  }
+
+  @Test
   void filtraPorCategoria() throws Exception {
     Business business = persistBusiness("Comercio Categoria Test", "098444004");
     Offer pasteleria = persistOffer(business, OfferStatus.ACTIVE, "pasteleria", "Solymar", OffsetDateTime.now().plusDays(5));

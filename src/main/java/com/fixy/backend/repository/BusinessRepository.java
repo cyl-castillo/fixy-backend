@@ -16,4 +16,13 @@ public interface BusinessRepository extends JpaRepository<Business, Long> {
    */
   @Query("SELECT b FROM Business b WHERE REPLACE(REPLACE(b.whatsappNumber, ' ', ''), '+', '') = :normalized")
   Optional<Business> findByWhatsappNumber(String normalized);
+
+  /**
+   * Find-or-create de la ingesta automática (OfferService.ingest): el
+   * scraper solo conoce el nombre curado del comercio (merchants.yaml), no
+   * ids internos. Coincidencia exacta case-insensitive — a este volumen no
+   * hace falta fuzzy matching, y evitarlo evita fusionar comercios distintos
+   * por accidente.
+   */
+  Optional<Business> findByNameIgnoreCase(String name);
 }

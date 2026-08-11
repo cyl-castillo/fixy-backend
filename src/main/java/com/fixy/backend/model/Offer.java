@@ -26,6 +26,8 @@ public class Offer {
   public static final String ORIGIN_MANUAL = "manual";
   /** Reenvío por WhatsApp con extracción por IA (fuera de alcance de este commit). */
   public static final String ORIGIN_WHATSAPP_FORWARD = "whatsapp_forward";
+  /** Ingesta automática diaria desde fuentes públicas curadas (bancos uruguayos) — ver OfferService.ingest. */
+  public static final String ORIGIN_SCRAPED_SOURCE = "scraped_source";
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -67,6 +69,21 @@ public class Offer {
   /** Texto/caption original del mensaje de WhatsApp, para auditoría de la aprobación humana. */
   @Column(length = 2000)
   private String sourceMessageRaw;
+
+  /** Nombre humano de la fuente pública ("Itaú beneficios"). Solo ofertas {@link #ORIGIN_SCRAPED_SOURCE}. */
+  private String sourceName;
+
+  /** URL de la página de origen — solo DTO admin, nunca el público (honestidad sin exponer scraping). */
+  @Column(length = 500)
+  private String sourceUrl;
+
+  /** Clave de dedup estable para la ingesta idempotente: hash de fuente+comercio+beneficio. Solo DTO admin. */
+  private String externalKey;
+
+  /** "Vale en todas las zonas" (cadenas con presencia en toda Ciudad de la Costa) — distinto de zona faltante:
+   * una oferta sin zona Y sin allZones sigue excluida de la superficie pública filtrada por zona. */
+  @Column(nullable = false)
+  private boolean allZones;
 
   /** Métricas Fase 2 (roadmap): contadores simples, sin idempotencia — cada
    * POST público /view o /click suma uno. Solo se exponen en el DTO admin. */
@@ -126,6 +143,14 @@ public class Offer {
   public void setOrigin(String origin) { this.origin = origin; }
   public String getSourceMessageRaw() { return sourceMessageRaw; }
   public void setSourceMessageRaw(String sourceMessageRaw) { this.sourceMessageRaw = sourceMessageRaw; }
+  public String getSourceName() { return sourceName; }
+  public void setSourceName(String sourceName) { this.sourceName = sourceName; }
+  public String getSourceUrl() { return sourceUrl; }
+  public void setSourceUrl(String sourceUrl) { this.sourceUrl = sourceUrl; }
+  public String getExternalKey() { return externalKey; }
+  public void setExternalKey(String externalKey) { this.externalKey = externalKey; }
+  public boolean isAllZones() { return allZones; }
+  public void setAllZones(boolean allZones) { this.allZones = allZones; }
   public int getViewCount() { return viewCount; }
   public void setViewCount(int viewCount) { this.viewCount = viewCount; }
   public int getClickCount() { return clickCount; }

@@ -1,9 +1,14 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.dto.OfferCreateRequest;
+import com.fixy.backend.dto.OfferIngestItem;
+import com.fixy.backend.dto.OfferIngestRequest;
+import com.fixy.backend.dto.OfferIngestResponse;
 import com.fixy.backend.dto.OfferPublicResponse;
 import com.fixy.backend.dto.OfferResponse;
 import com.fixy.backend.dto.OfferUpdateRequest;
+import com.fixy.backend.model.Business;
+import com.fixy.backend.model.BusinessStatus;
 import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Offer;
 import com.fixy.backend.model.OfferStatus;
@@ -16,11 +21,16 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -35,6 +45,8 @@ import org.springframework.web.server.ResponseStatusException;
  */
 @Service
 public class OfferService {
+
+  private static final Logger log = LoggerFactory.getLogger(OfferService.class);
 
   /** Vigencia default cuando ops aprueba sin cargar validUntil (diseño §5). */
   private static final long DEFAULT_VALIDITY_DAYS = 14;
@@ -136,6 +148,11 @@ public class OfferService {
     if (normalizedZone.isBlank()) {
       return true;
     }
+    // "Vale en todas las zonas" (cadenas con presencia en toda CdlC) — distinto
+    // de zona faltante: una oferta sin zona Y sin allZones sigue excluida.
+    if (offer.isAllZones()) {
+      return true;
+    }
     String offerZone = offer.getZone();
     if (offerZone == null || offerZone.isBlank()) {
       return false;
@@ -162,7 +179,8 @@ public class OfferService {
             offer.getZone(),
             offer.getPhotoUrl(),
             offer.getValidUntil(),
-            business.getName()
+            business.getName(),
+            offer.getSourceName()
         ))
         .orElse(null);
   }
@@ -189,6 +207,123 @@ public class OfferService {
     offer.setSourceMessageRaw(trimToNull(request.sourceMessageRaw()));
     offer.setStatus(OfferStatus.DRAFT);
     return toResponse(offerRepository.save(offer));
+  }
+
+  /**
+   * Ingesta idempotente de ofertas scrapeadas de fuentes públicas curadas
+   * (bancos uruguayos) — ver maquina/scripts/ofertas-fuentes/. Publicación
+   * SIEMPRE mediada por aprobación humana: toda oferta nueva nace DRAFT
+   * (mismo {@code Offer.prePersist} que cualquier otro origen); una oferta
+   * ya aprobada (ACTIVE) NUNCA se pisa sola.
+   *
+   * <p>Reglas (una pasada por item, dedup por {@code externalKey}):
+   * <ul>
+   *   <li>no existe → crea DRAFT.</li>
+   *   <li>existe y sigue en DRAFT → refresca sus datos (título, vigencia,
+   *   zona, etc.) con lo último de la fuente.</li>
+   *   <li>existe pero ya salió de DRAFT (ACTIVE/REJECTED/EXPIRED) → NO se
+   *   toca; una aprobación humana no se revierte por una corrida
+   *   automática.</li>
+   * </ul>
+   *
+   * <p>Limpieza de cola: se asume que cada corrida manda el listado COMPLETO
+   * vigente de cada fuente presente en el request. Para cada
+   * {@code sourceName} del batch, toda oferta {@code ORIGIN_SCRAPED_SOURCE}
+   * de esa fuente que NO vino en esta corrida es candidata: si sigue en
+   * DRAFT se marca REJECTED (ya no está vigente en la fuente, no tiene
+   * sentido dejarla pendiente de aprobación); si es ACTIVE no se toca —
+   * se reporta en {@code stillActiveMissingFromSource} para que ops decida
+   * (puede seguir vigente en el local aunque el banco haya bajado la promo
+   * de su web).
+   */
+  public OfferIngestResponse ingest(OfferIngestRequest request) {
+    int created = 0;
+    int refreshed = 0;
+    Set<String> seenKeysBySource = new HashSet<>();
+    Set<String> sourceNamesInBatch = new LinkedHashSet<>();
+
+    for (OfferIngestItem item : request.offers()) {
+      sourceNamesInBatch.add(item.sourceName());
+      seenKeysBySource.add(item.sourceName() + " " + item.externalKey());
+
+      Offer existing = offerRepository.findByExternalKey(item.externalKey()).orElse(null);
+      if (existing == null) {
+        Offer offer = new Offer();
+        offer.setBusinessId(findOrCreateBusiness(item).getId());
+        applyIngestFields(offer, item);
+        offer.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+        offerRepository.save(offer);
+        created++;
+      } else if (existing.getStatus() == OfferStatus.DRAFT) {
+        applyIngestFields(existing, item);
+        offerRepository.save(existing);
+        refreshed++;
+        log.info("ingesta de ofertas: refrescada id={} externalKey={} source={}",
+            existing.getId(), item.externalKey(), item.sourceName());
+      }
+      // ACTIVE/REJECTED/EXPIRED: aprobación humana ya corrió, no se toca.
+    }
+
+    int discarded = 0;
+    List<Long> stillActiveMissingFromSource = new ArrayList<>();
+    for (String sourceName : sourceNamesInBatch) {
+      for (Offer offer : offerRepository.findByOriginAndSourceName(Offer.ORIGIN_SCRAPED_SOURCE, sourceName)) {
+        String key = sourceName + " " + offer.getExternalKey();
+        if (seenKeysBySource.contains(key)) {
+          continue;
+        }
+        if (offer.getStatus() == OfferStatus.DRAFT) {
+          offer.setStatus(OfferStatus.REJECTED);
+          offerRepository.save(offer);
+          discarded++;
+        } else if (offer.getStatus() == OfferStatus.ACTIVE) {
+          stillActiveMissingFromSource.add(offer.getId());
+        }
+      }
+    }
+
+    return new OfferIngestResponse(created, refreshed, discarded, stillActiveMissingFromSource);
+  }
+
+  private void applyIngestFields(Offer offer, OfferIngestItem item) {
+    offer.setExternalKey(item.externalKey());
+    offer.setSourceName(item.sourceName());
+    offer.setSourceUrl(trimToNull(item.sourceUrl()));
+    offer.setTitle(item.title().trim());
+    offer.setCategory(item.category().trim());
+    offer.setZone(trimToNull(item.zone()));
+    offer.setAllZones(item.allZones());
+    offer.setDescription(trimToNull(item.description()));
+    offer.setDiscountText(trimToNull(item.discountText()));
+    offer.setValidFrom(item.validFrom());
+    offer.setValidUntil(item.validUntil());
+  }
+
+  /**
+   * Find-or-create del {@link Business} de una oferta scrapeada: el scraper
+   * solo conoce el nombre curado del comercio (merchants.yaml), no un id de
+   * Fixy. {@code whatsappNumber} es NOT NULL en el modelo pero un comercio
+   * scrapeado de la web de un banco no tiene WhatsApp conocido — se usa un
+   * valor sintético marcado ("scraped:<slug>"), nunca un número real.
+   */
+  private Business findOrCreateBusiness(OfferIngestItem item) {
+    String name = item.businessName().trim();
+    return businessRepository.findByNameIgnoreCase(name).orElseGet(() -> {
+      Business business = new Business();
+      business.setName(name);
+      business.setWhatsappNumber("scraped:" + slug(name));
+      business.setCategory(defaultIfBlank(item.businessCategory(), "otro"));
+      business.setStatus(BusinessStatus.ACTIVE);
+      return businessRepository.save(business);
+    });
+  }
+
+  private String slug(String value) {
+    String normalized = java.text.Normalizer.normalize(value.toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "")
+        .replaceAll("[^a-z0-9]+", "-")
+        .replaceAll("(^-|-$)", "");
+    return normalized.isBlank() ? "comercio" : normalized;
   }
 
   public OfferResponse update(Long id, OfferUpdateRequest request) {
@@ -318,6 +453,7 @@ public class OfferService {
         offer.getTitle(),
         offer.getCategory(),
         offer.getZone(),
+        offer.isAllZones(),
         offer.getDescription(),
         offer.getDiscountText(),
         offer.getValidFrom(),
@@ -326,6 +462,9 @@ public class OfferService {
         offer.getStatus(),
         offer.getOrigin(),
         offer.getSourceMessageRaw(),
+        offer.getSourceName(),
+        offer.getSourceUrl(),
+        offer.getExternalKey(),
         offer.getViewCount(),
         offer.getClickCount(),
         offer.getCreatedAt(),
