@@ -68,6 +68,14 @@ public class Offer {
   @Column(length = 2000)
   private String sourceMessageRaw;
 
+  /** Métricas Fase 2 (roadmap): contadores simples, sin idempotencia — cada
+   * POST público /view o /click suma uno. Solo se exponen en el DTO admin. */
+  @Column(nullable = false)
+  private int viewCount;
+
+  @Column(nullable = false)
+  private int clickCount;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -118,6 +126,10 @@ public class Offer {
   public void setOrigin(String origin) { this.origin = origin; }
   public String getSourceMessageRaw() { return sourceMessageRaw; }
   public void setSourceMessageRaw(String sourceMessageRaw) { this.sourceMessageRaw = sourceMessageRaw; }
+  public int getViewCount() { return viewCount; }
+  public void setViewCount(int viewCount) { this.viewCount = viewCount; }
+  public int getClickCount() { return clickCount; }
+  public void setClickCount(int clickCount) { this.clickCount = clickCount; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

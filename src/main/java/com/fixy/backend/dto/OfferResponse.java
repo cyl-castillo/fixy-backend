@@ -17,6 +17,8 @@ public record OfferResponse(
     OfferStatus status,
     String origin,
     String sourceMessageRaw,
+    int viewCount,
+    int clickCount,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

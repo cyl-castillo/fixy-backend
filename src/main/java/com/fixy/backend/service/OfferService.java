@@ -1,8 +1,10 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.dto.OfferCreateRequest;
+import com.fixy.backend.dto.OfferPublicResponse;
 import com.fixy.backend.dto.OfferResponse;
 import com.fixy.backend.dto.OfferUpdateRequest;
+import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Offer;
 import com.fixy.backend.model.OfferStatus;
 import com.fixy.backend.repository.BusinessRepository;
@@ -14,6 +16,7 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -85,6 +88,87 @@ public class OfferService {
 
   public OfferResponse get(Long id) {
     return toResponse(findOffer(id));
+  }
+
+  /**
+   * Superficie pública de lectura (Loop 2 del roadmap, tarjeta de cierre de
+   * pedido): solo ofertas {@code ACTIVE} con {@code validUntil} no vencida,
+   * filtradas opcionalmente por zona/categoría. Zona usa
+   * {@link CoverageZone#covers} (misma jerarquía paraguas/barrio que el
+   * matching de proveedores); una oferta sin zona declarada no aparece en
+   * un listado filtrado por zona — decisión deliberada, evita mostrar una
+   * oferta fuera de contexto por un dato faltante en vez de por elección.
+   */
+  public List<OfferPublicResponse> listPublic(String zone, String category) {
+    String normalizedZone = normalize(zone);
+    String normalizedCategory = normalize(category);
+    OffsetDateTime now = OffsetDateTime.now(clock);
+
+    return offerRepository.findByStatusAndValidUntilAfter(OfferStatus.ACTIVE, now).stream()
+        .filter(offer -> matchesPublicZone(offer, normalizedZone))
+        .filter(offer -> matchesPublicCategory(offer, normalizedCategory))
+        .sorted(Comparator.comparing(Offer::getValidUntil))
+        .map(this::toPublicResponse)
+        .filter(java.util.Objects::nonNull)
+        .toList();
+  }
+
+  /** Conteo de ofertas vigentes, sin filtros — barato, listo para el futuro flag del tab. */
+  public long countPublic() {
+    return offerRepository.countByStatusAndValidUntilAfter(OfferStatus.ACTIVE, OffsetDateTime.now(clock));
+  }
+
+  /** Contador simple, sin idempotencia (fire-and-forget desde el cliente). */
+  public void registerView(Long id) {
+    Offer offer = findOffer(id);
+    offer.setViewCount(offer.getViewCount() + 1);
+    offerRepository.save(offer);
+  }
+
+  /** Contador simple, sin idempotencia (fire-and-forget desde el cliente). */
+  public void registerClick(Long id) {
+    Offer offer = findOffer(id);
+    offer.setClickCount(offer.getClickCount() + 1);
+    offerRepository.save(offer);
+  }
+
+  private boolean matchesPublicZone(Offer offer, String normalizedZone) {
+    if (normalizedZone.isBlank()) {
+      return true;
+    }
+    String offerZone = offer.getZone();
+    if (offerZone == null || offerZone.isBlank()) {
+      return false;
+    }
+    return CoverageZone.covers(offerZone, normalizedZone);
+  }
+
+  private boolean matchesPublicCategory(Offer offer, String normalizedCategory) {
+    if (normalizedCategory.isBlank()) {
+      return true;
+    }
+    return normalize(offer.getCategory()).equals(normalizedCategory);
+  }
+
+  /** null si el Business referenciado no existe (huérfano) — se filtra en listPublic, no debería pasar en régimen normal. */
+  private OfferPublicResponse toPublicResponse(Offer offer) {
+    return businessRepository.findById(offer.getBusinessId())
+        .map(business -> new OfferPublicResponse(
+            offer.getId(),
+            offer.getTitle(),
+            offer.getDiscountText(),
+            offer.getDescription(),
+            offer.getCategory(),
+            offer.getZone(),
+            offer.getPhotoUrl(),
+            offer.getValidUntil(),
+            business.getName()
+        ))
+        .orElse(null);
+  }
+
+  private String normalize(String value) {
+    return CoverageZone.normalize(value);
   }
 
   public OfferResponse create(OfferCreateRequest request) {
@@ -242,6 +326,8 @@ public class OfferService {
         offer.getStatus(),
         offer.getOrigin(),
         offer.getSourceMessageRaw(),
+        offer.getViewCount(),
+        offer.getClickCount(),
         offer.getCreatedAt(),
         offer.getUpdatedAt()
     );

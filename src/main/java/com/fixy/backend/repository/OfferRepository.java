@@ -15,4 +15,10 @@ public interface OfferRepository extends JpaRepository<Offer, Long> {
 
   /** Candidatos del scheduler de expiración (Historia 3.4): activas ya vencidas. */
   List<Offer> findByStatusAndValidUntilBefore(OfferStatus status, OffsetDateTime cutoff);
+
+  /** Ofertas vigentes para la superficie pública: activas y no vencidas. */
+  List<Offer> findByStatusAndValidUntilAfter(OfferStatus status, OffsetDateTime cutoff);
+
+  /** Conteo de ofertas vigentes (Fase 2: futuro flag del tab, roadmap Historia 3.3). */
+  long countByStatusAndValidUntilAfter(OfferStatus status, OffsetDateTime cutoff);
 }
