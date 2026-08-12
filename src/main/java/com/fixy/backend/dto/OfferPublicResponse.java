@@ -25,6 +25,7 @@ public record OfferPublicResponse(
     String description,
     String category,
     String zone,
+    boolean allZones,
     String photoUrl,
     OffsetDateTime validUntil,
     String businessName,

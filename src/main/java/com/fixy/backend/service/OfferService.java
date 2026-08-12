@@ -200,6 +200,7 @@ public class OfferService {
             offer.getDescription(),
             offer.getCategory(),
             offer.getZone(),
+            offer.isAllZones(),
             offer.getPhotoUrl(),
             offer.getValidUntil(),
             business.getName(),
