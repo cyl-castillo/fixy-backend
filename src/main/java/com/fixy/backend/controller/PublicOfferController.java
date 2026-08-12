@@ -43,6 +43,12 @@ public class PublicOfferController {
     return new OfferPublicCountResponse(offerService.countPublic());
   }
 
+  /** Detalle público: 200 solo si ACTIVE y vigente, 404 en cualquier otro caso. */
+  @GetMapping("/{id}")
+  public OfferPublicResponse get(@PathVariable Long id) {
+    return offerService.getPublic(id);
+  }
+
   /** Fire-and-forget desde el cliente: contador simple, sin idempotencia ni rate-limit. */
   @PostMapping("/{id}/view")
   @ResponseStatus(HttpStatus.NO_CONTENT)

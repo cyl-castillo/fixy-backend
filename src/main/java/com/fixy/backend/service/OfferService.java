@@ -125,6 +125,29 @@ public class OfferService {
         .toList();
   }
 
+  /**
+   * Detalle público de una oferta puntual — mismo DTO y mismo criterio que
+   * {@link #listPublic}: 200 solo si {@code ACTIVE} y {@code validUntil} no
+   * vencida. Cualquier otro caso (no existe, draft, rejected, expired, o
+   * activa mas vencida) es 404 sin distinguir el motivo — no hay que
+   * filtrar el estado interno de una oferta a través del código de error.
+   */
+  public OfferPublicResponse getPublic(Long id) {
+    Offer offer = offerRepository.findById(id).orElse(null);
+    if (offer == null || offer.getStatus() != OfferStatus.ACTIVE) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
+    OffsetDateTime validUntil = offer.getValidUntil();
+    if (validUntil == null || !validUntil.isAfter(OffsetDateTime.now(clock))) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
+    OfferPublicResponse response = toPublicResponse(offer);
+    if (response == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
+    return response;
+  }
+
   /** Conteo de ofertas vigentes, sin filtros — barato, listo para el futuro flag del tab. */
   public long countPublic() {
     return offerRepository.countByStatusAndValidUntilAfter(OfferStatus.ACTIVE, OffsetDateTime.now(clock));

@@ -174,6 +174,61 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
+  void getDevuelveLaOfertaSiEstaActivaYVigente() throws Exception {
+    Business business = persistBusiness("Comercio Detalle Test", "098444011");
+    Offer active = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", active.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value(active.getId().intValue()))
+        .andExpect(jsonPath("$.businessName").value("Comercio Detalle Test"))
+        .andExpect(jsonPath("$.sourceMessageRaw").doesNotExist())
+        .andExpect(jsonPath("$.whatsappNumber").doesNotExist());
+  }
+
+  @Test
+  void getDevuelve404SiLaOfertaNoExiste() throws Exception {
+    mockMvc.perform(get("/api/public/offers/{id}", 999999))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getDevuelve404SiLaOfertaEstaEnDraft() throws Exception {
+    Business business = persistBusiness("Comercio Detalle Draft Test", "098444012");
+    Offer draft = persistOffer(business, OfferStatus.DRAFT, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", draft.getId()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getDevuelve404SiLaOfertaFueRechazada() throws Exception {
+    Business business = persistBusiness("Comercio Detalle Rejected Test", "098444013");
+    Offer rejected = persistOffer(business, OfferStatus.REJECTED, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", rejected.getId()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getDevuelve404SiLaOfertaEstaVencidaAunqueSigaActive() throws Exception {
+    Business business = persistBusiness("Comercio Detalle Vencida Test", "098444014");
+    Offer vencida = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().minusHours(1));
+
+    mockMvc.perform(get("/api/public/offers/{id}", vencida.getId()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void getDevuelve404SiLaOfertaEstaExpired() throws Exception {
+    Business business = persistBusiness("Comercio Detalle Expired Test", "098444015");
+    Offer expired = persistOffer(business, OfferStatus.EXPIRED, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", expired.getId()))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
   void filtraPorCategoria() throws Exception {
     Business business = persistBusiness("Comercio Categoria Test", "098444004");
     Offer pasteleria = persistOffer(business, OfferStatus.ACTIVE, "pasteleria", "Solymar", OffsetDateTime.now().plusDays(5));
