@@ -1,7 +1,10 @@
 package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.model.CoverageZone;
+import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.PushSubscription;
+import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.PushSubscriptionRepository;
 import java.security.GeneralSecurityException;
 import java.security.Security;
@@ -41,6 +44,9 @@ public class PushNotificationService {
 
   private static final Logger log = LoggerFactory.getLogger(PushNotificationService.class);
 
+  /** Deep-link default de todos los triggers existentes (matching, mensajes, comisiones...): abre la app en la raíz. */
+  private static final String DEFAULT_URL = "/";
+
   static {
     if (Security.getProvider(BouncyCastleProvider.PROVIDER_NAME) == null) {
       Security.addProvider(new BouncyCastleProvider());
@@ -48,6 +54,7 @@ public class PushNotificationService {
   }
 
   private final PushSubscriptionRepository repository;
+  private final LeadRepository leadRepository;
   private final ObjectMapper objectMapper;
   private final String publicKey;
   private final boolean enabled;
@@ -55,12 +62,14 @@ public class PushNotificationService {
 
   public PushNotificationService(
       PushSubscriptionRepository repository,
+      LeadRepository leadRepository,
       ObjectMapper objectMapper,
       @Value("${fixy.push.vapid-public-key:}") String publicKey,
       @Value("${fixy.push.vapid-private-key:}") String privateKey,
       @Value("${fixy.push.subject:mailto:soporte@fixy.com.uy}") String subject
   ) {
     this.repository = repository;
+    this.leadRepository = leadRepository;
     this.objectMapper = objectMapper;
     this.publicKey = publicKey;
     this.enabled = publicKey != null && !publicKey.isBlank()
@@ -92,7 +101,44 @@ public class PushNotificationService {
     subscription.setEndpoint(endpoint);
     subscription.setP256dh(p256dh);
     subscription.setAuth(auth);
+    subscription.setZone(resolveLeadZone(leadId));
     repository.save(subscription);
+  }
+
+  /**
+   * Zona canónica del lead al momento del alta (Fase Push-1): {@code
+   * Lead.location} resuelto contra {@link CoverageZone#fromLabel}, mismo
+   * alias/jerarquía que usa el matching. Null si el lead no existe o su
+   * zona declarada no es una que Fixy reconozca — una suscripción sin zona
+   * simplemente queda fuera del digest, no rompe el alta.
+   */
+  private String resolveLeadZone(Long leadId) {
+    if (leadId == null) return null;
+    Lead lead = leadRepository.findById(leadId).orElse(null);
+    if (lead == null) return null;
+    return CoverageZone.fromLabel(lead.getLocation()).map(CoverageZone::label).orElse(null);
+  }
+
+  /**
+   * Backfill de zona (Fase Push-1) para suscripciones de cliente que
+   * quedaron sin ella — las dadas de alta antes de esta fase, o cuyo lead
+   * no tenía zona reconocida en su momento pero sí ahora. Idempotente y
+   * barato (dataset chico): se corre en cada boot desde
+   * {@code PushSubscriptionZoneBackfillConfig}, no solo una vez, porque no
+   * cuesta nada y cierra el caso de un lead que corrige su zona después
+   * del alta de la suscripción.
+   */
+  public int backfillMissingZones() {
+    List<PushSubscription> candidates = repository.findByLeadIdIsNotNullAndZoneIsNull();
+    int updated = 0;
+    for (PushSubscription sub : candidates) {
+      String zone = resolveLeadZone(sub.getLeadId());
+      if (zone == null) continue;
+      sub.setZone(zone);
+      repository.save(sub);
+      updated++;
+    }
+    return updated;
   }
 
   public void saveSubscriptionForProvider(Long providerId, String endpoint, String p256dh, String auth) {
@@ -112,10 +158,26 @@ public class PushNotificationService {
    */
   @Async
   public void notifyLeadHasNews(Long leadId, String title, String body) {
+    doNotifyLeadHasNews(leadId, title, body, DEFAULT_URL);
+  }
+
+  /**
+   * Igual que {@link #notifyLeadHasNews(Long, String, String)} con deep-link
+   * parametrizable (Fase Push-1: el digest de ofertas abre {@code
+   * /ofertas}, no la raíz). Overload en vez de agregar un parámetro al
+   * método existente para no tocar los 14 call sites de los triggers
+   * operativos ya en prod.
+   */
+  @Async
+  public void notifyLeadHasNews(Long leadId, String title, String body, String url) {
+    doNotifyLeadHasNews(leadId, title, body, url);
+  }
+
+  private void doNotifyLeadHasNews(Long leadId, String title, String body, String url) {
     if (!isEnabled() || leadId == null) return;
     List<PushSubscription> subs = repository.findByLeadId(leadId);
     if (subs.isEmpty()) return;
-    sendToAll(subs, title, body, "/");
+    sendToAll(subs, title, body, url);
   }
 
   /**
@@ -144,14 +206,15 @@ public class PushNotificationService {
     }
   }
 
+  /** Extraído para test unitario directo del contrato del payload (deep-link incluido) sin pasar por cifrado real. */
+  static Map<String, String> payloadMap(String title, String body, String url) {
+    return Map.of("title", title, "body", body, "url", url);
+  }
+
   private void send(PushSubscription sub, String title, String body, String url) throws Exception {
     Subscription.Keys keys = new Subscription.Keys(sub.getP256dh(), sub.getAuth());
     Subscription subscription = new Subscription(sub.getEndpoint(), keys);
-    String payload = objectMapper.writeValueAsString(Map.of(
-        "title", title,
-        "body", body,
-        "url", url
-    ));
+    String payload = objectMapper.writeValueAsString(payloadMap(title, body, url));
     Notification notification = new Notification(subscription, payload);
     org.apache.http.HttpResponse response = pushService.send(notification);
     int status = response.getStatusLine().getStatusCode();

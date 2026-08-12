@@ -19,6 +19,13 @@ import java.time.OffsetDateTime;
  * dispositivos/navegadores suscriptos). Suscripciones muertas (el push
  * service devuelve 404/410) se borran solas al fallar el envío, ver
  * {@link com.fixy.backend.service.PushNotificationService}.
+ *
+ * <p>{@link #zone} (Fase Push-1, FIXY_OFERTAS_PUSH_Y_MAPA.md §3) es la zona
+ * canónica ({@link com.fixy.backend.model.CoverageZone#label()}) del cliente
+ * al momento del alta — resuelta desde {@code Lead.location}, null si el
+ * lead no declaró una zona que Fixy reconozca (solo aplica a suscripciones
+ * de cliente; las de proveedor no la usan). {@link #lastOffersDigestAt}
+ * es el rate-limit del digest semanal de ofertas: null hasta el primer envío.
  */
 @Entity
 @Table(name = "push_subscriptions")
@@ -43,6 +50,10 @@ public class PushSubscription {
   @Column(nullable = false, length = 200)
   private String auth;
 
+  private String zone;
+
+  private OffsetDateTime lastOffersDigestAt;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -63,6 +74,10 @@ public class PushSubscription {
   public void setP256dh(String p256dh) { this.p256dh = p256dh; }
   public String getAuth() { return auth; }
   public void setAuth(String auth) { this.auth = auth; }
+  public String getZone() { return zone; }
+  public void setZone(String zone) { this.zone = zone; }
+  public OffsetDateTime getLastOffersDigestAt() { return lastOffersDigestAt; }
+  public void setLastOffersDigestAt(OffsetDateTime lastOffersDigestAt) { this.lastOffersDigestAt = lastOffersDigestAt; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

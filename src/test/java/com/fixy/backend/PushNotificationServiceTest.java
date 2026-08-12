@@ -2,7 +2,9 @@ package com.fixy.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.PushSubscription;
+import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.PushSubscriptionRepository;
 import com.fixy.backend.service.PushNotificationService;
 import com.sun.net.httpserver.HttpServer;
@@ -50,6 +52,9 @@ class PushNotificationServiceTest {
 
   @Autowired
   private PushSubscriptionRepository repository;
+
+  @Autowired
+  private LeadRepository leadRepository;
 
   private static HttpServer server;
   private static final BlockingQueue<String> receivedPaths = new ArrayBlockingQueue<>(10);
@@ -214,5 +219,59 @@ class PushNotificationServiceTest {
 
     String path = receivedPaths.poll(800, TimeUnit.MILLISECONDS);
     assertThat(path).as("sin suscripción no debería llamar al push service").isNull();
+  }
+
+  @Test
+  void notifyLeadHasNews_conUrlExplicita_noRompeElOverloadDefault() {
+    persistSubscriptionForLead(9012L, "/lead-digest-endpoint");
+
+    pushNotificationService.notifyLeadHasNews(9012L, "Ofertas de esta semana en Aeroparque", "20% off", "/ofertas");
+
+    String path = awaitOneRequest();
+    assertThat(path).isEqualTo("/lead-digest-endpoint");
+  }
+
+  private Lead persistLeadWithLocation(String location) {
+    Lead lead = new Lead();
+    lead.setProblem("problema de prueba push zona");
+    lead.setLocation(location);
+    return leadRepository.save(lead);
+  }
+
+  @Test
+  void saveSubscriptionForLead_resolvesZoneFromLeadLocation() {
+    Lead lead = persistLeadWithLocation("Aeroparque");
+
+    pushNotificationService.saveSubscriptionForLead(
+        lead.getId(), "http://127.0.0.1:18766/lead-zone-alta", TEST_P256DH, TEST_AUTH);
+
+    List<PushSubscription> subs = repository.findByLeadId(lead.getId());
+    assertThat(subs).hasSize(1);
+    assertThat(subs.get(0).getZone()).isEqualTo("Aeroparque");
+  }
+
+  @Test
+  void saveSubscriptionForLead_leadConZonaNoCubierta_dejaZonaEnNull() {
+    Lead lead = persistLeadWithLocation("Pocitos"); // fuera de cobertura, no es una CoverageZone
+
+    pushNotificationService.saveSubscriptionForLead(
+        lead.getId(), "http://127.0.0.1:18766/lead-zone-no-cubierta", TEST_P256DH, TEST_AUTH);
+
+    List<PushSubscription> subs = repository.findByLeadId(lead.getId());
+    assertThat(subs).hasSize(1);
+    assertThat(subs.get(0).getZone()).isNull();
+  }
+
+  @Test
+  void backfillMissingZones_resuelveSuscripcionesViejasSinZona() {
+    Lead lead = persistLeadWithLocation("Aeroparque");
+    PushSubscription legacySub = persist(lead.getId(), null, "/lead-zone-backfill");
+    assertThat(legacySub.getZone()).as("simula una fila pre-V16, sin zona todavía").isNull();
+
+    int updated = pushNotificationService.backfillMissingZones();
+
+    assertThat(updated).isGreaterThanOrEqualTo(1);
+    PushSubscription reloaded = repository.findById(legacySub.getId()).orElseThrow();
+    assertThat(reloaded.getZone()).isEqualTo("Aeroparque");
   }
 }

@@ -1,10 +1,13 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.OfferCreateRequest;
+import com.fixy.backend.dto.OfferDigestPreviewResponse;
+import com.fixy.backend.dto.OfferDigestSendResponse;
 import com.fixy.backend.dto.OfferIngestRequest;
 import com.fixy.backend.dto.OfferIngestResponse;
 import com.fixy.backend.dto.OfferResponse;
 import com.fixy.backend.dto.OfferUpdateRequest;
+import com.fixy.backend.service.OfferDigestService;
 import com.fixy.backend.service.OfferService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -32,9 +35,11 @@ import org.springframework.web.multipart.MultipartFile;
 public class OfferController {
 
   private final OfferService offerService;
+  private final OfferDigestService offerDigestService;
 
-  public OfferController(OfferService offerService) {
+  public OfferController(OfferService offerService, OfferDigestService offerDigestService) {
     this.offerService = offerService;
+    this.offerDigestService = offerDigestService;
   }
 
   @GetMapping
@@ -83,5 +88,21 @@ public class OfferController {
   @PostMapping(value = "/{id}/photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
   public OfferResponse uploadPhoto(@PathVariable Long id, @RequestParam("file") MultipartFile file) {
     return offerService.uploadPhoto(id, file);
+  }
+
+  /**
+   * Preview del digest semanal de ofertas por zona (Fase Push-1): a quiénes
+   * se les enviaría y por qué no a los demás, sin mandar nada — human-in-
+   * the-loop antes de {@link #digestSend()}.
+   */
+  @GetMapping("/digest/preview")
+  public OfferDigestPreviewResponse digestPreview() {
+    return offerDigestService.preview();
+  }
+
+  /** Ejecuta el digest semanal de ofertas por zona (Fase Push-1) con las mismas reglas que el preview. */
+  @PostMapping("/digest/send")
+  public OfferDigestSendResponse digestSend() {
+    return offerDigestService.send();
   }
 }
