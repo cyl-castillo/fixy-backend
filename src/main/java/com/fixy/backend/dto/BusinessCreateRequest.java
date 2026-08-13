@@ -7,6 +7,7 @@ public record BusinessCreateRequest(
     @NotBlank(message = "whatsappNumber is required") String whatsappNumber,
     @NotBlank(message = "category is required") String category,
     String primaryZone,
-    Long providerId
+    Long providerId,
+    String address
 ) {
 }

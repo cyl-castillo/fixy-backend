@@ -42,6 +42,7 @@ public class BusinessService {
     business.setCategory(request.category().trim());
     business.setPrimaryZone(trimToNull(request.primaryZone()));
     business.setProviderId(request.providerId());
+    business.setAddress(trimToNull(request.address()));
     business.setStatus(BusinessStatus.ACTIVE);
     return toResponse(businessRepository.save(business));
   }
@@ -55,6 +56,7 @@ public class BusinessService {
     if (request.primaryZone() != null) business.setPrimaryZone(trimToNull(request.primaryZone()));
     if (request.status() != null) business.setStatus(request.status());
     if (request.providerId() != null) business.setProviderId(request.providerId());
+    if (request.address() != null) business.setAddress(trimToNull(request.address()));
 
     return toResponse(businessRepository.save(business));
   }
@@ -73,6 +75,7 @@ public class BusinessService {
         business.getPrimaryZone(),
         business.getStatus(),
         business.getProviderId(),
+        business.getAddress(),
         business.getCreatedAt(),
         business.getUpdatedAt()
     );

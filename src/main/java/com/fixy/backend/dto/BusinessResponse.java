@@ -11,6 +11,7 @@ public record BusinessResponse(
     String primaryZone,
     BusinessStatus status,
     Long providerId,
+    String address,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

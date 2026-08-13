@@ -85,6 +85,67 @@ class BusinessCrudTest {
   }
 
   @Test
+  void creaConAddressYLoDevuelveEnElResponse() throws Exception {
+    MvcResult res = mockMvc.perform(post("/api/businesses")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Panadería Con Dirección",
+                  "whatsappNumber": "098111005",
+                  "category": "otro",
+                  "primaryZone": "Solymar",
+                  "address": "Av. Giannattasio Km 22.500"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+
+    assertThat((String) JsonPath.read(res.getResponse().getContentAsString(), "$.address"))
+        .isEqualTo("Av. Giannattasio Km 22.500");
+  }
+
+  @Test
+  void altaSinAddressQuedaNull() throws Exception {
+    Integer id = createBusiness("098111006");
+
+    mockMvc.perform(get("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.address").doesNotExist());
+  }
+
+  @Test
+  void editaLaAddressYLuegoLaBorraConStringVacio() throws Exception {
+    Integer id = createBusiness("098111007");
+
+    MvcResult setRes = mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "address": "Ruta Interbalnearia Km 23"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn();
+    assertThat((String) JsonPath.read(setRes.getResponse().getContentAsString(), "$.address"))
+        .isEqualTo("Ruta Interbalnearia Km 23");
+
+    // "   " se normaliza a null vía trimToNull, mismo patrón que el resto de campos texto.
+    mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "address": "   "
+                }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.address").doesNotExist());
+  }
+
+  @Test
   void listaIncluyeLosComerciosCreadosEnElTest() throws Exception {
     Integer a = createBusiness("098111003");
     Integer b = createBusiness("098111004");

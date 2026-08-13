@@ -8,6 +8,7 @@ public record BusinessUpdateRequest(
     String category,
     String primaryZone,
     BusinessStatus status,
-    Long providerId
+    Long providerId,
+    String address
 ) {
 }

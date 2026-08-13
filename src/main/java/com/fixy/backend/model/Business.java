@@ -46,6 +46,9 @@ public class Business {
   /** Reusa CoverageZone (fromLabel) — NO catálogo paralelo de zonas. */
   private String primaryZone;
 
+  /** Texto libre, nullable — dato barato hoy, mapa mañana (ver V17). */
+  private String address;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
   private BusinessStatus status;
@@ -84,6 +87,8 @@ public class Business {
   public void setCategory(String category) { this.category = category; }
   public String getPrimaryZone() { return primaryZone; }
   public void setPrimaryZone(String primaryZone) { this.primaryZone = primaryZone; }
+  public String getAddress() { return address; }
+  public void setAddress(String address) { this.address = address; }
   public BusinessStatus getStatus() { return status; }
   public void setStatus(BusinessStatus status) { this.status = status; }
   public Long getProviderId() { return providerId; }
