@@ -17,6 +17,16 @@ import java.time.OffsetDateTime;
  * oferta viene de una ingesta automática de la web de un banco, el vecino
  * lo ve — "Fuente: Itaú beneficios" — en vez de que Fixy la presente como
  * propia).
+ *
+ * <p>{@code businessAddress} SÍ se expone: dirección física es dato
+ * público (a diferencia de {@code whatsappNumber}), sin problema de
+ * privacidad — puede ser null si el comercio no la cargó.
+ *
+ * <p>{@code viewCount} aplica la política de social proof "nunca mostrar
+ * un número chico" en un solo lugar (el servidor): por debajo del umbral
+ * configurable ({@code fixy.offers.social-proof-min-views}) viaja
+ * {@code null} — nunca se le dice al vecino que una oferta "fue vista por
+ * 2 vecinos".
  */
 public record OfferPublicResponse(
     Long id,
@@ -29,6 +39,8 @@ public record OfferPublicResponse(
     String photoUrl,
     OffsetDateTime validUntil,
     String businessName,
-    String sourceName
+    String sourceName,
+    String businessAddress,
+    Integer viewCount
 ) {
 }

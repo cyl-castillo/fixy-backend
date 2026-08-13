@@ -288,4 +288,55 @@ class PublicOfferSurfaceTest {
     mockMvc.perform(post("/api/public/offers/{id}/view", 999999)).andExpect(status().isNotFound());
     mockMvc.perform(post("/api/public/offers/{id}/click", 999999)).andExpect(status().isNotFound());
   }
+
+  @Test
+  void businessAddressSeExponeCuandoElComercioLaCargo() throws Exception {
+    Business business = persistBusiness("Comercio Con Direccion Test", "098444016");
+    business.setAddress("Av. Giannattasio km 20, Solymar");
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessAddress").value("Av. Giannattasio km 20, Solymar"));
+  }
+
+  @Test
+  void businessAddressAusenteQuedaNullEnElDtoPublico() throws Exception {
+    Business business = persistBusiness("Comercio Sin Direccion Test", "098444017");
+    // address queda null — default, no se setea.
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessAddress").doesNotExist());
+  }
+
+  @Test
+  void viewCountQuedaNullDebajoDelUmbralDeSocialProof() throws Exception {
+    Business business = persistBusiness("Comercio Views Bajo Umbral Test", "098444018");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    for (int i = 0; i < 5; i++) {
+      mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
+    }
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.viewCount").doesNotExist());
+  }
+
+  @Test
+  void viewCountMuestraElValorRealEnOSobreElUmbralDeSocialProof() throws Exception {
+    Business business = persistBusiness("Comercio Views Sobre Umbral Test", "098444019");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    for (int i = 0; i < 10; i++) {
+      mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
+    }
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.viewCount").value(10));
+  }
 }

@@ -62,6 +62,7 @@ public class OfferService {
   private final Clock clock;
   private final Path uploadsRoot;
   private final String urlPrefix;
+  private final int socialProofMinViews;
   private final SecureRandom random = new SecureRandom();
 
   public OfferService(
@@ -69,13 +70,15 @@ public class OfferService {
       BusinessRepository businessRepository,
       Clock clock,
       @Value("${fixy.uploads.dir:./data/uploads}") String uploadsDir,
-      @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix
+      @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix,
+      @Value("${fixy.offers.social-proof-min-views:10}") int socialProofMinViews
   ) {
     this.offerRepository = offerRepository;
     this.businessRepository = businessRepository;
     this.clock = clock;
     this.uploadsRoot = Path.of(uploadsDir).toAbsolutePath().normalize();
     this.urlPrefix = urlPrefix.replaceAll("/+$", "");
+    this.socialProofMinViews = socialProofMinViews;
     try {
       Files.createDirectories(this.uploadsRoot);
     } catch (IOException e) {
@@ -204,7 +207,9 @@ public class OfferService {
             offer.getPhotoUrl(),
             offer.getValidUntil(),
             business.getName(),
-            offer.getSourceName()
+            offer.getSourceName(),
+            business.getAddress(),
+            offer.getViewCount() >= socialProofMinViews ? offer.getViewCount() : null
         ))
         .orElse(null);
   }
