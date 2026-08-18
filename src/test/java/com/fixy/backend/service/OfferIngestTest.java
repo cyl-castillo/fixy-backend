@@ -28,8 +28,14 @@ import org.springframework.test.web.servlet.MvcResult;
 class OfferIngestTest {
 
   @Autowired private MockMvc mockMvc;
+  @Autowired private OfferExpirationScheduler offerExpirationScheduler;
 
   private String item(String externalKey, String sourceName, String businessName, String title, boolean allZones) {
+    return item(externalKey, sourceName, businessName, title, allZones, "2026-12-01T00:00:00Z");
+  }
+
+  private String item(String externalKey, String sourceName, String businessName, String title,
+      boolean allZones, String validUntil) {
     return """
         {
           "externalKey": "%s",
@@ -42,9 +48,23 @@ class OfferIngestTest {
           "zone": "Solymar",
           "allZones": %s,
           "discountText": "20%% off",
-          "validUntil": "2026-12-01T00:00:00Z"
+          "validUntil": "%s"
         }
-        """.formatted(externalKey, sourceName, businessName, title, allZones);
+        """.formatted(externalKey, sourceName, businessName, title, allZones, validUntil);
+  }
+
+  /** Aprueba la oferta de esa externalKey que está en la cola y devuelve su id. */
+  private int approveByExternalKey(String key) throws Exception {
+    MvcResult queue = mockMvc.perform(get("/api/offers").param("status", "draft")
+            .with(httpBasic("test-ops", "test-pass")))
+        .andReturn();
+    List<Object> matches = JsonPath.read(queue.getResponse().getContentAsString(),
+        "$[?(@.externalKey == '" + key + "')]");
+    assertThat(matches).hasSize(1);
+    int offerId = (Integer) ((Map<?, ?>) matches.get(0)).get("id");
+    mockMvc.perform(post("/api/offers/{id}/approve", offerId).with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk());
+    return offerId;
   }
 
   private MvcResult ingest(String... items) throws Exception {
@@ -211,5 +231,93 @@ class OfferIngestTest {
     List<Object> matches = JsonPath.read(businesses.getResponse().getContentAsString(),
         "$[?(@.name == '" + business + "')]");
     assertThat(matches).hasSize(1);
+  }
+
+  @Test
+  void ofertaAprobadaQueSigueEnLaFuenteRenuevaSuVigenciaSinPisarElContenido() throws Exception {
+    String key = "test-ing-" + System.nanoTime();
+    ingest(item(key, "Fuente Test G", "Comercio Renueva Test", "20% off local", false,
+        "2026-09-01T00:00:00Z"));
+    int offerId = approveByExternalKey(key);
+
+    // Corrida siguiente: el banco sigue publicando el beneficio, con vigencia más lejana.
+    MvcResult res = ingest(item(key, "Fuente Test G", "Comercio Renueva Test",
+        "TITULO QUE NO DEBE APLICARSE", false, "2026-09-08T00:00:00Z"));
+    Map<String, Object> body = JsonPath.read(res.getResponse().getContentAsString(), "$");
+    assertThat(((Number) body.get("revalidated")).intValue()).isEqualTo(1);
+    assertThat(((Number) body.get("refreshed")).intValue()).isEqualTo(0);
+    assertThat(((Number) body.get("created")).intValue()).isEqualTo(0);
+
+    // La vigencia se movió; el contenido y el estado aprobado quedaron intactos.
+    mockMvc.perform(get("/api/offers/{id}", offerId).with(httpBasic("test-ops", "test-pass")))
+        .andExpect(jsonPath("$.status").value("ACTIVE"))
+        .andExpect(jsonPath("$.title").value("20% off local"))
+        .andExpect(jsonPath("$.validUntil").value(org.hamcrest.Matchers.startsWith("2026-09-08")));
+  }
+
+  @Test
+  void laVigenciaDeUnaOfertaAprobadaNuncaSeRecorta() throws Exception {
+    String key = "test-ing-" + System.nanoTime();
+    ingest(item(key, "Fuente Test H", "Comercio No Recorta Test", "20% off local", false,
+        "2026-11-01T00:00:00Z"));
+    int offerId = approveByExternalKey(key);
+
+    // La fuente manda una fecha ANTERIOR a la ya aprobada: no se toca nada.
+    MvcResult res = ingest(item(key, "Fuente Test H", "Comercio No Recorta Test", "20% off local", false,
+        "2026-10-01T00:00:00Z"));
+    Map<String, Object> body = JsonPath.read(res.getResponse().getContentAsString(), "$");
+    assertThat(((Number) body.get("revalidated")).intValue()).isEqualTo(0);
+
+    mockMvc.perform(get("/api/offers/{id}", offerId).with(httpBasic("test-ops", "test-pass")))
+        .andExpect(jsonPath("$.validUntil").value(org.hamcrest.Matchers.startsWith("2026-11-01")));
+  }
+
+  @Test
+  void ofertaVencidaQueLaFuenteSiguePublicandoVuelveALaColaDeAprobacion() throws Exception {
+    String key = "test-ing-" + System.nanoTime();
+    // Nace, se aprueba y vence (validUntil en el pasado + el scheduler de expiración).
+    ingest(item(key, "Fuente Test I", "Comercio Revive Test", "20% off local", false,
+        "2020-01-01T00:00:00Z"));
+    int offerId = approveByExternalKey(key);
+    offerExpirationScheduler.processOnce();
+    mockMvc.perform(get("/api/offers/{id}", offerId).with(httpBasic("test-ops", "test-pass")))
+        .andExpect(jsonPath("$.status").value("EXPIRED"));
+
+    // El banco la sigue listando: vuelve a DRAFT con datos frescos, NO a ACTIVE sola.
+    MvcResult res = ingest(item(key, "Fuente Test I", "Comercio Revive Test", "25% off (actualizado)", false,
+        "2026-12-31T00:00:00Z"));
+    Map<String, Object> body = JsonPath.read(res.getResponse().getContentAsString(), "$");
+    assertThat(((Number) body.get("reopened")).intValue()).isEqualTo(1);
+    assertThat(((Number) body.get("created")).intValue()).isEqualTo(0);
+
+    mockMvc.perform(get("/api/offers/{id}", offerId).with(httpBasic("test-ops", "test-pass")))
+        .andExpect(jsonPath("$.status").value("DRAFT"))
+        .andExpect(jsonPath("$.title").value("25% off (actualizado)"));
+  }
+
+  @Test
+  void ofertaRechazadaAManoNoResucitaAunqueLaFuenteLaSigaPublicando() throws Exception {
+    String source = "Fuente Test J " + System.nanoTime();
+    String key = "keyj-" + System.nanoTime();
+    String otra = "keyj2-" + System.nanoTime();
+    ingest(item(key, source, "Comercio Rechazado Test", "20% off local", false),
+        item(otra, source, "Comercio J2", "Oferta 2", false));
+
+    // key desaparece de la fuente → queda REJECTED por la limpieza de cola.
+    ingest(item(otra, source, "Comercio J2", "Oferta 2", false));
+
+    // Vuelve a aparecer en la fuente: sigue REJECTED, la ingesta no revierte un rechazo.
+    MvcResult res = ingest(item(key, source, "Comercio Rechazado Test", "20% off local", false),
+        item(otra, source, "Comercio J2", "Oferta 2", false));
+    Map<String, Object> body = JsonPath.read(res.getResponse().getContentAsString(), "$");
+    assertThat(((Number) body.get("reopened")).intValue()).isEqualTo(0);
+    assertThat(((Number) body.get("created")).intValue()).isEqualTo(0);
+
+    MvcResult all = mockMvc.perform(get("/api/offers").with(httpBasic("test-ops", "test-pass")))
+        .andReturn();
+    List<Object> matches = JsonPath.read(all.getResponse().getContentAsString(),
+        "$[?(@.externalKey == '" + key + "')]");
+    assertThat(matches).hasSize(1);
+    assertThat(((Map<?, ?>) matches.get(0)).get("status")).isEqualTo("REJECTED");
   }
 }

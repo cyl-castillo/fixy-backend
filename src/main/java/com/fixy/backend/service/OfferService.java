@@ -319,10 +319,24 @@ public class OfferService {
    *   <li>no existe → crea DRAFT.</li>
    *   <li>existe y sigue en DRAFT → refresca sus datos (título, vigencia,
    *   zona, etc.) con lo último de la fuente.</li>
-   *   <li>existe pero ya salió de DRAFT (ACTIVE/REJECTED/EXPIRED) → NO se
-   *   toca; una aprobación humana no se revierte por una corrida
-   *   automática.</li>
+   *   <li>existe y está ACTIVE → se le EXTIENDE la vigencia (solo hacia
+   *   adelante, ver {@link #extendValidity}) porque la fuente sigue
+   *   publicando el beneficio. El contenido aprobado no se pisa. Sin esto
+   *   una oferta aprobada quedaba con el {@code validUntil} congelado del
+   *   día que nació como borrador y se moría aunque el banco la siguiera
+   *   listando — el catálogo entero se vaciaba solo (caso real: las 23
+   *   ofertas del 13/08/2026, ver CURRENT_WORK.md).</li>
+   *   <li>existe y está EXPIRED pero la fuente la sigue publicando → vuelve
+   *   a DRAFT con datos frescos, para que ops la re-apruebe. Antes quedaba
+   *   muerta para siempre: su {@code externalKey} ya existía, así que la
+   *   ingesta nunca volvía a generarle un borrador.</li>
+   *   <li>existe y está REJECTED → NO se toca. Un humano la rechazó a
+   *   propósito y una corrida automática no revierte esa decisión.</li>
    * </ul>
+   *
+   * <p>Invariante que se mantiene intacta: <b>nada de este endpoint pasa a
+   * ACTIVE por sí solo</b>. Lo único que se toca de una oferta ya aprobada
+   * es la fecha de vencimiento, nunca su contenido ni su estado.
    *
    * <p>Limpieza de cola: se asume que cada corrida manda el listado COMPLETO
    * vigente de cada fuente presente en el request. Para cada
@@ -337,6 +351,8 @@ public class OfferService {
   public OfferIngestResponse ingest(OfferIngestRequest request) {
     int created = 0;
     int refreshed = 0;
+    int revalidated = 0;
+    int reopened = 0;
     Set<String> seenKeysBySource = new HashSet<>();
     Set<String> sourceNamesInBatch = new LinkedHashSet<>();
 
@@ -358,8 +374,22 @@ public class OfferService {
         refreshed++;
         log.info("ingesta de ofertas: refrescada id={} externalKey={} source={}",
             existing.getId(), item.externalKey(), item.sourceName());
+      } else if (existing.getStatus() == OfferStatus.ACTIVE) {
+        if (extendValidity(existing, item.validUntil())) {
+          offerRepository.save(existing);
+          revalidated++;
+          log.info("ingesta de ofertas: vigencia extendida id={} externalKey={} nuevoValidUntil={}",
+              existing.getId(), item.externalKey(), existing.getValidUntil());
+        }
+      } else if (existing.getStatus() == OfferStatus.EXPIRED) {
+        applyIngestFields(existing, item);
+        existing.setStatus(OfferStatus.DRAFT);
+        offerRepository.save(existing);
+        reopened++;
+        log.info("ingesta de ofertas: vencida reabierta a draft id={} externalKey={} source={}",
+            existing.getId(), item.externalKey(), item.sourceName());
       }
-      // ACTIVE/REJECTED/EXPIRED: aprobación humana ya corrió, no se toca.
+      // REJECTED: un humano la rechazó a propósito, la ingesta no la resucita.
     }
 
     int discarded = 0;
@@ -380,7 +410,36 @@ public class OfferService {
       }
     }
 
-    return new OfferIngestResponse(created, refreshed, discarded, stillActiveMissingFromSource);
+    return new OfferIngestResponse(
+        created, refreshed, revalidated, reopened, discarded, stillActiveMissingFromSource);
+  }
+
+  /**
+   * Extiende la vigencia de una oferta YA APROBADA que la fuente sigue
+   * publicando. Solo mueve {@code validUntil} hacia adelante: el contenido
+   * que un humano aprobó (título, descripción, zona, descuento) NO se toca
+   * acá — eso sigue siendo terreno exclusivo de {@link #applyIngestFields}
+   * sobre borradores.
+   *
+   * <p>Casos en los que no hace nada, a propósito:
+   * <ul>
+   *   <li>la fuente no manda {@code validUntil} → no hay con qué extender;</li>
+   *   <li>la oferta no vence ({@code validUntil} null) → ponerle fecha la ACORTARÍA;</li>
+   *   <li>la fecha de la fuente no es posterior a la vigente → idem, nunca se
+   *   recorta la vigencia de algo aprobado.</li>
+   * </ul>
+   *
+   * @return true si movió la fecha (el caller persiste y cuenta).
+   */
+  private boolean extendValidity(Offer offer, OffsetDateTime validUntilFromSource) {
+    if (validUntilFromSource == null || offer.getValidUntil() == null) {
+      return false;
+    }
+    if (!validUntilFromSource.isAfter(offer.getValidUntil())) {
+      return false;
+    }
+    offer.setValidUntil(validUntilFromSource);
+    return true;
   }
 
   private void applyIngestFields(Offer offer, OfferIngestItem item) {
