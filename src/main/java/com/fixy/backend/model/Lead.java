@@ -93,6 +93,13 @@ public class Lead {
    * Se usa para idempotencia: si ya tiene valor, no se re-procesa. */
   private OffsetDateTime closingAutoConfirmedAt;
 
+  /** CTA "Pedir por Fixy" (FIXY_OFERTAS_CTA_DESIGN.md §3.2): id de la Offer
+   * desde la que se armó el starter que originó este lead. Plain Long sin
+   * relación JPA, mismo criterio que {@link #assignedProviderId} — null si
+   * el lead no vino de una oferta (la mayoría). Sirve para medir conversión
+   * oferta→lead (ver OfferResponse.leadCount). */
+  private Long sourceOfferId;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -152,4 +159,6 @@ public class Lead {
   public void setDisputeResolutionNote(String disputeResolutionNote) { this.disputeResolutionNote = disputeResolutionNote; }
   public OffsetDateTime getClosingAutoConfirmedAt() { return closingAutoConfirmedAt; }
   public void setClosingAutoConfirmedAt(OffsetDateTime closingAutoConfirmedAt) { this.closingAutoConfirmedAt = closingAutoConfirmedAt; }
+  public Long getSourceOfferId() { return sourceOfferId; }
+  public void setSourceOfferId(Long sourceOfferId) { this.sourceOfferId = sourceOfferId; }
 }

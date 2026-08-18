@@ -13,6 +13,8 @@ import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Offer;
 import com.fixy.backend.model.OfferStatus;
 import com.fixy.backend.repository.BusinessRepository;
+import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.OfferInquiryRepository;
 import com.fixy.backend.repository.OfferRepository;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -57,8 +59,17 @@ public class OfferService {
       "image/jpeg", "image/jpg", "image/png", "image/webp"
   );
 
+  /**
+   * Ruteo determinista del CTA de una oferta (FIXY_OFERTAS_CTA_DESIGN.md
+   * §2), calculado a partir del {@link Business} vinculado. Nunca se deriva
+   * en el cliente — el DTO público solo lleva el string resultante.
+   */
+  public enum OfferCtaType { PROVIDER, COMERCIO, NONE }
+
   private final OfferRepository offerRepository;
   private final BusinessRepository businessRepository;
+  private final LeadRepository leadRepository;
+  private final OfferInquiryRepository offerInquiryRepository;
   private final Clock clock;
   private final Path uploadsRoot;
   private final String urlPrefix;
@@ -68,6 +79,8 @@ public class OfferService {
   public OfferService(
       OfferRepository offerRepository,
       BusinessRepository businessRepository,
+      LeadRepository leadRepository,
+      OfferInquiryRepository offerInquiryRepository,
       Clock clock,
       @Value("${fixy.uploads.dir:./data/uploads}") String uploadsDir,
       @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix,
@@ -75,6 +88,8 @@ public class OfferService {
   ) {
     this.offerRepository = offerRepository;
     this.businessRepository = businessRepository;
+    this.leadRepository = leadRepository;
+    this.offerInquiryRepository = offerInquiryRepository;
     this.clock = clock;
     this.uploadsRoot = Path.of(uploadsDir).toAbsolutePath().normalize();
     this.urlPrefix = urlPrefix.replaceAll("/+$", "");
@@ -209,9 +224,63 @@ public class OfferService {
             business.getName(),
             offer.getSourceName(),
             business.getAddress(),
-            offer.getViewCount() >= socialProofMinViews ? offer.getViewCount() : null
+            offer.getViewCount() >= socialProofMinViews ? offer.getViewCount() : null,
+            ctaTypeLabel(ctaType(business))
         ))
         .orElse(null);
+  }
+
+  /**
+   * Ruteo determinista del CTA (FIXY_OFERTAS_CTA_DESIGN.md §2). El orden de
+   * evaluación importa: {@code providerId} es la fuente de verdad más
+   * fuerte, se evalúa primero — un comercio que también es Provider
+   * (vínculo explícito, ver javadoc de {@link Business}) siempre cae en
+   * PROVIDER, coherente con que esa es la vía de mayor valor (un lead real
+   * matcheable) y evita tratar redundantemente su whatsappNumber como
+   * "comercio con contacto real".
+   */
+  private OfferCtaType ctaType(Business business) {
+    if (business.getProviderId() != null) {
+      return OfferCtaType.PROVIDER;
+    }
+    String wa = business.getWhatsappNumber();
+    if (wa != null && wa.startsWith("scraped:")) {
+      return OfferCtaType.NONE;
+    }
+    return OfferCtaType.COMERCIO;
+  }
+
+  private String ctaTypeLabel(OfferCtaType type) {
+    return switch (type) {
+      case PROVIDER -> "provider";
+      case COMERCIO -> "comercio";
+      case NONE -> "none";
+    };
+  }
+
+  /**
+   * Usado por {@code OfferInquiryService.create}: misma validación que
+   * {@link #getPublic} (ACTIVE + vigente) más el chequeo de que el
+   * {@code ctaType} de la oferta sea COMERCIO — defensa en profundidad, el
+   * backend no confía en que el frontend solo muestre el mini-form ahí.
+   * Devuelve la entidad (no el DTO público) porque la ruta comercio necesita
+   * {@code businessId} para denormalizarlo en {@code OfferInquiry}, dato que
+   * el DTO público nunca expone.
+   */
+  public Offer findActiveOfferForInquiry(Long id) {
+    Offer offer = offerRepository.findById(id).orElse(null);
+    if (offer == null || offer.getStatus() != OfferStatus.ACTIVE) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
+    OffsetDateTime validUntil = offer.getValidUntil();
+    if (validUntil == null || !validUntil.isAfter(OffsetDateTime.now(clock))) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
+    Business business = businessRepository.findById(offer.getBusinessId()).orElse(null);
+    if (business == null || ctaType(business) != OfferCtaType.COMERCIO) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "offer does not accept inquiries");
+    }
+    return offer;
   }
 
   private String normalize(String value) {
@@ -496,6 +565,8 @@ public class OfferService {
         offer.getExternalKey(),
         offer.getViewCount(),
         offer.getClickCount(),
+        (int) leadRepository.countBySourceOfferId(offer.getId()),
+        offerInquiryRepository.countByOfferId(offer.getId()),
         offer.getCreatedAt(),
         offer.getUpdatedAt()
     );

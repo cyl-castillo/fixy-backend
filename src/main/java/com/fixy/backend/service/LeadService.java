@@ -83,6 +83,10 @@ public class LeadService {
     lead.setPhone(request != null ? request.phone() : null);
     lead.setProblem("(pendiente)");
     lead.setChannel(request != null && hasText(request.channel()) ? request.channel() : "chat");
+    // CTA "Pedir por Fixy" (FIXY_OFERTAS_CTA_DESIGN.md §3.2): sin validar
+    // contra el catálogo de ofertas acá — es solo un dato de atribución
+    // para medir conversión oferta→lead (OfferResponse.leadCount).
+    lead.setSourceOfferId(request != null ? request.sourceOfferId() : null);
     lead.setDetectedCategory(null);
     lead.setUrgency(null);
     lead.setLocation(null);

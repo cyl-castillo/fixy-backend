@@ -27,6 +27,15 @@ import java.time.OffsetDateTime;
  * configurable ({@code fixy.offers.social-proof-min-views}) viaja
  * {@code null} — nunca se le dice al vecino que una oferta "fue vista por
  * 2 vecinos".
+ *
+ * <p>{@code ctaType} (FIXY_OFERTAS_CTA_DESIGN.md §2): ruteo determinista del
+ * botón de acción, calculado siempre server-side en
+ * {@code OfferService.toPublicResponse} — el cliente nunca lo deriva, solo
+ * lee el string. Valores: {@code "provider"} (el comercio también es un
+ * Provider real — CTA "Pedir por Fixy" hacia el chat), {@code "comercio"}
+ * (comercio real sin vínculo a Provider — CTA "Consultar", mini-form),
+ * {@code "none"} (comercio scrapeado de una fuente pública, sin
+ * interlocutor real — sin CTA de contacto).
  */
 public record OfferPublicResponse(
     Long id,
@@ -41,6 +50,7 @@ public record OfferPublicResponse(
     String businessName,
     String sourceName,
     String businessAddress,
-    Integer viewCount
+    Integer viewCount,
+    String ctaType
 ) {
 }

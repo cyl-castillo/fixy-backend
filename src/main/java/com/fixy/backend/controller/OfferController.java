@@ -3,11 +3,14 @@ package com.fixy.backend.controller;
 import com.fixy.backend.dto.OfferCreateRequest;
 import com.fixy.backend.dto.OfferDigestPreviewResponse;
 import com.fixy.backend.dto.OfferDigestSendResponse;
+import com.fixy.backend.dto.OfferInquiryResponse;
+import com.fixy.backend.dto.OfferInquiryStatusUpdateRequest;
 import com.fixy.backend.dto.OfferIngestRequest;
 import com.fixy.backend.dto.OfferIngestResponse;
 import com.fixy.backend.dto.OfferResponse;
 import com.fixy.backend.dto.OfferUpdateRequest;
 import com.fixy.backend.service.OfferDigestService;
+import com.fixy.backend.service.OfferInquiryService;
 import com.fixy.backend.service.OfferService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -36,10 +39,13 @@ public class OfferController {
 
   private final OfferService offerService;
   private final OfferDigestService offerDigestService;
+  private final OfferInquiryService offerInquiryService;
 
-  public OfferController(OfferService offerService, OfferDigestService offerDigestService) {
+  public OfferController(OfferService offerService, OfferDigestService offerDigestService,
+      OfferInquiryService offerInquiryService) {
     this.offerService = offerService;
     this.offerDigestService = offerDigestService;
+    this.offerInquiryService = offerInquiryService;
   }
 
   @GetMapping
@@ -104,5 +110,21 @@ public class OfferController {
   @PostMapping("/digest/send")
   public OfferDigestSendResponse digestSend() {
     return offerDigestService.send();
+  }
+
+  /** Drill-down admin de consultas de comercio por oferta (FIXY_OFERTAS_CTA_DESIGN.md §4.3). */
+  @GetMapping("/{id}/inquiries")
+  public List<OfferInquiryResponse> listInquiries(@PathVariable Long id) {
+    return offerInquiryService.listForOffer(id);
+  }
+
+  /** Carlos tilda FORWARDED cuando ya reenvió la consulta al comercio a mano. */
+  @PatchMapping("/{id}/inquiries/{inquiryId}")
+  public OfferInquiryResponse updateInquiry(
+      @PathVariable Long id,
+      @PathVariable Long inquiryId,
+      @RequestBody OfferInquiryStatusUpdateRequest request
+  ) {
+    return offerInquiryService.updateStatus(id, inquiryId, request);
   }
 }

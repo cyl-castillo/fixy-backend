@@ -75,7 +75,7 @@ public class WhatsAppInboundService {
   }
 
   private void startNewConversation(String from, String firstMessage) {
-    LeadResponse created = leadService.createChat(new PublicChatStartRequest(null, from, "whatsapp"));
+    LeadResponse created = leadService.createChat(new PublicChatStartRequest(null, from, "whatsapp", null));
     log.info("whatsapp: nuevo lead cliente #{} desde {}", created.id(), from);
     // greet() (disparado por createChat) ya mandó el saludo fijo. El primer
     // mensaje real del cliente se procesa como cualquier turno posterior.

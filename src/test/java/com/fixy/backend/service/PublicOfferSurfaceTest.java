@@ -60,6 +60,56 @@ class PublicOfferSurfaceTest {
     return offerRepository.save(offer);
   }
 
+  // --- ctaType: ruteo determinista (FIXY_OFERTAS_CTA_DESIGN.md §2) ---
+
+  @Test
+  void ctaTypeEsProviderCuandoElBusinessTieneProviderIdSeteado() throws Exception {
+    Business business = persistBusiness("Comercio Cta Provider Test", "098444020");
+    business.setProviderId(999L);
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.ctaType").value("provider"));
+  }
+
+  @Test
+  void ctaTypeEsComercioCuandoElBusinessTieneWhatsappRealYSinProviderId() throws Exception {
+    Business business = persistBusiness("Comercio Cta Comercio Test", "098444021");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.ctaType").value("comercio"));
+  }
+
+  @Test
+  void ctaTypeEsNoneCuandoElWhatsappEsSintetico() throws Exception {
+    Business business = persistBusiness("Comercio Cta Scraped Test", "scraped:comercio-cta-scraped-test");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.ctaType").value("none"));
+  }
+
+  @Test
+  void ctaTypeEsProviderAunqueElWhatsappSeaSinteticoSiTieneProviderId() throws Exception {
+    // Caso borde documentado en el diseño §2: providerId es la fuente de
+    // verdad más fuerte, se evalúa primero — un comercio scrapeado que
+    // además tiene providerId (no debería pasar en la práctica, pero el
+    // orden de evaluación lo cubre igual) cae en PROVIDER, no en NONE.
+    Business business = persistBusiness("Comercio Cta Borde Test", "scraped:comercio-cta-borde-test");
+    business.setProviderId(1234L);
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.ctaType").value("provider"));
+  }
+
   @Test
   void soloTraeActivasYVigentes() throws Exception {
     Business business = persistBusiness("Panadería Pública Test", "098444001");

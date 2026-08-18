@@ -362,6 +362,38 @@ public class TelegramNotifyService {
     }
   }
 
+  /**
+   * Consulta de un vecino a un comercio real vía la ruta "comercio" del CTA
+   * de ofertas (FIXY_OFERTAS_CTA_DESIGN.md §4.4) — mismo sub-patrón que
+   * {@link #notifyProviderSelfRegistered}: sin {@code Lead} ni
+   * {@code LeadEvent} de por medio, así que no aplica la idempotencia "un
+   * evento por lead" (el registro pasa una sola vez por consulta, no hace
+   * falta throttle). El {@code whatsappNumber} REAL del comercio SÍ va en
+   * el texto — es el canal interno de Carlos, no algo que el vecino vea —
+   * para que pueda reenviar la consulta en un toque.
+   */
+  public void notifyOfferInquiry(com.fixy.backend.model.Offer offer, com.fixy.backend.model.Business business,
+      com.fixy.backend.model.OfferInquiry inquiry) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(inquiry.getMessage())) return;
+    try {
+      String text = "📩 Consulta por oferta #%d (%s, %s): %s (%s) dice: \"%s\" — reenviale a %s (%s)."
+          .formatted(
+              offer.getId(),
+              safe(offer.getTitle()),
+              safe(business.getName()),
+              safe(inquiry.getName()),
+              safe(inquiry.getWhatsappNumber()),
+              truncate(safe(inquiry.getMessage()), 300),
+              safe(business.getName()),
+              safe(business.getWhatsappNumber())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify offer-inquiry {} failed: {}", inquiry.getId(), ex.getMessage());
+    }
+  }
+
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;

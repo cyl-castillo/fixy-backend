@@ -1,13 +1,18 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.OfferInquiryCreateRequest;
 import com.fixy.backend.dto.OfferPublicCountResponse;
 import com.fixy.backend.dto.OfferPublicResponse;
+import com.fixy.backend.service.OfferInquiryService;
 import com.fixy.backend.service.OfferService;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
@@ -25,9 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicOfferController {
 
   private final OfferService offerService;
+  private final OfferInquiryService offerInquiryService;
 
-  public PublicOfferController(OfferService offerService) {
+  public PublicOfferController(OfferService offerService, OfferInquiryService offerInquiryService) {
     this.offerService = offerService;
+    this.offerInquiryService = offerInquiryService;
   }
 
   @GetMapping
@@ -61,5 +68,22 @@ public class PublicOfferController {
   @ResponseStatus(HttpStatus.NO_CONTENT)
   public void click(@PathVariable Long id) {
     offerService.registerClick(id);
+  }
+
+  /**
+   * Ruta comercio del CTA (FIXY_OFERTAS_CTA_DESIGN.md §4.3): mini-form de
+   * consulta, rate-limitado + honeypot (ver OfferInquiryService). Responde
+   * siempre {@code {"ok": true}}, incluso en el caso honeypot — nunca
+   * expone el id interno de la inquiry ni distingue el caso bot.
+   */
+  @PostMapping("/{id}/inquiries")
+  @ResponseStatus(HttpStatus.CREATED)
+  public Map<String, Object> createInquiry(
+      @PathVariable Long id,
+      @RequestBody OfferInquiryCreateRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    offerInquiryService.create(id, request, httpRequest.getRemoteAddr());
+    return Map.of("ok", true);
   }
 }

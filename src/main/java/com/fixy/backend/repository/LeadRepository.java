@@ -17,6 +17,9 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
   List<Lead> findByAssignedProviderIdOrderByCreatedAtDesc(Long assignedProviderId);
   List<Lead> findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(OffsetDateTime from, OffsetDateTime to);
 
+  /** OfferResponse.leadCount (CTA "Pedir por Fixy", FIXY_OFERTAS_CTA_DESIGN.md §3.2). */
+  long countBySourceOfferId(Long sourceOfferId);
+
   /**
    * Leads de un canal+telefono dado, mas nuevos primero. Usado por el intake
    * de WhatsApp para decidir si un mensaje entrante continua una conversacion
