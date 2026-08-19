@@ -162,4 +162,67 @@ class OpsMetricsServiceTest {
     assertThat(metrics.repeatClients()).isEqualTo(1);
     assertThat(metrics.repeatRateAutodeclaredPercentage()).isEqualTo(50.0);
   }
+
+  /**
+   * Hallazgo 2026-08-17 (lead #200): un cierre de tráfico [smoke] no debe
+   * inflar ninguno de los agregados — ni el total, ni el fill rate, ni el
+   * repeat rate.
+   */
+  @Test
+  void excludesSmokeLeadsFromAllAggregates() {
+    Lead real = createLead("099555001", LeadStatus.COMPLETED, WINDOW_FROM.plusDays(1));
+    Lead smokeNew = createLead("099555002", LeadStatus.NEW, WINDOW_FROM.plusDays(1));
+    smokeNew.setProblem("[smoke] prueba automatizada");
+    leadRepository.saveAndFlush(smokeNew);
+    Lead smokeCompleted = createLead("099555003", LeadStatus.COMPLETED, WINDOW_FROM.plusDays(1));
+    smokeCompleted.setProblem("[smoke] otra prueba, cerrada como real");
+    leadRepository.saveAndFlush(smokeCompleted);
+    // Segundo COMPLETED del mismo smoke phone: si no se excluyera, "repetiría".
+    Lead smokeCompletedRepeat = createLead("099555003", LeadStatus.COMPLETED, WINDOW_FROM.plusDays(1));
+    smokeCompletedRepeat.setProblem("[smoke] tercera prueba");
+    leadRepository.saveAndFlush(smokeCompletedRepeat);
+
+    OpsDailyMetricsResponse metrics = opsMetricsService.dailyMetrics(WINDOW_FROM, WINDOW_TO);
+
+    // Solo el lead real cuenta: total = 1, fill rate = 100% (1/1 COMPLETED).
+    assertThat(metrics.totalLeadsCreated()).isEqualTo(1);
+    assertThat(metrics.fillRatePercentage()).isEqualTo(100.0);
+    // El smoke NEW no aparece en el desglose por status.
+    assertThat(metrics.leadsByStatus().get("NEW")).isEqualTo(0L);
+    assertThat(metrics.leadsByStatus().get("COMPLETED")).isEqualTo(1L);
+    // Repeat rate: el teléfono smoke con 2 COMPLETED no cuenta como cliente
+    // repetido — solo el real (099555001, 1 solo COMPLETED, no repite).
+    assertThat(metrics.distinctClientsWithCompleted()).isEqualTo(1);
+    assertThat(metrics.repeatClients()).isEqualTo(0);
+  }
+
+  @Test
+  void stalledLeads48h_countsOpenLeadsOlderThan48hWithoutAcceptedProvider() {
+    java.time.Clock frozenNow = java.time.Clock.fixed(
+        WINDOW_TO.plusDays(30).toInstant(), ZoneOffset.UTC);
+    OpsMetricsService serviceWithFrozenClock =
+        new OpsMetricsService(leadRepository, leadEventRepository, frozenNow);
+    java.time.OffsetDateTime now = java.time.OffsetDateTime.now(frozenNow);
+
+    // Colgado real: NEW, creado hace 49h (>48h) -> cuenta.
+    createLead("099666001", LeadStatus.NEW, now.minusHours(49));
+    // PROVIDER_CONTACTED colgado hace 72h, sin aceptar -> cuenta.
+    createLead("099666002", LeadStatus.PROVIDER_CONTACTED, now.minusHours(72));
+    // Reciente (24h) -> no cuenta todavía.
+    createLead("099666003", LeadStatus.NEW, now.minusHours(24));
+    // ASSIGNED (ya aceptado) aunque sea viejo -> no cuenta.
+    createLead("099666004", LeadStatus.ASSIGNED, now.minusHours(100));
+    // COMPLETED (cerrado) aunque sea viejo -> no cuenta.
+    createLead("099666005", LeadStatus.COMPLETED, now.minusHours(100));
+    // CANCELLED (cerrado) aunque sea viejo -> no cuenta.
+    createLead("099666006", LeadStatus.CANCELLED, now.minusHours(100));
+    // Smoke, viejo y abierto -> no cuenta.
+    Lead smokeStalled = createLead("099666007", LeadStatus.NEW, now.minusHours(200));
+    smokeStalled.setProblem("[smoke] backlog de prueba");
+    leadRepository.saveAndFlush(smokeStalled);
+
+    OpsDailyMetricsResponse metrics = serviceWithFrozenClock.dailyMetrics(WINDOW_FROM, WINDOW_TO);
+
+    assertThat(metrics.stalledLeads48h()).isEqualTo(2);
+  }
 }
