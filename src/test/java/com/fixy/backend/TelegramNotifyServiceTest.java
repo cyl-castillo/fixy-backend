@@ -1,6 +1,8 @@
 package com.fixy.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
@@ -11,6 +13,7 @@ import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.TelegramNotifyService;
+import com.jayway.jsonpath.JsonPath;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -23,8 +26,12 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * Puente de avisos de oportunidad por Telegram (parche interino hasta
@@ -43,6 +50,7 @@ import org.springframework.test.context.TestPropertySource;
  * MercadoPagoServiceTest verifica la URL real de notificación.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "fixy.telegram.bot-token=test-bot-token",
     "fixy.telegram.chat-id=123456789",
@@ -62,6 +70,9 @@ class TelegramNotifyServiceTest {
 
   @Autowired
   private TelegramNotifyService telegramNotifyService;
+
+  @Autowired
+  private MockMvc mockMvc;
 
   @Autowired
   private LeadRepository leadRepository;
@@ -403,6 +414,62 @@ class TelegramNotifyServiceTest {
     telegramNotifyService.notifyProviderCancelled(lead, provider, "otro", null);
 
     assertNoMessageForLead(lead.getId(), "lead [smoke] no debe generar aviso de cancelación");
+  }
+
+  /**
+   * Choque con el frontend real (2026-08-19): integración completa
+   * controller → ProviderSelfService → Telegram. Cancelar un lead YA
+   * ACEPTADO (status previo ASSIGNED) SÍ avisa a Carlos.
+   */
+  @Test
+  void cancellingAlreadyAcceptedLead_notifiesTelegram() throws Exception {
+    Lead lead = persistLead("plomeria", "Solymar", "Se me tapó el desagüe de la cocina");
+    Provider provider = persistProvider("Juan Plomero Comprometido", "099888001");
+    provider.setAccessToken("tok-committed-" + System.nanoTime());
+    provider = providerRepository.save(provider);
+    lead.setAssignedProviderId(provider.getId());
+    lead.setAssignedProvider(provider.getName());
+    lead.setStatus(LeadStatus.ASSIGNED);
+    leadRepository.save(lead);
+
+    mockMvc.perform(post("/api/public/providers/{pid}/leads/{lid}/status", provider.getId(), lead.getId())
+            .param("token", provider.getAccessToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"CANCELLED\",\"cancelReason\":\"precio\"}"))
+        .andExpect(status().isOk());
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("canceló el lead #" + lead.getId());
+  }
+
+  /**
+   * El botón "No me sirve" del momento accept-decide (lead auto-matcheado,
+   * status previo PROVIDER_CONTACTED) pega al MISMO endpoint sin
+   * cancelReason — 2xx, se libera igual, pero NO debe avisar a Carlos (pasa
+   * todo el tiempo, sería spam).
+   */
+  @Test
+  void decliningBeforeAccepting_doesNotNotifyTelegram() throws Exception {
+    Lead lead = persistLead("plomeria", "Solymar", "Necesito un plomero urgente");
+    Provider provider = persistProvider("Juan Plomero Decline", "099888002");
+    provider.setAccessToken("tok-decline-" + System.nanoTime());
+    provider = providerRepository.save(provider);
+    lead.setAssignedProviderId(provider.getId());
+    lead.setAssignedProvider(provider.getName());
+    lead.setStatus(LeadStatus.PROVIDER_CONTACTED);
+    leadRepository.save(lead);
+
+    mockMvc.perform(post("/api/public/providers/{pid}/leads/{lid}/status", provider.getId(), lead.getId())
+            .param("token", provider.getAccessToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"CANCELLED\"}"))
+        .andExpect(status().isOk());
+
+    Lead released = leadRepository.findById(lead.getId()).orElseThrow();
+    assertThat(released.getStatus()).isEqualTo(LeadStatus.NEW);
+    assertThat(released.getAssignedProviderId()).isNull();
+
+    assertNoMessageForLead(lead.getId(), "declinar antes de aceptar no debe avisar a Telegram");
   }
 
   private Provider persistProviderWithCategory(String name, String phone, String categories,
