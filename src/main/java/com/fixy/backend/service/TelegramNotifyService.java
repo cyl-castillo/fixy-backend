@@ -407,6 +407,76 @@ public class TelegramNotifyService {
     send(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE, text, "Aviso de matching estancado enviado a ops");
   }
 
+  /**
+   * El proveedor canceló un trabajo tomado (panel proveedor, motivo
+   * obligatorio desde 2026-08-19). Mismo patrón catch-all + guard "[smoke]"
+   * que el resto de los avisos; sin idempotencia por evento porque cada
+   * cancelación real es un hecho distinto (no hay "segunda vez" del mismo
+   * evento a filtrar, a diferencia de los avisos de oportunidad). Async por
+   * la misma razón que los demás: nunca debe demorar la respuesta al
+   * proveedor que está cancelando.
+   */
+  @Async
+  public void notifyProviderCancelled(Lead lead, Provider provider, String cancelReason, String cancelReasonDetail) {
+    if (!enabled || lead == null || lead.getId() == null) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(lead.getProblem())) return;
+    try {
+      String providerName = provider != null && provider.getName() != null && !provider.getName().isBlank()
+          ? provider.getName()
+          : safe(lead.getAssignedProvider());
+      String detailSuffix = cancelReasonDetail != null && !cancelReasonDetail.isBlank()
+          ? " — \"%s\"".formatted(truncate(cancelReasonDetail, 200))
+          : "";
+      String text = "❌ %s canceló el lead #%d (%s en %s). Motivo: %s%s"
+          .formatted(
+              providerName,
+              lead.getId(),
+              humanCategory(lead.getDetectedCategory()),
+              safe(lead.getLocation()),
+              humanCancelReason(cancelReason),
+              detailSuffix
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify provider-cancelled lead={} failed: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  private String humanCancelReason(String raw) {
+    return switch (raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+      case "sin_disponibilidad" -> "sin disponibilidad";
+      case "zona" -> "fuera de zona";
+      case "precio" -> "tema de precio";
+      case "otro" -> "otro motivo";
+      default -> raw == null || raw.isBlank() ? "sin especificar" : raw;
+    };
+  }
+
+  /**
+   * Resumen de {@link MatchingAutoReleaseScheduler}: throttle "por corrida"
+   * en vez de "por lead" — si el scheduler liberó varios leads de una vez,
+   * ops recibe UN mensaje con todos, no uno por lead (evita spam en una
+   * corrida con backlog grande). Sin idempotencia por evento a propósito:
+   * cada corrida que libera algo es información nueva.
+   */
+  public void notifyAutoReleaseSummary(List<Lead> released, long hours) {
+    if (!enabled || released == null || released.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("♻️ Auto-liberación: ").append(released.size())
+          .append(released.size() == 1 ? " pedido volvió" : " pedidos volvieron")
+          .append(" al pozo abierto tras ").append(hours)
+          .append("h sin respuesta del proveedor contactado:");
+      for (Lead lead : released) {
+        text.append('\n').append('#').append(lead.getId()).append(' ')
+            .append(humanCategory(lead.getDetectedCategory())).append(" en ").append(safe(lead.getLocation()));
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify auto-release-summary failed: {}", ex.getMessage());
+    }
+  }
+
   public void notifyStaleJob(Lead lead, String providerName) {
     if (!shouldNotify(lead, STALE_JOB_NOTIFIED_EVENT_TYPE)) return;
     String text = "⏰ Trabajo #%d (%s en %s, proveedor %s) lleva 48h sin cerrar — dale un toque al proveedor."

@@ -33,6 +33,9 @@ fixy:
     enabled: false
   reengagement:
     enabled: false
+  matching:
+    auto-release:
+      enabled: false
   security:
     username: test-ops
     password: test-pass

@@ -379,6 +379,32 @@ class TelegramNotifyServiceTest {
     providerRepository.delete(aprobado);
   }
 
+  /** Mejora 2026-08-19: motivo obligatorio + Telegram al cancelar. */
+  @Test
+  void providerCancelled_sendsNotificationWithReasonAndDetail() {
+    Lead lead = persistLead("plomeria", "Solymar", "Se me tapó el desagüe de la cocina");
+    Provider provider = persistProvider("Juan Plomero", "099888777");
+
+    telegramNotifyService.notifyProviderCancelled(lead, provider, "precio", "pidió mucho más que la tarifa");
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("Juan Plomero");
+    assertThat(body).contains("canceló el lead #" + lead.getId());
+    assertThat(body).contains("plomería en Solymar");
+    assertThat(body).contains("tema de precio");
+    assertThat(body).contains("pidió mucho más que la tarifa");
+  }
+
+  @Test
+  void providerCancelledOnSmokeLead_doesNotNotify() throws InterruptedException {
+    Lead lead = persistLead("plomeria", "Solymar", "[smoke] prueba de cancelación");
+    Provider provider = persistProvider("Juan Plomero", "099888777");
+
+    telegramNotifyService.notifyProviderCancelled(lead, provider, "otro", null);
+
+    assertNoMessageForLead(lead.getId(), "lead [smoke] no debe generar aviso de cancelación");
+  }
+
   private Provider persistProviderWithCategory(String name, String phone, String categories,
       ProviderStatus status) {
     Provider provider = new Provider();
