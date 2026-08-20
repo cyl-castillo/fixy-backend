@@ -25,10 +25,12 @@ import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -132,9 +134,11 @@ public class OfferService {
    * oferta fuera de contexto por un dato faltante en vez de por elección.
    *
    * <p>Orden: ya NO es cronológico. Se aplica {@link OfferRankingService}
-   * (score de conveniencia, fase 1) sobre el resultado ya filtrado por
-   * zona/categoría — el ranking nunca decide qué entra a la lista, solo el
-   * orden.
+   * (score de conveniencia, fase 1 + señal de interacción fase 3) sobre el
+   * resultado ya filtrado por zona/categoría — el ranking nunca decide qué
+   * entra a la lista, solo el orden. {@code inquiryCount} de cada oferta se
+   * arma en un solo query agrupado ({@link OfferInquiryRepository#countGroupedByOfferId})
+   * antes de rankear, para no hacer N+1 sobre el listado.
    */
   public List<OfferPublicResponse> listPublic(String zone, String category) {
     String normalizedZone = normalize(zone);
@@ -146,10 +150,25 @@ public class OfferService {
         .filter(offer -> matchesPublicCategory(offer, normalizedCategory))
         .toList();
 
-    return offerRankingService.rank(filtered, now).stream()
-        .map(this::toPublicResponse)
+    Map<Long, Integer> inquiryCountsByOfferId = inquiryCountsFor(filtered);
+
+    return offerRankingService.rank(filtered, now, inquiryCountsByOfferId).stream()
+        .map(offer -> toPublicResponse(offer, inquiryCountsByOfferId.getOrDefault(offer.getId(), 0)))
         .filter(java.util.Objects::nonNull)
         .toList();
+  }
+
+  /** Mapa offerId -> inquiryCount de un batch de ofertas, un solo query agrupado (ver {@link #listPublic}). */
+  private Map<Long, Integer> inquiryCountsFor(List<Offer> offers) {
+    if (offers.isEmpty()) {
+      return Map.of();
+    }
+    List<Long> offerIds = offers.stream().map(Offer::getId).toList();
+    Map<Long, Integer> counts = new HashMap<>();
+    for (Object[] row : offerInquiryRepository.countGroupedByOfferId(offerIds)) {
+      counts.put((Long) row[0], ((Long) row[1]).intValue());
+    }
+    return counts;
   }
 
   /**
@@ -168,7 +187,7 @@ public class OfferService {
     if (validUntil == null || !validUntil.isAfter(OffsetDateTime.now(clock))) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
     }
-    OfferPublicResponse response = toPublicResponse(offer);
+    OfferPublicResponse response = toPublicResponse(offer, offerInquiryRepository.countByOfferId(offer.getId()));
     if (response == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
     }
@@ -192,6 +211,21 @@ public class OfferService {
     Offer offer = findOffer(id);
     offer.setClickCount(offer.getClickCount() + 1);
     offerRepository.save(offer);
+  }
+
+  /**
+   * "Me sirve" del cliente (fase 3): mismo patrón fire-and-forget que
+   * {@link #registerView}/{@link #registerClick} (misma existencia-solamente
+   * como regla, sin chequeo de vigencia ni protección anti-abuso — ninguno
+   * de los otros dos la tiene), pero con incremento atómico vía UPDATE
+   * ({@link OfferRepository#incrementLikeCount}) en vez de read-modify-write:
+   * a diferencia de esos, likeCount alimenta el ranking (fase 3), así que un
+   * incremento perdido bajo concurrencia sí le pega al score.
+   */
+  public void registerLike(Long id) {
+    if (offerRepository.incrementLikeCount(id) == 0) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
+    }
   }
 
   private boolean matchesPublicZone(Offer offer, String normalizedZone) {
@@ -218,7 +252,7 @@ public class OfferService {
   }
 
   /** null si el Business referenciado no existe (huérfano) — se filtra en listPublic, no debería pasar en régimen normal. */
-  private OfferPublicResponse toPublicResponse(Offer offer) {
+  private OfferPublicResponse toPublicResponse(Offer offer, int inquiryCount) {
     return businessRepository.findById(offer.getBusinessId())
         .map(business -> new OfferPublicResponse(
             offer.getId(),
@@ -235,7 +269,9 @@ public class OfferService {
             business.getAddress(),
             offer.getViewCount() >= socialProofMinViews ? offer.getViewCount() : null,
             ctaTypeLabel(ctaType(business)),
-            offer.getCreatedAt()
+            offer.getCreatedAt(),
+            offer.getLikeCount(),
+            inquiryCount
         ))
         .orElse(null);
   }
@@ -634,6 +670,7 @@ public class OfferService {
         offer.getExternalKey(),
         offer.getViewCount(),
         offer.getClickCount(),
+        offer.getLikeCount(),
         (int) leadRepository.countBySourceOfferId(offer.getId()),
         offerInquiryRepository.countByOfferId(offer.getId()),
         offer.getCreatedAt(),

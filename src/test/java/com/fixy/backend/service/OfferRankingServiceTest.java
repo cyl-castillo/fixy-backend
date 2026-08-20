@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.within;
 import com.fixy.backend.model.Offer;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -228,6 +229,93 @@ class OfferRankingServiceTest {
     Offer offer = offer(1);
     offer.setCreatedAt(now.minusHours(73));
     assertThat(service.score(offer, now)).isZero();
+  }
+
+  // --- Interacción (fase 3: señal real del barrio) ---
+
+  @Test
+  void sinInteraccionNoSumaNada() {
+    Offer offer = offer(1);
+    assertThat(service.score(offer, now)).isZero();
+    assertThat(service.score(offer, now, 0)).isZero();
+  }
+
+  @Test
+  void viewCountSumaPuntoDosPorVista() {
+    Offer offer = offer(1);
+    offer.setViewCount(20);
+    assertThat(service.score(offer, now, 0)).isCloseTo(4.0, within(0.001)); // 20 * 0.2
+  }
+
+  @Test
+  void inquiryCountSumaCincoPorConsulta() {
+    Offer offer = offer(1);
+    assertThat(service.score(offer, now, 3)).isEqualTo(15); // 3 * 5.0
+  }
+
+  @Test
+  void likeCountSumaDosPorLike() {
+    Offer offer = offer(1);
+    offer.setLikeCount(4);
+    assertThat(service.score(offer, now, 0)).isEqualTo(8); // 4 * 2.0
+  }
+
+  @Test
+  void lasTresSenalesDeInteraccionSonAcumulablesPorDebajoDelTope() {
+    Offer offer = offer(1);
+    offer.setViewCount(10); // +2.0
+    offer.setLikeCount(3); // +6.0
+    assertThat(service.score(offer, now, 1)).isCloseTo(13.0, within(0.001)); // 2 + 5 + 6
+  }
+
+  @Test
+  void interaccionQuedaTopeadaAVeinticinco() {
+    Offer offer = offer(1);
+    offer.setViewCount(1000); // 200 puntos crudos
+    offer.setLikeCount(100); // 200 puntos crudos
+    assertThat(service.score(offer, now, 50)).isEqualTo(25); // 200+250+200 topeado a 25
+  }
+
+  @Test
+  void interaccionTopeadaNuncaLePasaAlBonusDeBarrio() {
+    // Documenta la decisión: el tope de interacción (+25) queda al mismo
+    // nivel que el bonus de barrio (+25, ver originScore) — una oferta
+    // scrapeada híper-popular no puede, solo por interacción, superar a una
+    // local equivalente que además sume su +25 de origen.
+    Offer popularScraped = offer(1);
+    popularScraped.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+    popularScraped.setViewCount(100_000);
+    popularScraped.setLikeCount(10_000);
+
+    Offer localSinInteraccion = offer(2);
+    localSinInteraccion.setOrigin(Offer.ORIGIN_MANUAL);
+
+    assertThat(service.score(popularScraped, now, 10_000)).isEqualTo(25);
+    assertThat(service.score(localSinInteraccion, now)).isEqualTo(25);
+  }
+
+  @Test
+  void rankPropagaElInquiryCountDelMapaPorOfferId() {
+    Offer conConsultas = offer(1);
+    Offer sinConsultas = offer(2);
+    // Mismo score base (0) — la única diferencia es inquiryCount vía mapa.
+
+    List<Offer> ranked = service.rank(
+        List.of(sinConsultas, conConsultas), now, Map.of(1L, 10));
+
+    assertThat(ranked).containsExactly(conConsultas, sinConsultas);
+  }
+
+  @Test
+  void rankSinMapaTrataTodoInquiryCountComoCero() {
+    Offer a = offer(1);
+    Offer b = offer(2);
+    a.setCreatedAt(now.minusDays(10));
+    b.setCreatedAt(now.minusDays(1));
+
+    List<Offer> ranked = service.rank(List.of(a, b), now);
+
+    assertThat(ranked).containsExactly(b, a); // desempate por createdAt, no por interacción.
   }
 
   // --- Score combinado ---

@@ -23,6 +23,11 @@ public record OfferResponse(
     String externalKey,
     int viewCount,
     int clickCount,
+    // "Me sirve" del cliente (fase 3, señal de interacción del ranking —
+    // ver OfferRankingService): mismo criterio de contador simple que
+    // viewCount/clickCount, agregado de forma aditiva al final del bloque
+    // de métricas.
+    int likeCount,
     // CTA de ofertas (FIXY_OFERTAS_CTA_DESIGN.md §3.2/§4.3): calculados por
     // query, no columnas incrementadas — leadCount refleja Lead.sourceOfferId
     // (una relación real, se desincronizaría si se contara con un contador

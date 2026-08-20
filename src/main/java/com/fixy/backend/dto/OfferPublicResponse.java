@@ -41,6 +41,13 @@ import java.time.OffsetDateTime;
  * de conveniencia ({@code OfferRankingService}, fase 1): el orden de la
  * lista ya no es cronológico, así que el cliente necesita esta fecha si
  * quiere mostrar "publicada hace X" sin depender del orden del array.
+ *
+ * <p>{@code likeCount} e {@code inquiryCount} se agregaron de forma aditiva
+ * en fase 3 (interacción real del barrio como señal de ranking, ver
+ * {@code OfferRankingService}). A diferencia de {@code viewCount} viajan
+ * siempre como {@code int} crudo, sin el gate de social proof — no hay
+ * política equivalente definida para "me sirve" ni consultas todavía, se
+ * agrega si hace falta más adelante.
  */
 public record OfferPublicResponse(
     Long id,
@@ -57,6 +64,8 @@ public record OfferPublicResponse(
     String businessAddress,
     Integer viewCount,
     String ctaType,
-    OffsetDateTime createdAt
+    OffsetDateTime createdAt,
+    int likeCount,
+    int inquiryCount
 ) {
 }

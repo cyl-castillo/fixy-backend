@@ -316,7 +316,7 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
-  void viewYClickSonPublicosYSumanElContadorVisibleEnElDtoAdmin() throws Exception {
+  void viewClickYLikeSonPublicosYSumanElContadorVisibleEnElDtoAdmin() throws Exception {
     Business business = persistBusiness("Comercio Metrica Test", "098444007");
     Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
 
@@ -324,19 +324,55 @@ class PublicOfferSurfaceTest {
     mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
     mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
     mockMvc.perform(post("/api/public/offers/{id}/click", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
 
     mockMvc.perform(get("/api/offers/{id}", offer.getId())
             .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
                 .httpBasic("test-ops", "test-pass")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.viewCount").value(2))
-        .andExpect(jsonPath("$.clickCount").value(1));
+        .andExpect(jsonPath("$.clickCount").value(1))
+        .andExpect(jsonPath("$.likeCount").value(3));
   }
 
   @Test
-  void viewYClickDeUnaOfertaInexistenteDevuelven404SinRomperNada() throws Exception {
+  void viewClickYLikeDeUnaOfertaInexistenteDevuelven404SinRomperNada() throws Exception {
     mockMvc.perform(post("/api/public/offers/{id}/view", 999999)).andExpect(status().isNotFound());
     mockMvc.perform(post("/api/public/offers/{id}/click", 999999)).andExpect(status().isNotFound());
+    mockMvc.perform(post("/api/public/offers/{id}/like", 999999)).andExpect(status().isNotFound());
+  }
+
+  // --- likeCount / inquiryCount en el DTO público (fase 3) ---
+
+  @Test
+  void likeCountEInquiryCountApareceEnElDetallePublicoComoIntCrudoSinGate() throws Exception {
+    Business business = persistBusiness("Comercio Like Detalle Test", "098444020");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.likeCount").value(1))
+        .andExpect(jsonPath("$.inquiryCount").value(0));
+  }
+
+  @Test
+  void likeCountEInquiryCountApareceEnElListadoPublico() throws Exception {
+    Business business = persistBusiness("Comercio Like Listado Test", "098444021");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> likeCounts = com.jayway.jsonpath.JsonPath.read(
+        res.getResponse().getContentAsString(), "$[?(@.id == " + offer.getId() + ")].likeCount");
+    assertThat(likeCounts).containsExactly(2);
   }
 
   @Test
