@@ -477,6 +477,65 @@ public class TelegramNotifyService {
     }
   }
 
+  /**
+   * Una línea del digest de {@link PendingProviderApprovalScheduler}: el
+   * proveedor que espera aprobación, hace cuántos días, y cuántos pedidos
+   * abiertos podría tomar hoy si estuviera activo (el costo de la demora).
+   */
+  public record PendingApproval(Provider provider, long daysWaiting, long openLeads) {
+  }
+
+  /**
+   * Proveedores parados en la puerta del padrón. Un solo mensaje por corrida
+   * (el throttle de cadencia vive en el scheduler) con el costo en pedidos
+   * al lado de cada nombre: sin ese número el aviso es una tarea más, con él
+   * es una decisión con precio. Cierra siempre con las DOS salidas —
+   * activarlo o rechazarlo — porque las dos apagan el recordatorio y ninguna
+   * es "ignorarlo".
+   */
+  public void notifyPendingProviderApprovals(List<PendingApproval> pending, int maxLines) {
+    if (!enabled || pending == null || pending.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("🧍 ").append(pending.size())
+          .append(pending.size() == 1 ? " proveedor espera" : " proveedores esperan")
+          .append(" aprobación en el padrón:");
+      pending.stream().limit(Math.max(1, maxLines)).forEach(row -> {
+        Provider p = row.provider();
+        text.append('\n').append('#').append(p.getId()).append(' ').append(safe(p.getName()))
+            .append(" (").append(humanCategories(p.getCategories()))
+            .append(" en ").append(safe(p.getPrimaryZone())).append(')')
+            .append(" · espera hace ").append(row.daysWaiting())
+            .append(row.daysWaiting() == 1 ? " día" : " días");
+        if (row.openLeads() > 0) {
+          text.append(" · ").append(row.openLeads())
+              .append(row.openLeads() == 1 ? " pedido abierto que podría tomar" : " pedidos abiertos que podría tomar");
+        }
+      });
+      if (pending.size() > maxLines) {
+        text.append("\n… y ").append(pending.size() - maxLines).append(" más.");
+      }
+      text.append("\nActivalo en ").append(publicAppBaseUrl).append("/admin")
+          .append(" — o marcalo rechazado si no va, y deja de aparecer acá.");
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify pending-provider-approvals failed: {}", ex.getMessage());
+    }
+  }
+
+  /** "mandados, plomería" a partir del CSV de categorías del proveedor. */
+  private String humanCategories(String rawCsv) {
+    if (rawCsv == null || rawCsv.isBlank()) {
+      return "sin categoría";
+    }
+    return java.util.Arrays.stream(rawCsv.split(","))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .map(this::humanCategory)
+        .reduce((a, b) -> a + ", " + b)
+        .orElse("sin categoría");
+  }
+
   public void notifyStaleJob(Lead lead, String providerName) {
     if (!shouldNotify(lead, STALE_JOB_NOTIFIED_EVENT_TYPE)) return;
     String text = "⏰ Trabajo #%d (%s en %s, proveedor %s) lleva 48h sin cerrar — dale un toque al proveedor."

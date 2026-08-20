@@ -472,6 +472,47 @@ class TelegramNotifyServiceTest {
     assertNoMessageForLead(lead.getId(), "declinar antes de aceptar no debe avisar a Telegram");
   }
 
+  /**
+   * El digest de proveedores esperando aprobación (mejora diaria 2026-08-19,
+   * {@code PendingProviderApprovalScheduler}). Lo que se verifica acá es
+   * justamente lo que hace útil al aviso: el COSTO en pedidos abiertos al
+   * lado del nombre, y las dos salidas (activar / rechazar).
+   */
+  @Test
+  void pendingProviderApprovals_sendsDigestWithDemandCostAndAdminLink() {
+    Provider pending = persistProviderWithCategory(
+        "Mandadero Esperando Digest", "099555111", "mandados", ProviderStatus.NEW);
+
+    telegramNotifyService.notifyPendingProviderApprovals(
+        List.of(new TelegramNotifyService.PendingApproval(pending, 13, 11)), 10);
+
+    String body = awaitMessageContaining("Mandadero Esperando Digest");
+    assertThat(body).contains("1 proveedor espera aprobación");
+    assertThat(body).contains("#" + pending.getId() + " Mandadero Esperando Digest");
+    assertThat(body).contains("(mandados en Solymar)");
+    assertThat(body).contains("espera hace 13 días");
+    assertThat(body).contains("11 pedidos abiertos que podría tomar");
+    assertThat(body).contains("https://www.fixy.com.uy/admin");
+    assertThat(body).contains("marcalo rechazado");
+  }
+
+  /** Igual que {@link #awaitMessageForLead} pero buscando un texto propio del test. */
+  private String awaitMessageContaining(String needle) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    try {
+      while (System.nanoTime() < deadline) {
+        String body = receivedBodies.poll(200, TimeUnit.MILLISECONDS);
+        if (body != null && body.contains(needle)) {
+          return body;
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
+    throw new AssertionError("Telegram debería haber recibido un POST con \"" + needle + "\"");
+  }
+
   private Provider persistProviderWithCategory(String name, String phone, String categories,
       ProviderStatus status) {
     Provider provider = new Provider();

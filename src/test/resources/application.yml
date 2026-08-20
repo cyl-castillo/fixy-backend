@@ -36,6 +36,9 @@ fixy:
   matching:
     auto-release:
       enabled: false
+  providers:
+    pending-approval:
+      enabled: false
   security:
     username: test-ops
     password: test-pass
