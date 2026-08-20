@@ -376,6 +376,63 @@ class PublicOfferSurfaceTest {
         .andExpect(jsonPath("$.viewCount").doesNotExist());
   }
 
+  // --- Ranking de conveniencia (OfferRankingService, fase 1) ---
+
+  @Test
+  void listPublicDevuelveElOrdenDelRankingNoElCronologico() throws Exception {
+    // "Barrio primero": a paridad de vigencia/descuento, una oferta local
+    // (manual/whatsapp_forward) le gana a una scrapeada, aunque la
+    // scrapeada sea más nueva (createdAt más reciente).
+    Business localBusiness = persistBusiness("Comercio Ranking Local Test", "098444030");
+    Business scrapedBusiness = persistBusiness("Comercio Ranking Scraped Test", "scraped:comercio-ranking-scraped-test");
+
+    // validUntil lejos de cualquier ventana de urgencia, para aislar la señal de origen.
+    OffsetDateTime validUntil = OffsetDateTime.now().plusDays(10);
+
+    Offer scraped = persistOffer(scrapedBusiness, OfferStatus.ACTIVE, "otro", "Solymar", validUntil);
+    scraped.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+    offerRepository.save(scraped);
+
+    Offer local = persistOffer(localBusiness, OfferStatus.ACTIVE, "otro", "Solymar", validUntil);
+    local.setOrigin(Offer.ORIGIN_MANUAL);
+    offerRepository.save(local);
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
+
+    int localIndex = ids.indexOf(local.getId().intValue());
+    int scrapedIndex = ids.indexOf(scraped.getId().intValue());
+    assertThat(localIndex).isGreaterThanOrEqualTo(0);
+    assertThat(scrapedIndex).isGreaterThanOrEqualTo(0);
+    assertThat(localIndex).isLessThan(scrapedIndex);
+  }
+
+  @Test
+  void listPublicPrioriazaUnaOfertaPorVencerSobreUnaScrapedSinUrgencia() throws Exception {
+    Business urgenteBusiness = persistBusiness("Comercio Ranking Urgente Test", "scraped:comercio-ranking-urgente-test");
+    Offer urgente = persistOffer(urgenteBusiness, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusHours(10));
+    urgente.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+    urgente.setDiscountText(null);
+    offerRepository.save(urgente);
+
+    Business lejanaBusiness = persistBusiness("Comercio Ranking Lejana Test", "098444031");
+    Offer lejana = persistOffer(lejanaBusiness, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(10));
+    lejana.setOrigin(Offer.ORIGIN_MANUAL);
+    lejana.setDiscountText(null);
+    offerRepository.save(lejana);
+
+    // Urgencia (+30) le gana a Barrio primero (+25) sola — el orden total combina ambas señales.
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
+
+    assertThat(ids.indexOf(urgente.getId().intValue()))
+        .isLessThan(ids.indexOf(lejana.getId().intValue()));
+  }
+
   @Test
   void viewCountMuestraElValorRealEnOSobreElUmbralDeSocialProof() throws Exception {
     Business business = persistBusiness("Comercio Views Sobre Umbral Test", "098444019");

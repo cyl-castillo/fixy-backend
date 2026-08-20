@@ -24,7 +24,6 @@ import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -70,6 +69,7 @@ public class OfferService {
   private final BusinessRepository businessRepository;
   private final LeadRepository leadRepository;
   private final OfferInquiryRepository offerInquiryRepository;
+  private final OfferRankingService offerRankingService;
   private final Clock clock;
   private final Path uploadsRoot;
   private final String urlPrefix;
@@ -81,6 +81,7 @@ public class OfferService {
       BusinessRepository businessRepository,
       LeadRepository leadRepository,
       OfferInquiryRepository offerInquiryRepository,
+      OfferRankingService offerRankingService,
       Clock clock,
       @Value("${fixy.uploads.dir:./data/uploads}") String uploadsDir,
       @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix,
@@ -90,6 +91,7 @@ public class OfferService {
     this.businessRepository = businessRepository;
     this.leadRepository = leadRepository;
     this.offerInquiryRepository = offerInquiryRepository;
+    this.offerRankingService = offerRankingService;
     this.clock = clock;
     this.uploadsRoot = Path.of(uploadsDir).toAbsolutePath().normalize();
     this.urlPrefix = urlPrefix.replaceAll("/+$", "");
@@ -128,16 +130,23 @@ public class OfferService {
    * matching de proveedores); una oferta sin zona declarada no aparece en
    * un listado filtrado por zona — decisión deliberada, evita mostrar una
    * oferta fuera de contexto por un dato faltante en vez de por elección.
+   *
+   * <p>Orden: ya NO es cronológico. Se aplica {@link OfferRankingService}
+   * (score de conveniencia, fase 1) sobre el resultado ya filtrado por
+   * zona/categoría — el ranking nunca decide qué entra a la lista, solo el
+   * orden.
    */
   public List<OfferPublicResponse> listPublic(String zone, String category) {
     String normalizedZone = normalize(zone);
     String normalizedCategory = normalize(category);
     OffsetDateTime now = OffsetDateTime.now(clock);
 
-    return offerRepository.findByStatusAndValidUntilAfter(OfferStatus.ACTIVE, now).stream()
+    List<Offer> filtered = offerRepository.findByStatusAndValidUntilAfter(OfferStatus.ACTIVE, now).stream()
         .filter(offer -> matchesPublicZone(offer, normalizedZone))
         .filter(offer -> matchesPublicCategory(offer, normalizedCategory))
-        .sorted(Comparator.comparing(Offer::getValidUntil))
+        .toList();
+
+    return offerRankingService.rank(filtered, now).stream()
         .map(this::toPublicResponse)
         .filter(java.util.Objects::nonNull)
         .toList();
@@ -225,7 +234,8 @@ public class OfferService {
             offer.getSourceName(),
             business.getAddress(),
             offer.getViewCount() >= socialProofMinViews ? offer.getViewCount() : null,
-            ctaTypeLabel(ctaType(business))
+            ctaTypeLabel(ctaType(business)),
+            offer.getCreatedAt()
         ))
         .orElse(null);
   }

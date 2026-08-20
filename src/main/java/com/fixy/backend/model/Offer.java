@@ -156,5 +156,7 @@ public class Offer {
   public int getClickCount() { return clickCount; }
   public void setClickCount(int clickCount) { this.clickCount = clickCount; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
+  /** Setter de test/fixture — mismo patrón que AppUser/LeadPhoto/UserLead: @PrePersist sigue mandando en persistencia real. */
+  public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

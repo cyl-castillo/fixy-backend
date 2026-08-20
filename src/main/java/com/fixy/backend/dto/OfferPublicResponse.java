@@ -36,6 +36,11 @@ import java.time.OffsetDateTime;
  * (comercio real sin vínculo a Provider — CTA "Consultar", mini-form),
  * {@code "none"} (comercio scrapeado de una fuente pública, sin
  * interlocutor real — sin CTA de contacto).
+ *
+ * <p>{@code createdAt} se agregó de forma aditiva para el motor de ranking
+ * de conveniencia ({@code OfferRankingService}, fase 1): el orden de la
+ * lista ya no es cronológico, así que el cliente necesita esta fecha si
+ * quiere mostrar "publicada hace X" sin depender del orden del array.
  */
 public record OfferPublicResponse(
     Long id,
@@ -51,6 +56,7 @@ public record OfferPublicResponse(
     String sourceName,
     String businessAddress,
     Integer viewCount,
-    String ctaType
+    String ctaType,
+    OffsetDateTime createdAt
 ) {
 }
