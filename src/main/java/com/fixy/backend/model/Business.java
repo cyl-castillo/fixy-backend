@@ -49,6 +49,11 @@ public class Business {
   /** Texto libre, nullable — dato barato hoy, mapa mañana (ver V17). */
   private String address;
 
+  /** Pin en mapa, fase 3 (ver V21) — nullable: hoy solo lo llena el alta
+   * pública cuando el navegador del comerciante da la geolocalización. */
+  private Double latitude;
+  private Double longitude;
+
   @Enumerated(EnumType.STRING)
   @Column(nullable = false)
   private BusinessStatus status;
@@ -89,6 +94,10 @@ public class Business {
   public void setPrimaryZone(String primaryZone) { this.primaryZone = primaryZone; }
   public String getAddress() { return address; }
   public void setAddress(String address) { this.address = address; }
+  public Double getLatitude() { return latitude; }
+  public void setLatitude(Double latitude) { this.latitude = latitude; }
+  public Double getLongitude() { return longitude; }
+  public void setLongitude(Double longitude) { this.longitude = longitude; }
   public BusinessStatus getStatus() { return status; }
   public void setStatus(BusinessStatus status) { this.status = status; }
   public Long getProviderId() { return providerId; }

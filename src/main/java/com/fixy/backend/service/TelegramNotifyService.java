@@ -394,6 +394,35 @@ public class TelegramNotifyService {
     }
   }
 
+  /**
+   * Alta pública de una oferta (fase 2 "ofertas protagonistas", puerta del
+   * comerciante): mismo sub-patrón que {@link #notifyProviderSelfRegistered}
+   * — sin {@code Lead} de por medio, así que no aplica la idempotencia "un
+   * evento por lead" (cada alta es un hecho distinto, no hay "segunda vez"
+   * que filtrar). Best-effort: el caller ({@code PublicOfferSubmissionService})
+   * ya envuelve esta llamada en un catch-all propio, pero repetimos el
+   * guard acá también para no romper si algún día se llama directo.
+   */
+  public void notifyOfferSubmission(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(offer.getTitle())
+        || com.fixy.backend.model.SmokeTraffic.marks(business.getName())) {
+      return;
+    }
+    try {
+      String text = "🏪 Nueva oferta cargada por un comercio: \"%s\" — %s (%s en %s). Revisala y aprobala en el admin: Ofertas → Draft."
+          .formatted(
+              safe(offer.getTitle()),
+              safe(business.getName()),
+              safe(business.getCategory()),
+              safe(offer.getZone())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify offer-submission offerId={} failed: {}", offer.getId(), ex.getMessage());
+    }
+  }
+
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;

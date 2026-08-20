@@ -93,6 +93,9 @@ fixy:
     offer-inquiry:
       max-requests-per-window: ${FIXY_ABUSE_OFFER_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_OFFER_INQUIRY_WINDOW_SECONDS:600}
+    offer-submission:
+      max-requests-per-window: ${FIXY_ABUSE_OFFER_SUBMISSION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_OFFER_SUBMISSION_WINDOW_SECONDS:600}
   auth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     session-secret: ${AUTH_SESSION_SECRET:}

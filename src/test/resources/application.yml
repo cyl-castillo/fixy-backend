@@ -53,6 +53,9 @@ fixy:
     offer-inquiry:
       max-requests-per-window: 200
       window-seconds: 60
+    offer-submission:
+      max-requests-per-window: 200
+      window-seconds: 60
   chat:
     max-messages-per-window: 100
     window-seconds: 60
