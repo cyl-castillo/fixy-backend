@@ -9,6 +9,8 @@ public record BusinessUpdateRequest(
     String primaryZone,
     BusinessStatus status,
     Long providerId,
-    String address
+    String address,
+    Double latitude,
+    Double longitude
 ) {
 }

@@ -271,7 +271,9 @@ public class OfferService {
             ctaTypeLabel(ctaType(business)),
             offer.getCreatedAt(),
             offer.getLikeCount(),
-            inquiryCount
+            inquiryCount,
+            business.getLatitude(),
+            business.getLongitude()
         ))
         .orElse(null);
   }

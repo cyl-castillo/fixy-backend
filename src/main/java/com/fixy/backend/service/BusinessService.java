@@ -57,6 +57,8 @@ public class BusinessService {
     if (request.status() != null) business.setStatus(request.status());
     if (request.providerId() != null) business.setProviderId(request.providerId());
     if (request.address() != null) business.setAddress(trimToNull(request.address()));
+    if (request.latitude() != null) business.setLatitude(request.latitude());
+    if (request.longitude() != null) business.setLongitude(request.longitude());
 
     return toResponse(businessRepository.save(business));
   }
@@ -76,6 +78,8 @@ public class BusinessService {
         business.getStatus(),
         business.getProviderId(),
         business.getAddress(),
+        business.getLatitude(),
+        business.getLongitude(),
         business.getCreatedAt(),
         business.getUpdatedAt()
     );

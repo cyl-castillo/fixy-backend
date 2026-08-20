@@ -399,6 +399,32 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
+  void businessLatitudeYLongitudeSeExponenCuandoElComercioLasCargo() throws Exception {
+    Business business = persistBusiness("Comercio Con Coordenadas Test", "098444022");
+    business.setLatitude(-34.789);
+    business.setLongitude(-55.987);
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessLatitude").value(-34.789))
+        .andExpect(jsonPath("$.businessLongitude").value(-55.987));
+  }
+
+  @Test
+  void businessLatitudeYLongitudeAusentesQuedanNullEnElDtoPublico() throws Exception {
+    Business business = persistBusiness("Comercio Sin Coordenadas Test", "098444023");
+    // latitude/longitude quedan null — default, no se setean.
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessLatitude").doesNotExist())
+        .andExpect(jsonPath("$.businessLongitude").doesNotExist());
+  }
+
+  @Test
   void viewCountQuedaNullDebajoDelUmbralDeSocialProof() throws Exception {
     Business business = persistBusiness("Comercio Views Bajo Umbral Test", "098444018");
     Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));

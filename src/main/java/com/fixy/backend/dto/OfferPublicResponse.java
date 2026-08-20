@@ -48,6 +48,12 @@ import java.time.OffsetDateTime;
  * siempre como {@code int} crudo, sin el gate de social proof — no hay
  * política equivalente definida para "me sirve" ni consultas todavía, se
  * agrega si hace falta más adelante.
+ *
+ * <p>{@code businessLatitude}/{@code businessLongitude} se agregaron de
+ * forma aditiva para el mapa del barrio (fase 3 del roadmap de ofertas):
+ * mismo criterio de privacidad que {@code businessAddress} (dato físico
+ * público del comercio, no del vecino) — {@code null} si el comercio no
+ * cargó coordenadas (V21, nullable).
  */
 public record OfferPublicResponse(
     Long id,
@@ -66,6 +72,8 @@ public record OfferPublicResponse(
     String ctaType,
     OffsetDateTime createdAt,
     int likeCount,
-    int inquiryCount
+    int inquiryCount,
+    Double businessLatitude,
+    Double businessLongitude
 ) {
 }

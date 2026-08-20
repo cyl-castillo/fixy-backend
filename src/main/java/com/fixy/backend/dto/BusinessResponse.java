@@ -12,6 +12,8 @@ public record BusinessResponse(
     BusinessStatus status,
     Long providerId,
     String address,
+    Double latitude,
+    Double longitude,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt
 ) {

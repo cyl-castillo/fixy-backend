@@ -146,6 +146,74 @@ class BusinessCrudTest {
   }
 
   @Test
+  void patchConLatitudeYLongitudeLasActualizaYNoTocaElRestoDeCampos() throws Exception {
+    Integer id = createBusiness("098111008");
+
+    MvcResult res = mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "latitude": -34.812,
+                  "longitude": -55.956
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat((Double) JsonPath.read(body, "$.latitude")).isEqualTo(-34.812);
+    assertThat((Double) JsonPath.read(body, "$.longitude")).isEqualTo(-55.956);
+    // semántica PATCH real: lo que no vino en el request no se toca.
+    assertThat((String) JsonPath.read(body, "$.name")).isEqualTo("Panadería La Costa");
+    assertThat((String) JsonPath.read(body, "$.primaryZone")).isEqualTo("Solymar");
+  }
+
+  @Test
+  void patchSinLatitudeNiLongitudeNoLasPisaConNull() throws Exception {
+    Integer id = createBusiness("098111009");
+
+    mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "latitude": -34.812,
+                  "longitude": -55.956
+                }
+                """))
+        .andExpect(status().isOk());
+
+    // segundo PATCH que solo toca otro campo — las coordenadas ya cargadas sobreviven.
+    MvcResult res = mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "primaryZone": "Lagomar"
+                }
+                """))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat((Double) JsonPath.read(body, "$.latitude")).isEqualTo(-34.812);
+    assertThat((Double) JsonPath.read(body, "$.longitude")).isEqualTo(-55.956);
+    assertThat((String) JsonPath.read(body, "$.primaryZone")).isEqualTo("Lagomar");
+  }
+
+  @Test
+  void altaSinCoordenadasQuedanNullEnElResponse() throws Exception {
+    Integer id = createBusiness("098111010");
+
+    mockMvc.perform(get("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.latitude").doesNotExist())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.longitude").doesNotExist());
+  }
+
+  @Test
   void listaIncluyeLosComerciosCreadosEnElTest() throws Exception {
     Integer a = createBusiness("098111003");
     Integer b = createBusiness("098111004");
