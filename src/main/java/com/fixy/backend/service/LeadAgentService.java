@@ -60,6 +60,7 @@ public class LeadAgentService {
   private final UserLeadRepository userLeadRepository;
   private final ProviderCatalogService providerCatalogService;
   private final WhatsAppService whatsappService;
+  private final WhatsAppMenuService whatsappMenuService;
   private final com.fixy.backend.repository.ProviderRepository providerRepository;
   private final LeadTimelineService leadTimelineService;
   private final AgentService agentService;
@@ -73,6 +74,7 @@ public class LeadAgentService {
       UserLeadRepository userLeadRepository,
       ProviderCatalogService providerCatalogService,
       WhatsAppService whatsappService,
+      WhatsAppMenuService whatsappMenuService,
       com.fixy.backend.repository.ProviderRepository providerRepository,
       LeadTimelineService leadTimelineService,
       AgentService agentService,
@@ -92,6 +94,7 @@ public class LeadAgentService {
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.whatsappService = whatsappService;
+    this.whatsappMenuService = whatsappMenuService;
     this.providerRepository = providerRepository;
     this.leadTimelineService = leadTimelineService;
     this.agentService = agentService;
@@ -138,6 +141,20 @@ public class LeadAgentService {
       boolean isChatFirst = lead.getDetectedCategory() == null
           && (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem()));
       if (isChatFirst) {
+        // Primer contacto por WhatsApp: menú de apertura (interactive list)
+        // en vez del saludo de texto plano — equivalente al formulario
+        // guiado de la landing (ver spec "WhatsApp como canal de entrada").
+        // Si el menú falla o está deshabilitado, cae al saludo fijo de
+        // siempre; el chat web nunca pasa por acá.
+        if ("whatsapp".equals(lead.getChannel()) && whatsappMenuService.isEnabled()
+            && whatsappMenuService.sendOpeningMenu(lead.getPhone())) {
+          // El mensaje interactivo real ya salió por sendOpeningMenu; esto
+          // solo persiste la versión texto para el historial (chat web/ops,
+          // que no puede renderizar una interactive list) sin reenviarla por
+          // WhatsApp — evitaría duplicar el mensaje de apertura.
+          leadMessageService.postFromAgent(lead.getId(), fallbackChatFirstGreeting(), false);
+          return;
+        }
         // Saludo fijo: no hay contexto que justifique una llamada al LLM y los
         // modelos tienden a repetir el system prompt cuando se les pide
         // "presentate" sin input del usuario (visto en prod con llama-70b).
@@ -2128,6 +2145,35 @@ public class LeadAgentService {
   /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
   private String humanCategory(String raw) {
     return com.fixy.backend.model.ServiceCategory.humanLabel(raw);
+  }
+
+  /**
+   * El cliente eligió una categoría en el menú de apertura de WhatsApp
+   * (WhatsAppInboundService.handleMenuSelection). A diferencia del flujo de
+   * texto libre, acá no hay nada que clasificar: fijamos la categoría directo
+   * y preguntamos lo específico de ese rubro usando ServiceCategory.intakeHint
+   * — el mismo guion determinista que ya usa el resto del agente para no
+   * inventar preguntas fuera de categoría (ver javadoc de intakeHint).
+   */
+  public void applyMenuCategorySelection(Long leadId, String categoryId) {
+    Lead lead = leadRepository.findById(leadId).orElse(null);
+    if (lead == null) {
+      return;
+    }
+    var category = com.fixy.backend.model.ServiceCategory.fromId(categoryId).orElse(null);
+    if (category == null) {
+      safePost(leadId, fallbackChatFirstGreeting());
+      return;
+    }
+    lead.setDetectedCategory(category.id());
+    leadRepository.save(lead);
+    leadTimelineService.appendEvent(lead, "MENU_CATEGORY_SELECTED", "user",
+        "Eligió " + category.label() + " en el menú de WhatsApp");
+    String hint = com.fixy.backend.model.ServiceCategory.intakeHintForId(category.id());
+    String reply = hint != null
+        ? "Perfecto, %s. Contame %s.".formatted(category.label(), hint)
+        : "Perfecto, %s. Contame qué necesitás y en qué zona estás.".formatted(category.label());
+    leadMessageService.postFromAgent(leadId, reply);
   }
 
   private String humanMissing(String missingFieldsRaw) {

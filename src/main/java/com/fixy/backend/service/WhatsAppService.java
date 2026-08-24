@@ -127,6 +127,54 @@ public class WhatsAppService {
     return post(body, "sendTemplate " + templateName + " to=" + to);
   }
 
+  /** Una fila de una interactive list: id (lo que vuelve en el webhook al
+   * elegirla), title (≤24 caracteres) y description opcional (≤72 caracteres),
+   * límites de Meta Cloud API. */
+  public record ListRow(String id, String title, String description) {}
+
+  /**
+   * Envia una interactive list message: un botón que despliega hasta 10 filas
+   * agrupadas en una sección. Usado por WhatsAppMenuService para el menú de
+   * apertura. Como sendText/sendTemplate, es user-initiated-only si se manda
+   * en respuesta a un mensaje entrante — no necesita template aprobado.
+   */
+  public boolean sendInteractiveList(String toRaw, String bodyText, String buttonLabel,
+      String sectionTitle, List<ListRow> rows) {
+    if (!enabled) {
+      log.warn("whatsapp disabled, skip sendInteractiveList to {}", toRaw);
+      return false;
+    }
+    String to = normalize(toRaw);
+    if (to == null) {
+      log.warn("whatsapp sendInteractiveList: invalid number {}", toRaw);
+      return false;
+    }
+    List<Map<String, Object>> rowMaps = new ArrayList<>();
+    for (ListRow row : rows) {
+      Map<String, Object> rowMap = new java.util.HashMap<>();
+      rowMap.put("id", row.id());
+      rowMap.put("title", row.title());
+      if (row.description() != null && !row.description().isBlank()) {
+        rowMap.put("description", row.description());
+      }
+      rowMaps.add(rowMap);
+    }
+    Map<String, Object> section = Map.of("title", sectionTitle, "rows", rowMaps);
+    Map<String, Object> action = Map.of("button", buttonLabel, "sections", List.of(section));
+    Map<String, Object> interactive = Map.of(
+        "type", "list",
+        "body", Map.of("text", bodyText),
+        "action", action
+    );
+    Map<String, Object> body = Map.of(
+        "messaging_product", "whatsapp",
+        "to", to,
+        "type", "interactive",
+        "interactive", interactive
+    );
+    return post(body, "sendInteractiveList to=" + to);
+  }
+
   private boolean post(Map<String, Object> body, String contextDescription) {
     try {
       String uri = "/" + apiVersion + "/" + phoneNumberId + "/messages";

@@ -11,6 +11,7 @@ import com.fixy.backend.service.LeadAssignmentService;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadTimelineService;
 import com.fixy.backend.service.WhatsAppInboundService;
+import com.fixy.backend.service.WhatsAppMenuService;
 import com.fixy.backend.service.WhatsAppService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -44,8 +45,10 @@ import org.springframework.web.bind.annotation.RestController;
  *    ve por polling en su chat web.
  *
  * Cuando llega un mensaje de un número que NO es un proveedor conocido, se
- * trata como CLIENTE: se delega a WhatsAppInboundService, que usa el mismo
- * cerebro agéntico (LeadAgentService) que atiende el chat web.
+ * trata como CLIENTE: si eligió una fila del menú de apertura (ver
+ * WhatsAppMenuService), se rutea por su id sin pasar por el clasificador; si
+ * no, se delega a WhatsAppInboundService, que usa el mismo cerebro agéntico
+ * (LeadAgentService) que atiende el chat web.
  *
  * Ventana de servicio de Meta (24h): solo podemos mandar texto libre en
  * respuesta a un mensaje que el usuario nos mandó dentro de las últimas 24h
@@ -166,8 +169,21 @@ public class WhatsAppWebhookController {
         .or(() -> providerRepository.findByContactNumber(from))
         .orElse(null);
     if (provider == null) {
-      // No es un proveedor conocido: lo tratamos como CLIENTE conversando
-      // con el agente (mismo cerebro que el chat web).
+      // No es un proveedor conocido: lo tratamos como CLIENTE. Si tocó una
+      // fila del menú de apertura (ver WhatsAppMenuService), rutear por id
+      // en vez de por el texto del título — evita depender de que el título
+      // matchee alguna keyword del clasificador.
+      String menuRowId = extractInteractiveReplyId(msg, type);
+      if (menuRowId != null && WhatsAppMenuService.isKnownRowId(menuRowId)) {
+        if (WhatsAppMenuService.isOtherRowId(menuRowId)) {
+          whatsappInboundService.promptFreeText(from);
+        } else {
+          whatsappInboundService.handleMenuSelection(from, menuRowId);
+        }
+        return;
+      }
+      // Ignoró el menú (o nunca lo recibió) y escribió directo: mismo cerebro
+      // agéntico que atiende el chat web.
       whatsappInboundService.handleCustomerMessage(from, text);
       return;
     }
@@ -206,6 +222,25 @@ public class WhatsAppWebhookController {
       if ("list_reply".equals(iType)) {
         return interactive.path("list_reply").path("title").asText("");
       }
+    }
+    return null;
+  }
+
+  /** Id de la fila/botón elegido en una respuesta interactiva (list_reply o
+   * button_reply), o null si el mensaje no es una respuesta interactiva.
+   * Distinto de extractMessageText: ese devuelve el título (para mostrar
+   * como texto), esto devuelve el id (para rutear sin ambigüedad). */
+  private String extractInteractiveReplyId(JsonNode msg, String type) {
+    if (!"interactive".equals(type)) {
+      return null;
+    }
+    JsonNode interactive = msg.path("interactive");
+    String iType = interactive.path("type").asText("");
+    if ("list_reply".equals(iType)) {
+      return interactive.path("list_reply").path("id").asText(null);
+    }
+    if ("button_reply".equals(iType)) {
+      return interactive.path("button_reply").path("id").asText(null);
     }
     return null;
   }

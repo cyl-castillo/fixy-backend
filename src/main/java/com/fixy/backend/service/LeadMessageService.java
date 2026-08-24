@@ -160,6 +160,17 @@ public class LeadMessageService {
    * evita duplicar el envio en cada call-site de LeadAgentService.
    */
   public LeadMessageResponse postFromAgent(Long leadId, String rawText) {
+    return postFromAgent(leadId, rawText, true);
+  }
+
+  /**
+   * Variante con control de relay a WhatsApp. Usada cuando el canal de salida
+   * ya mandó un mensaje con otro formato (ej. el menú interactivo de
+   * apertura, ver WhatsAppMenuService) y este texto es solo la versión plana
+   * que queda en el historial del chat web/ops — mandarla también por
+   * sendText duplicaría el mensaje en WhatsApp.
+   */
+  public LeadMessageResponse postFromAgent(Long leadId, String rawText, boolean relayToWhatsApp) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
     String text = sanitize(rawText);
@@ -173,7 +184,8 @@ public class LeadMessageService {
     LeadMessage saved = persist(lead.getId(), "fixy", text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_FIXY", "agent",
         text.length() > 80 ? text.substring(0, 80) + "…" : text);
-    if ("whatsapp".equals(lead.getChannel()) && lead.getPhone() != null && !lead.getPhone().isBlank()) {
+    if (relayToWhatsApp && "whatsapp".equals(lead.getChannel())
+        && lead.getPhone() != null && !lead.getPhone().isBlank()) {
       whatsappService.sendText(lead.getPhone(), text);
     }
     notifyCustomerOfNews(lead, text);

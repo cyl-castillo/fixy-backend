@@ -129,6 +129,42 @@ class WhatsAppWebhookCustomerFlowTest {
   }
 
   @Test
+  void menuRowSelectionSetsCategoryDirectlyWithoutClassifier() throws Exception {
+    when(whatsappService.isEnabled()).thenReturn(false);
+
+    String from = "59899777004";
+    postInboundTextMessage(from, "wamid.customer4a", "hola");
+    Lead lead = awaitLeadFor(from);
+    assertThat(lead.getDetectedCategory()).isNull();
+
+    postInboundListReplyMessage(from, "wamid.customer4b", "plomeria", "Plomería");
+
+    Awaitility.await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(100))
+        .untilAsserted(() -> {
+          Lead updated = leadRepository.findById(lead.getId()).orElseThrow();
+          assertThat(updated.getDetectedCategory()).isEqualTo("plomeria");
+        });
+
+    List<LeadMessage> messages = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId());
+    assertThat(messages).extracting(LeadMessage::getSender).contains("fixy");
+  }
+
+  @Test
+  void otherRowSelectionCreatesLeadWithoutFakingProblemText() throws Exception {
+    when(whatsappService.isEnabled()).thenReturn(false);
+
+    String from = "59899777005";
+    postInboundListReplyMessage(from, "wamid.customer5", "otro", "Otro / escribir");
+
+    Lead lead = awaitLeadFor(from);
+    assertThat(lead.getChannel()).isEqualTo("whatsapp");
+    // No debe quedar el título de la fila colado como si fuera la
+    // descripción real del problema.
+    assertThat(lead.getDetectedCategory()).isNull();
+    assertThat(lead.getProblem()).doesNotContain("Otro / escribir");
+  }
+
+  @Test
   void webhookVerificationStillWorksWithoutCredentials() throws Exception {
     // Comportamiento existente intacto: sin verify-token configurado en el
     // entorno de test, el challenge de Meta se rechaza (no hay token con el
@@ -157,6 +193,34 @@ class WhatsAppWebhookCustomerFlowTest {
           }]
         }
         """.formatted(from, messageId, text);
+    MvcResult result = mockMvc.perform(post("/api/webhooks/whatsapp")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(payload))
+        .andExpect(status().isOk())
+        .andReturn();
+    assertThat(result.getResponse().getContentAsString()).isEqualTo("OK");
+  }
+
+  private void postInboundListReplyMessage(String from, String messageId, String rowId, String rowTitle) throws Exception {
+    String payload = """
+        {
+          "entry": [{
+            "changes": [{
+              "value": {
+                "messages": [{
+                  "from": "%s",
+                  "id": "%s",
+                  "type": "interactive",
+                  "interactive": {
+                    "type": "list_reply",
+                    "list_reply": {"id": "%s", "title": "%s"}
+                  }
+                }]
+              }
+            }]
+          }]
+        }
+        """.formatted(from, messageId, rowId, rowTitle);
     MvcResult result = mockMvc.perform(post("/api/webhooks/whatsapp")
             .contentType(MediaType.APPLICATION_JSON)
             .content(payload))
