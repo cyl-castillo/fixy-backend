@@ -6,8 +6,6 @@ import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 /**
@@ -26,8 +24,8 @@ import org.springframework.stereotype.Service;
  *   normal toda oferta ACTIVE tiene validUntil futuro, ver
  *   {@code OfferService.approve}, y {@code listPublic} ya filtra vencidas
  *   antes de rankear).</li>
- *   <li><b>Descuento</b> (parsea {@code discountText} con regex
- *   determinista, sin heurística de lenguaje natural — señales
+ *   <li><b>Descuento</b> (parsea {@code discountText} vía {@link
+ *   DiscountParser}, sin heurística de lenguaje natural — señales
  *   acumulables, no mutuamente excluyentes): "NN%" → suma
  *   {@code min(NN, 70) * 0.5} puntos (tope anti-outlier: un "90% off" mal
  *   cargado no debe pisar todo el ranking); "2x1" → +25; contiene
@@ -86,9 +84,11 @@ public class OfferRankingService {
   static final double INTERACTION_LIKE_WEIGHT = 2.0;
   static final double INTERACTION_CAP = 25.0;
 
-  private static final Pattern PERCENT_PATTERN = Pattern.compile("(\\d{1,3})\\s*%");
-  private static final Pattern TWO_FOR_ONE_PATTERN = Pattern.compile("2\\s*x\\s*1", Pattern.CASE_INSENSITIVE);
-  private static final Pattern FREE_PATTERN = Pattern.compile("gratis|free", Pattern.CASE_INSENSITIVE);
+  private final DiscountParser discountParser;
+
+  public OfferRankingService(DiscountParser discountParser) {
+    this.discountParser = discountParser;
+  }
 
   /** Copia de {@code offers} en orden de conveniencia, sin señal de interacción (inquiryCount = 0 para todas). */
   public List<Offer> rank(List<Offer> offers, OffsetDateTime now) {
@@ -159,15 +159,14 @@ public class OfferRankingService {
       return 0;
     }
     double score = 0;
-    Matcher percentMatcher = PERCENT_PATTERN.matcher(text);
-    if (percentMatcher.find()) {
-      double percent = Double.parseDouble(percentMatcher.group(1));
+    Integer percent = discountParser.extractPercent(text);
+    if (percent != null) {
       score += Math.min(percent, DISCOUNT_PERCENT_CAP) * DISCOUNT_PERCENT_WEIGHT;
     }
-    if (TWO_FOR_ONE_PATTERN.matcher(text).find()) {
+    if (discountParser.hasTwoForOne(text)) {
       score += DISCOUNT_2X1;
     }
-    if (FREE_PATTERN.matcher(text).find()) {
+    if (discountParser.hasFree(text)) {
       score += DISCOUNT_FREE;
     }
     return score;

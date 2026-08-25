@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test;
  */
 class OfferRankingServiceTest {
 
-  private final OfferRankingService service = new OfferRankingService();
+  private final OfferRankingService service = new OfferRankingService(new DiscountParser());
   private final OffsetDateTime now = OffsetDateTime.parse("2026-08-19T12:00:00Z");
 
   private Offer offer(long id) {
