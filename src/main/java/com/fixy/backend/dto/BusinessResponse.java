@@ -15,6 +15,10 @@ public record BusinessResponse(
     Double latitude,
     Double longitude,
     OffsetDateTime createdAt,
-    OffsetDateTime updatedAt
+    OffsetDateTime updatedAt,
+    // Fase 5 (panel self-service del comercio): null hasta que ops pide el
+    // link por primera vez (POST /api/businesses/{id}/panel-link) — ver
+    // BusinessService.ensurePanelLink.
+    String panelToken
 ) {
 }

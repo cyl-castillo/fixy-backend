@@ -214,6 +214,52 @@ class BusinessCrudTest {
   }
 
   @Test
+  void altaSinPedirLinkQuedaConPanelTokenNull() throws Exception {
+    Integer id = createBusiness("098111011");
+
+    mockMvc.perform(get("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.panelToken").doesNotExist());
+  }
+
+  @Test
+  void panelLinkEsLazyYDevuelveLaMismaUrlSiSePideDeNuevo() throws Exception {
+    Integer id = createBusiness("098111012");
+
+    MvcResult first = mockMvc.perform(post("/api/businesses/{id}/panel-link", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String firstUrl = JsonPath.read(first.getResponse().getContentAsString(), "$.url");
+    assertThat(firstUrl).contains("/mi-comercio/");
+
+    String tokenFromGet = JsonPath.read(
+        mockMvc.perform(get("/api/businesses/{id}", id)
+                .with(httpBasic("test-ops", "test-pass")))
+            .andExpect(status().isOk())
+            .andReturn().getResponse().getContentAsString(),
+        "$.panelToken");
+    assertThat(firstUrl).endsWith("/mi-comercio/" + tokenFromGet);
+
+    // Segundo pedido del link: NO regenera, devuelve exactamente la misma URL.
+    MvcResult second = mockMvc.perform(post("/api/businesses/{id}/panel-link", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String secondUrl = JsonPath.read(second.getResponse().getContentAsString(), "$.url");
+    assertThat(secondUrl).isEqualTo(firstUrl);
+  }
+
+  @Test
+  void panelLinkRequiereAutenticacion() throws Exception {
+    Integer id = createBusiness("098111013");
+
+    mockMvc.perform(post("/api/businesses/{id}/panel-link", id))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   void listaIncluyeLosComerciosCreadosEnElTest() throws Exception {
     Integer a = createBusiness("098111003");
     Integer b = createBusiness("098111004");

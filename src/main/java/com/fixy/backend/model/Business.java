@@ -61,6 +61,14 @@ public class Business {
   /** FK opcional: si el mismo comercio también es Provider (ver javadoc de clase). */
   private Long providerId;
 
+  /** Token del panel self-service del dueño (Fase 5, V23) — URL-safe,
+   * generado lazy la primera vez que ops pide el link
+   * ({@code BusinessService.ensurePanelLink}), único cuando no es null.
+   * Nunca se regenera solo: reemplazarlo invalidaría el link que el
+   * comerciante ya guardó. */
+  @Column(unique = true, length = 64)
+  private String panelToken;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -102,6 +110,8 @@ public class Business {
   public void setStatus(BusinessStatus status) { this.status = status; }
   public Long getProviderId() { return providerId; }
   public void setProviderId(Long providerId) { this.providerId = providerId; }
+  public String getPanelToken() { return panelToken; }
+  public void setPanelToken(String panelToken) { this.panelToken = panelToken; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

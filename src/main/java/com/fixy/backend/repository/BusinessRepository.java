@@ -25,4 +25,12 @@ public interface BusinessRepository extends JpaRepository<Business, Long> {
    * por accidente.
    */
   Optional<Business> findByNameIgnoreCase(String name);
+
+  /**
+   * Resuelve el panel self-service del dueño (Fase 5): {@code
+   * MerchantPanelService} y el upsert público de push (con {@code
+   * merchantToken}) buscan por acá. {@code panelToken} es único cuando no
+   * es null (ver V23), así que devuelve a lo sumo un comercio.
+   */
+  Optional<Business> findByPanelToken(String panelToken);
 }

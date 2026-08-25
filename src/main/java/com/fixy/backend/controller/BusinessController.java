@@ -1,6 +1,7 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.BusinessCreateRequest;
+import com.fixy.backend.dto.BusinessPanelLinkResponse;
 import com.fixy.backend.dto.BusinessResponse;
 import com.fixy.backend.dto.BusinessUpdateRequest;
 import com.fixy.backend.service.BusinessService;
@@ -46,5 +47,15 @@ public class BusinessController {
   @PatchMapping("/{id}")
   public BusinessResponse update(@PathVariable Long id, @RequestBody BusinessUpdateRequest request) {
     return businessService.update(id, request);
+  }
+
+  /**
+   * Link del panel self-service del dueño (Fase 5): genera el token si no
+   * existe, devuelve el mismo si ya lo tenía — nunca regenera solo (ver
+   * {@code BusinessService.ensurePanelLink}).
+   */
+  @PostMapping("/{id}/panel-link")
+  public BusinessPanelLinkResponse panelLink(@PathVariable Long id) {
+    return businessService.ensurePanelLink(id);
   }
 }
