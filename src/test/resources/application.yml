@@ -59,6 +59,9 @@ fixy:
     push-subscription:
       max-requests-per-window: 200
       window-seconds: 60
+    merchant-panel:
+      max-requests-per-window: 200
+      window-seconds: 60
   chat:
     max-messages-per-window: 100
     window-seconds: 60
@@ -83,6 +86,8 @@ fixy:
       auto:
         enabled: false
     saved-reminder:
+      enabled: false
+    merchant-reminder:
       enabled: false
   auth:
     google-client-id: test-client-id.apps.googleusercontent.com

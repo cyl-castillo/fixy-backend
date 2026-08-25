@@ -98,6 +98,9 @@ fixy:
     saved-reminder:
       enabled: ${FIXY_OFFERS_SAVED_REMINDER_ENABLED:true}
       scheduler-fixed-delay-ms: ${FIXY_OFFERS_SAVED_REMINDER_SCHEDULER_FIXED_DELAY_MS:3600000}
+    merchant-reminder:
+      enabled: ${FIXY_OFFERS_MERCHANT_REMINDER_ENABLED:true}
+      scheduler-fixed-delay-ms: ${FIXY_OFFERS_MERCHANT_REMINDER_SCHEDULER_FIXED_DELAY_MS:3600000}
   abuse:
     offer-inquiry:
       max-requests-per-window: ${FIXY_ABUSE_OFFER_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
@@ -108,6 +111,9 @@ fixy:
     push-subscription:
       max-requests-per-window: ${FIXY_ABUSE_PUSH_SUBSCRIPTION_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_PUSH_SUBSCRIPTION_WINDOW_SECONDS:600}
+    merchant-panel:
+      max-requests-per-window: ${FIXY_ABUSE_MERCHANT_PANEL_MAX_REQUESTS_PER_WINDOW:20}
+      window-seconds: ${FIXY_ABUSE_MERCHANT_PANEL_WINDOW_SECONDS:60}
   auth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     session-secret: ${AUTH_SESSION_SECRET:}

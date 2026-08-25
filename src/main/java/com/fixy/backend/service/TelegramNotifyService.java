@@ -424,6 +424,59 @@ public class TelegramNotifyService {
     }
   }
 
+  /**
+   * Fase 5 (panel self-service del comercio): el dueño renovó desde su panel
+   * una oferta que ya estaba {@code EXPIRED} — vuelve a {@code DRAFT} y
+   * necesita que ops la re-apruebe, misma regla que cualquier otro origen
+   * (ninguna oferta pasa a {@code ACTIVE} sin aprobación humana). Mismo
+   * sub-patrón que {@link #notifyOfferSubmission}: sin {@code Lead} de por
+   * medio, sin idempotencia por evento (cada renovación es un hecho
+   * distinto, no hay "segunda vez" que filtrar).
+   */
+  public void notifyMerchantOfferRenewal(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(offer.getTitle())
+        || com.fixy.backend.model.SmokeTraffic.marks(business.getName())) {
+      return;
+    }
+    try {
+      String text = "🔁 %s renovó su oferta vencida \"%s\" desde su panel — volvió a draft, aprobala en el admin: Ofertas → Draft."
+          .formatted(safe(business.getName()), safe(offer.getTitle()));
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify merchant-offer-renewal offerId={} failed: {}", offer.getId(), ex.getMessage());
+    }
+  }
+
+  /** Una línea del digest de {@link MerchantOfferExpiryScheduler}: oferta próxima a vencer cuyo comercio no tiene push. */
+  public record ExpiringWithoutOwnerPush(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+  }
+
+  /**
+   * Digest best-effort de {@link MerchantOfferExpiryScheduler}: ofertas que
+   * vencen en <48h cuyo comercio no tiene ninguna suscripción push propia
+   * (nadie a quién avisarle "renovala con un toque") — sin esto, esas
+   * ofertas simplemente se vencían en silencio. Un solo mensaje por corrida
+   * con todas juntas, mismo criterio que {@link #notifyAutoDigestSummary}
+   * (no un mensaje por oferta).
+   */
+  public void notifyMerchantOffersExpiringWithoutOwnerPush(List<ExpiringWithoutOwnerPush> items) {
+    if (!enabled || items == null || items.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("⏳ ").append(items.size())
+          .append(items.size() == 1 ? " oferta vence" : " ofertas vencen")
+          .append(" en <48h sin aviso al dueño (sin suscripción push):");
+      for (ExpiringWithoutOwnerPush item : items) {
+        text.append('\n').append(safe(item.business().getName())).append(": \"")
+            .append(safe(item.offer().getTitle())).append('"');
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify merchant-offers-expiring-without-push failed: {}", ex.getMessage());
+    }
+  }
+
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;

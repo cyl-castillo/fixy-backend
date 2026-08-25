@@ -66,6 +66,18 @@ public class PublicLeadAbuseProtectionService {
   private final Duration pushSubscriptionWindow;
   private final Map<String, Deque<Instant>> requestsByPushSubscriptionIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia y CHICA para el panel self-service del comercio (Fase 5,
+   * {@code MerchantPanelService}): son acciones de dueño (leer su panel,
+   * renovar/pausar una oferta), no deberían competir por cupo con las demás
+   * familias públicas — y una ventana corta con un tope generoso alcanza
+   * para el uso legítimo (recarga de página, un par de toques seguidos)
+   * mientras sigue frenando el intento de adivinar tokens a fuerza bruta
+   * (espacio de 32 bytes aleatorios, ver {@code BusinessService}). Cubre
+   * lectura Y mutación del panel — el mismo pool para las tres rutas. */
+  private final int merchantPanelMaxRequestsPerWindow;
+  private final Duration merchantPanelWindow;
+  private final Map<String, Deque<Instant>> requestsByMerchantPanelIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
@@ -74,7 +86,9 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.offer-submission.max-requests-per-window:5}") int offerSubmissionMaxRequestsPerWindow,
       @Value("${fixy.abuse.offer-submission.window-seconds:600}") long offerSubmissionWindowSeconds,
       @Value("${fixy.abuse.push-subscription.max-requests-per-window:5}") int pushSubscriptionMaxRequestsPerWindow,
-      @Value("${fixy.abuse.push-subscription.window-seconds:600}") long pushSubscriptionWindowSeconds
+      @Value("${fixy.abuse.push-subscription.window-seconds:600}") long pushSubscriptionWindowSeconds,
+      @Value("${fixy.abuse.merchant-panel.max-requests-per-window:20}") int merchantPanelMaxRequestsPerWindow,
+      @Value("${fixy.abuse.merchant-panel.window-seconds:60}") long merchantPanelWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -84,6 +98,8 @@ public class PublicLeadAbuseProtectionService {
     this.offerSubmissionWindow = Duration.ofSeconds(offerSubmissionWindowSeconds);
     this.pushSubscriptionMaxRequestsPerWindow = pushSubscriptionMaxRequestsPerWindow;
     this.pushSubscriptionWindow = Duration.ofSeconds(pushSubscriptionWindowSeconds);
+    this.merchantPanelMaxRequestsPerWindow = merchantPanelMaxRequestsPerWindow;
+    this.merchantPanelWindow = Duration.ofSeconds(merchantPanelWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -196,6 +212,16 @@ public class PublicLeadAbuseProtectionService {
           "savedOfferIds must have at most %d items".formatted(PUSH_SUBSCRIPTION_SAVED_OFFER_IDS_MAX));
     }
     enforceRateLimit(requestsByPushSubscriptionIp, normalizeIp(clientIp), pushSubscriptionMaxRequestsPerWindow, pushSubscriptionWindow);
+  }
+
+  /**
+   * Panel self-service del comercio (Fase 5): rate limit por IP, ventana
+   * propia y chica (ver javadoc del campo). Sin validación de contenido acá
+   * — el token en sí (404 opaco si no resuelve) y los datos de negocio
+   * (p.ej. {@code weeks} de renew) los valida {@code MerchantPanelService}.
+   */
+  public void validateMerchantPanel(String clientIp) {
+    enforceRateLimit(requestsByMerchantPanelIp, normalizeIp(clientIp), merchantPanelMaxRequestsPerWindow, merchantPanelWindow);
   }
 
   private void validateProblem(String problem) {
