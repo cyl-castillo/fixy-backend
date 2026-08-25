@@ -122,6 +122,25 @@ class OfferOgControllerTest {
   }
 
   @Test
+  void tituloQueYaContieneElDescuentoNoLoRepiteEnOgTitle() throws Exception {
+    Business business = persistBusiness("Comercio Dedup OG Test", "098555008");
+    Offer offer = persistOffer(business, "2x1 en muzzarella");
+    offer.setDiscountText("2x1");
+    offerRepository.save(offer);
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    // "2x1 en muzzarella · 2x1" sería redundante — el contrato de buildTitle
+    // omite el descuento cuando el título ya lo contiene (case-insensitive).
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("2x1 en muzzarella") + "\" />");
+  }
+
+  @Test
   void descripcionTerminaConLaFuenteCuandoLaOfertaVieneDeUnaIngesta() throws Exception {
     Business business = persistBusiness("Comercio Fuente OG Test", "098555003");
     Offer offer = persistOffer(business, "Beneficio bancario");

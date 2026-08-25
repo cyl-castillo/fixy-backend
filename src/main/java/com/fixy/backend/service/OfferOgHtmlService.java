@@ -132,13 +132,17 @@ public class OfferOgHtmlService {
    * Algoritmo de armado (contrato exacto, no reinterpretar): título +
    * descuento, unidos con " · " — un link compartido tiene que anunciar el
    * beneficio en el título mismo (lo que WhatsApp muestra más grande),
-   * no solo en la descripción de abajo. Si no hay {@code discountText}
-   * (ofertas sin descuento numérico, ej. "2x1" ya en el título), el título
-   * queda tal cual — no hay nada que agregar.
+   * no solo en la descripción de abajo. Si no hay {@code discountText},
+   * o el título ya lo contiene (caso común: "2x1 en muzzarella" con
+   * descuento "2x1" — sumaría "… · 2x1" redundante), el título queda tal
+   * cual — no hay nada que agregar.
    */
   private String buildTitle(OfferPublicResponse offer) {
-    if (offer.discountText() != null && !offer.discountText().isBlank()) {
-      return offer.title() + " · " + offer.discountText();
+    String discount = offer.discountText();
+    if (discount != null
+        && !discount.isBlank()
+        && !offer.title().toLowerCase().contains(discount.toLowerCase())) {
+      return offer.title() + " · " + discount;
     }
     return offer.title();
   }
