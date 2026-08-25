@@ -26,6 +26,14 @@ import java.time.OffsetDateTime;
  * lead no declaró una zona que Fixy reconozca (solo aplica a suscripciones
  * de cliente; las de proveedor no la usan). {@link #lastOffersDigestAt}
  * es el rate-limit del digest semanal de ofertas: null hasta el primer envío.
+ *
+ * <p>Fase Push-2 (enganche): {@link #savedOfferIds} es el CSV de ids de
+ * {@code Offer} que un suscriptor (cliente O visitante, nunca proveedor)
+ * guardó desde la PWA — lo escribe {@code POST /api/public/push-subscriptions}
+ * y lo lee/limpia {@code SavedOfferReminderScheduler} (ver
+ * {@code SavedOfferIdsCodec}, la única pieza que sabe leer/escribir ese CSV).
+ * {@link #lastSavedReminderAt} es el rate-limit propio de ese recordatorio
+ * (máx 1 por día), independiente del digest semanal.
  */
 @Entity
 @Table(name = "push_subscriptions")
@@ -54,6 +62,11 @@ public class PushSubscription {
 
   private OffsetDateTime lastOffersDigestAt;
 
+  @Column(length = 2000)
+  private String savedOfferIds;
+
+  private OffsetDateTime lastSavedReminderAt;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -78,6 +91,10 @@ public class PushSubscription {
   public void setZone(String zone) { this.zone = zone; }
   public OffsetDateTime getLastOffersDigestAt() { return lastOffersDigestAt; }
   public void setLastOffersDigestAt(OffsetDateTime lastOffersDigestAt) { this.lastOffersDigestAt = lastOffersDigestAt; }
+  public String getSavedOfferIds() { return savedOfferIds; }
+  public void setSavedOfferIds(String savedOfferIds) { this.savedOfferIds = savedOfferIds; }
+  public OffsetDateTime getLastSavedReminderAt() { return lastSavedReminderAt; }
+  public void setLastSavedReminderAt(OffsetDateTime lastSavedReminderAt) { this.lastSavedReminderAt = lastSavedReminderAt; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

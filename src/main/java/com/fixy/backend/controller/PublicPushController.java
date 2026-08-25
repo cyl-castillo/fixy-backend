@@ -1,9 +1,11 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.PublicPushSubscriptionRequest;
 import com.fixy.backend.dto.PushSubscriptionRequest;
 import com.fixy.backend.service.LeadService;
 import com.fixy.backend.service.ProviderSelfService;
 import com.fixy.backend.service.PushNotificationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
@@ -18,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Endpoints públicos de Web Push (Ola UX): clave VAPID pública para que el
- * navegador pueda suscribirse, y alta de suscripción para cliente/proveedor.
- * Mismo auth por token que el resto de {@code /api/public} — sin token no
- * hay mutación (IDs secuenciales y adivinables).
+ * navegador pueda suscribirse, alta de suscripción para cliente/proveedor
+ * (mismo auth por token que el resto de {@code /api/public} — sin token no
+ * hay mutación, IDs secuenciales y adivinables) y {@link #upsertSubscription}
+ * (Fase Push-2, enganche), la ruta SIN token para el visitante o para un
+ * upsert por endpoint (ver javadoc de {@code PushNotificationService#upsertPublicSubscription}).
  */
 @RestController
 @RequestMapping("/api/public")
@@ -65,5 +69,28 @@ public class PublicPushController {
   ) {
     providerSelfService.authenticate(providerId, token);
     pushService.saveSubscriptionForProvider(providerId, request.endpoint(), request.keys().p256dh(), request.keys().auth());
+  }
+
+  /**
+   * Alta pública de suscripción (Fase Push-2, enganche): sin token, para el
+   * visitante que todavía no tiene lead ni provider, o para actualizar
+   * zone/savedOfferIds/claves de un endpoint ya conocido (upsert, ver
+   * {@code PushNotificationService#upsertPublicSubscription}). Responde
+   * siempre {@code {"ok": true}} — mismo contrato que el resto de las rutas
+   * públicas fire-and-forget de la PWA (ej. {@code OfferInquiryService}).
+   */
+  @PostMapping("/push-subscriptions")
+  public Map<String, Object> upsertSubscription(
+      @Valid @RequestBody PublicPushSubscriptionRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    pushService.upsertPublicSubscription(
+        httpRequest.getRemoteAddr(),
+        request.endpoint(),
+        request.keys().p256dh(),
+        request.keys().auth(),
+        request.zone(),
+        request.savedOfferIds());
+    return Map.of("ok", true);
   }
 }

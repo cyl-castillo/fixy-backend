@@ -55,6 +55,7 @@ public class PushNotificationService {
 
   private final PushSubscriptionRepository repository;
   private final LeadRepository leadRepository;
+  private final PublicLeadAbuseProtectionService abuseProtectionService;
   private final ObjectMapper objectMapper;
   private final String publicKey;
   private final boolean enabled;
@@ -63,6 +64,7 @@ public class PushNotificationService {
   public PushNotificationService(
       PushSubscriptionRepository repository,
       LeadRepository leadRepository,
+      PublicLeadAbuseProtectionService abuseProtectionService,
       ObjectMapper objectMapper,
       @Value("${fixy.push.vapid-public-key:}") String publicKey,
       @Value("${fixy.push.vapid-private-key:}") String privateKey,
@@ -70,6 +72,7 @@ public class PushNotificationService {
   ) {
     this.repository = repository;
     this.leadRepository = leadRepository;
+    this.abuseProtectionService = abuseProtectionService;
     this.objectMapper = objectMapper;
     this.publicKey = publicKey;
     this.enabled = publicKey != null && !publicKey.isBlank()
@@ -152,6 +155,36 @@ public class PushNotificationService {
   }
 
   /**
+   * Alta pública de suscripción (Fase Push-2, enganche) — {@code POST
+   * /api/public/push-subscriptions}, sin token: la llama la PWA directo,
+   * antes de que exista un lead o un provider (visitante), o un dispositivo
+   * que ya tenía fila. UPSERT por {@code endpoint} (mismo dispositivo =
+   * misma fila): si ya existe, se actualizan zone/savedOfferIds/claves pero
+   * NUNCA {@code leadId}/{@code providerId} — una fila que ya pertenece a un
+   * lead o proveedor sigue perteneciéndole aunque la PWA vuelva a llamar
+   * este endpoint sin saberlo (por ejemplo, el visitante que después completa
+   * un pedido reusa el mismo endpoint del navegador).
+   *
+   * <p>{@code zone} se valida contra {@link CoverageZone}: si no es una que
+   * Fixy reconoce, queda en null — igual que {@link #resolveLeadZone}.
+   * Validación de abuso ({@code savedOfferIds} y rate limit por IP) antes de
+   * tocar la base, mismo orden que el resto de las rutas públicas.
+   */
+  public void upsertPublicSubscription(
+      String clientIp, String endpoint, String p256dh, String auth, String zoneRaw, List<Long> savedOfferIds
+  ) {
+    abuseProtectionService.validatePushSubscription(clientIp, savedOfferIds);
+    String zone = CoverageZone.fromLabel(zoneRaw).map(CoverageZone::label).orElse(null);
+    PushSubscription subscription = repository.findByEndpoint(endpoint).orElseGet(PushSubscription::new);
+    subscription.setEndpoint(endpoint);
+    subscription.setP256dh(p256dh);
+    subscription.setAuth(auth);
+    subscription.setZone(zone);
+    subscription.setSavedOfferIds(SavedOfferIdsCodec.format(savedOfferIds));
+    repository.save(subscription);
+  }
+
+  /**
    * Avisa al cliente que tiene novedades en el chat de su lead. No-op
    * silencioso si no hay claves VAPID o el cliente no se suscribió nunca.
    * Async: nunca debe demorar el flujo de mensajería.
@@ -194,6 +227,25 @@ public class PushNotificationService {
         ? "/"
         : "/p/" + providerId + "/" + accessToken;
     sendToAll(subs, title, body, url);
+  }
+
+  /**
+   * Envía a UNA suscripción puntual, sin pasar por lead/provider (Fase
+   * Push-2, {@code SavedOfferReminderScheduler}: la suscripción puede ser de
+   * un visitante sin {@code leadId}). Mismo criterio que el resto: no-op si
+   * no hay claves VAPID, catch-all silencioso, borra la suscripción muerta
+   * en 404/410 ({@link #send}). Síncrono a propósito — el caller es un
+   * scheduler que ya corre fuera del hilo de un request, no hace falta
+   * desacoplar con {@code @Async}, y el caller necesita saber que el envío
+   * ya se intentó antes de persistir el throttle.
+   */
+  public void notifySubscription(PushSubscription sub, String title, String body, String url) {
+    if (!isEnabled() || sub == null || sub.getId() == null) return;
+    try {
+      send(sub, title, body, url);
+    } catch (Exception ex) {
+      log.warn("push send failed sub={}: {}", sub.getId(), ex.getMessage());
+    }
   }
 
   private void sendToAll(List<PushSubscription> subs, String title, String body, String url) {

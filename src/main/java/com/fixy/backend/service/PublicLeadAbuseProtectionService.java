@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.beans.factory.annotation.Value;
@@ -37,6 +38,9 @@ public class PublicLeadAbuseProtectionService {
   private static final int SUBMISSION_DISCOUNT_TEXT_MAX_LENGTH = 200;
   private static final int SUBMISSION_DESCRIPTION_MAX_LENGTH = 1000;
 
+  /** Alta pública de suscripción push (Fase Push-2, enganche): tope de ofertas guardadas por suscripción. */
+  private static final int PUSH_SUBSCRIPTION_SAVED_OFFER_IDS_MAX = 50;
+
   private final int maxRequestsPerWindow;
   private final Duration window;
   private final Map<String, Deque<Instant>> requestsByIp = new ConcurrentHashMap<>();
@@ -55,13 +59,22 @@ public class PublicLeadAbuseProtectionService {
   private final Duration offerSubmissionWindow;
   private final Map<String, Deque<Instant>> requestsByOfferSubmissionIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia para el alta pública de suscripción push (Fase Push-2):
+   * misma familia que offer-inquiry/offer-submission — sin honeypot (es JSON
+   * de la PWA, no un form con campo oculto), solo rate limit por IP. */
+  private final int pushSubscriptionMaxRequestsPerWindow;
+  private final Duration pushSubscriptionWindow;
+  private final Map<String, Deque<Instant>> requestsByPushSubscriptionIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
       @Value("${fixy.abuse.offer-inquiry.max-requests-per-window:5}") int offerInquiryMaxRequestsPerWindow,
       @Value("${fixy.abuse.offer-inquiry.window-seconds:600}") long offerInquiryWindowSeconds,
       @Value("${fixy.abuse.offer-submission.max-requests-per-window:5}") int offerSubmissionMaxRequestsPerWindow,
-      @Value("${fixy.abuse.offer-submission.window-seconds:600}") long offerSubmissionWindowSeconds
+      @Value("${fixy.abuse.offer-submission.window-seconds:600}") long offerSubmissionWindowSeconds,
+      @Value("${fixy.abuse.push-subscription.max-requests-per-window:5}") int pushSubscriptionMaxRequestsPerWindow,
+      @Value("${fixy.abuse.push-subscription.window-seconds:600}") long pushSubscriptionWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -69,6 +82,8 @@ public class PublicLeadAbuseProtectionService {
     this.offerInquiryWindow = Duration.ofSeconds(offerInquiryWindowSeconds);
     this.offerSubmissionMaxRequestsPerWindow = offerSubmissionMaxRequestsPerWindow;
     this.offerSubmissionWindow = Duration.ofSeconds(offerSubmissionWindowSeconds);
+    this.pushSubscriptionMaxRequestsPerWindow = pushSubscriptionMaxRequestsPerWindow;
+    this.pushSubscriptionWindow = Duration.ofSeconds(pushSubscriptionWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -168,6 +183,19 @@ public class PublicLeadAbuseProtectionService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "description exceeds max length");
     }
     enforceRateLimit(requestsByOfferSubmissionIp, normalizeIp(clientIp), offerSubmissionMaxRequestsPerWindow, offerSubmissionWindow);
+  }
+
+  /**
+   * Alta pública de suscripción push (Fase Push-2, enganche): sin honeypot
+   * (el caller no expone un form, es JSON directo de la PWA) — solo tope de
+   * {@code savedOfferIds} y rate limit por IP con ventana propia.
+   */
+  public void validatePushSubscription(String clientIp, List<Long> savedOfferIds) {
+    if (savedOfferIds != null && savedOfferIds.size() > PUSH_SUBSCRIPTION_SAVED_OFFER_IDS_MAX) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "savedOfferIds must have at most %d items".formatted(PUSH_SUBSCRIPTION_SAVED_OFFER_IDS_MAX));
+    }
+    enforceRateLimit(requestsByPushSubscriptionIp, normalizeIp(clientIp), pushSubscriptionMaxRequestsPerWindow, pushSubscriptionWindow);
   }
 
   private void validateProblem(String problem) {
