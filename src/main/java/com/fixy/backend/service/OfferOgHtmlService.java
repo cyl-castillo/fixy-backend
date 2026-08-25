@@ -92,7 +92,7 @@ public class OfferOgHtmlService {
   private String injectOgTags(String html, OfferPublicResponse offer) {
     String withoutOldTags = OG_META_TAG.matcher(html).replaceAll("");
 
-    String title = HtmlUtils.htmlEscape(offer.title());
+    String title = HtmlUtils.htmlEscape(buildTitle(offer));
     String description = HtmlUtils.htmlEscape(buildDescription(offer));
     String imageUrl = (offer.photoUrl() != null && !offer.photoUrl().isBlank())
         ? offer.photoUrl()
@@ -126,6 +126,21 @@ public class OfferOgHtmlService {
       return html;
     }
     return html.substring(0, matcher.start()) + "<title>" + escapedTitle + "</title>" + html.substring(matcher.end());
+  }
+
+  /**
+   * Algoritmo de armado (contrato exacto, no reinterpretar): título +
+   * descuento, unidos con " · " — un link compartido tiene que anunciar el
+   * beneficio en el título mismo (lo que WhatsApp muestra más grande),
+   * no solo en la descripción de abajo. Si no hay {@code discountText}
+   * (ofertas sin descuento numérico, ej. "2x1" ya en el título), el título
+   * queda tal cual — no hay nada que agregar.
+   */
+  private String buildTitle(OfferPublicResponse offer) {
+    if (offer.discountText() != null && !offer.discountText().isBlank()) {
+      return offer.title() + " · " + offer.discountText();
+    }
+    return offer.title();
   }
 
   /**

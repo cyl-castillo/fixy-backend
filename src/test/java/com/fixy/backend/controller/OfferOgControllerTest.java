@@ -71,7 +71,13 @@ class OfferOgControllerTest {
         .andReturn();
 
     String body = res.getResponse().getContentAsString();
-    assertThat(body).contains("<meta property=\"og:title\" content=\"20% en tortas\" />");
+    // og:title = título + descuento (contrato de OfferOgHtmlService.buildTitle):
+    // el beneficio tiene que verse en lo que WhatsApp muestra más grande.
+    // HtmlUtils.htmlEscape entity-codifica el separador "·" — se compara
+    // contra la misma función, mismo criterio que la aserción de og:description.
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("20% en tortas · 20% off") + "\" />");
     assertThat(body).contains(
         "<meta property=\"og:image\" content=\"https://api.fixy.com.uy/uploads/offer-1/foto.jpg\" />");
     assertThat(body).contains(
@@ -96,6 +102,23 @@ class OfferOgControllerTest {
     String body = res.getResponse().getContentAsString();
     assertThat(body).contains(
         "<meta property=\"og:image\" content=\"https://api.fixy.com.uy/images/og-default.png\" />");
+  }
+
+  @Test
+  void ofertaSinDescuentoUsaSoloElTituloEnOgTitle() throws Exception {
+    Business business = persistBusiness("Comercio Sin Descuento OG Test", "098555007");
+    Offer offer = persistOffer(business, "Envío gratis en el local");
+    offer.setDiscountText(null);
+    offerRepository.save(offer);
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("Envío gratis en el local") + "\" />");
   }
 
   @Test
