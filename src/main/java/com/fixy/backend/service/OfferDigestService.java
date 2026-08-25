@@ -43,7 +43,11 @@ public class OfferDigestService {
   static final int RECENCY_DAYS = 7;
   private static final String NO_ZONE_LABEL = "sin zona";
   private static final int DIGEST_OFFER_TITLES = 3;
-  private static final String DIGEST_URL = "/ofertas";
+  // Marca de atribución (2026-08-25): el frontend registra "digest-open"
+  // cuando llega con ?d=1 — la métrica que decide si el digest se automatiza
+  // (FIXY_OFERTAS_PUSH_Y_MAPA §3.5). Sin la marca, push y orgánico eran
+  // indistinguibles.
+  private static final String DIGEST_URL = "/ofertas?d=1";
 
   private final PushSubscriptionRepository pushSubscriptionRepository;
   private final OfferService offerService;
