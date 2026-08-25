@@ -54,6 +54,11 @@ import java.time.OffsetDateTime;
  * mismo criterio de privacidad que {@code businessAddress} (dato físico
  * público del comercio, no del vecino) — {@code null} si el comercio no
  * cargó coordenadas (V21, nullable).
+ *
+ * <p>{@code analysis} se agregó de forma aditiva en fase 3 (análisis
+ * determinista "¿esta oferta conviene?", ver {@code OfferAnalysisService} y
+ * {@code OfferAnalysis}): siempre presente como objeto, sin migración de DB
+ * — todo se computa en lectura a partir de columnas ya existentes.
  */
 public record OfferPublicResponse(
     Long id,
@@ -74,6 +79,7 @@ public record OfferPublicResponse(
     int likeCount,
     int inquiryCount,
     Double businessLatitude,
-    Double businessLongitude
+    Double businessLongitude,
+    OfferAnalysis analysis
 ) {
 }

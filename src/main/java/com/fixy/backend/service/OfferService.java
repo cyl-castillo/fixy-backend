@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.OfferAnalysis;
 import com.fixy.backend.dto.OfferCreateRequest;
 import com.fixy.backend.dto.OfferIngestItem;
 import com.fixy.backend.dto.OfferIngestRequest;
@@ -72,6 +73,7 @@ public class OfferService {
   private final LeadRepository leadRepository;
   private final OfferInquiryRepository offerInquiryRepository;
   private final OfferRankingService offerRankingService;
+  private final OfferAnalysisService offerAnalysisService;
   private final Clock clock;
   private final Path uploadsRoot;
   private final String urlPrefix;
@@ -84,6 +86,7 @@ public class OfferService {
       LeadRepository leadRepository,
       OfferInquiryRepository offerInquiryRepository,
       OfferRankingService offerRankingService,
+      OfferAnalysisService offerAnalysisService,
       Clock clock,
       @Value("${fixy.uploads.dir:./data/uploads}") String uploadsDir,
       @Value("${fixy.uploads.url-prefix:/uploads}") String urlPrefix,
@@ -94,6 +97,7 @@ public class OfferService {
     this.leadRepository = leadRepository;
     this.offerInquiryRepository = offerInquiryRepository;
     this.offerRankingService = offerRankingService;
+    this.offerAnalysisService = offerAnalysisService;
     this.clock = clock;
     this.uploadsRoot = Path.of(uploadsDir).toAbsolutePath().normalize();
     this.urlPrefix = urlPrefix.replaceAll("/+$", "");
@@ -151,9 +155,11 @@ public class OfferService {
         .toList();
 
     Map<Long, Integer> inquiryCountsByOfferId = inquiryCountsFor(filtered);
+    Map<Long, OfferAnalysis> analysisByOfferId = offerAnalysisService.analyze(filtered, now);
 
     return offerRankingService.rank(filtered, now, inquiryCountsByOfferId).stream()
-        .map(offer -> toPublicResponse(offer, inquiryCountsByOfferId.getOrDefault(offer.getId(), 0)))
+        .map(offer -> toPublicResponse(
+            offer, inquiryCountsByOfferId.getOrDefault(offer.getId(), 0), analysisByOfferId.get(offer.getId())))
         .filter(java.util.Objects::nonNull)
         .toList();
   }
@@ -183,11 +189,14 @@ public class OfferService {
     if (offer == null || offer.getStatus() != OfferStatus.ACTIVE) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
     }
+    OffsetDateTime now = OffsetDateTime.now(clock);
     OffsetDateTime validUntil = offer.getValidUntil();
-    if (validUntil == null || !validUntil.isAfter(OffsetDateTime.now(clock))) {
+    if (validUntil == null || !validUntil.isAfter(now)) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
     }
-    OfferPublicResponse response = toPublicResponse(offer, offerInquiryRepository.countByOfferId(offer.getId()));
+    OfferAnalysis analysis = offerAnalysisService.analyze(List.of(offer), now).get(offer.getId());
+    OfferPublicResponse response = toPublicResponse(
+        offer, offerInquiryRepository.countByOfferId(offer.getId()), analysis);
     if (response == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "offer not found");
     }
@@ -252,7 +261,7 @@ public class OfferService {
   }
 
   /** null si el Business referenciado no existe (huérfano) — se filtra en listPublic, no debería pasar en régimen normal. */
-  private OfferPublicResponse toPublicResponse(Offer offer, int inquiryCount) {
+  private OfferPublicResponse toPublicResponse(Offer offer, int inquiryCount, OfferAnalysis analysis) {
     return businessRepository.findById(offer.getBusinessId())
         .map(business -> new OfferPublicResponse(
             offer.getId(),
@@ -273,7 +282,8 @@ public class OfferService {
             offer.getLikeCount(),
             inquiryCount,
             business.getLatitude(),
-            business.getLongitude()
+            business.getLongitude(),
+            analysis
         ))
         .orElse(null);
   }

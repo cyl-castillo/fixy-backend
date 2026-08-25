@@ -34,6 +34,17 @@ public interface OfferRepository extends JpaRepository<Offer, Long> {
   List<Offer> findByOriginAndSourceName(String origin, String sourceName);
 
   /**
+   * Historial completo (cualquier oferta, cualquier vigencia) de un lote de
+   * categorías, filtrado por estado — usado por {@code OfferAnalysisService}
+   * (fase 3) para calcular {@code bestOfCategory} y {@code
+   * firstTimeInWeeks} con una sola query por listado en vez de una por
+   * oferta. Típicamente se llama con {@code [ACTIVE, EXPIRED]}: son los
+   * únicos estados que representan una oferta que alguna vez estuvo
+   * públicamente vigente (DRAFT/REJECTED nunca lo estuvieron).
+   */
+  List<Offer> findByCategoryInAndStatusIn(List<String> categories, List<OfferStatus> statuses);
+
+  /**
    * Incremento atómico de "Me sirve" (fase 3, señal de interacción del
    * ranking): UPDATE directo en vez de read-modify-write (mismo motivo que
    * {@code LeadPaymentRepository.markPaidIfNotAlready} — un fire-and-forget
