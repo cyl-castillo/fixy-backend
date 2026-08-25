@@ -90,7 +90,8 @@ public class PublicPushController {
         request.keys().p256dh(),
         request.keys().auth(),
         request.zone(),
-        request.savedOfferIds());
+        request.savedOfferIds(),
+        request.merchantToken());
     return Map.of("ok", true);
   }
 }

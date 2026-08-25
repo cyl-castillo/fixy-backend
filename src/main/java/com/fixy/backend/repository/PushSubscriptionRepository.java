@@ -25,4 +25,7 @@ public interface PushSubscriptionRepository extends JpaRepository<PushSubscripti
 
   /** Universo del recordatorio de guardadas por vencer (Fase Push-2): tiene algo guardado. */
   List<PushSubscription> findBySavedOfferIdsIsNotNull();
+
+  /** Universo del aviso de vencimiento al dueño (Fase 5): suscripciones ligadas a ese comercio. */
+  List<PushSubscription> findByBusinessId(Long businessId);
 }

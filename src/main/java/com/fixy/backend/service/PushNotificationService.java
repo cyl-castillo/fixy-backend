@@ -1,9 +1,11 @@
 package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.model.Business;
 import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.PushSubscription;
+import com.fixy.backend.repository.BusinessRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.PushSubscriptionRepository;
 import java.security.GeneralSecurityException;
@@ -55,6 +57,7 @@ public class PushNotificationService {
 
   private final PushSubscriptionRepository repository;
   private final LeadRepository leadRepository;
+  private final BusinessRepository businessRepository;
   private final PublicLeadAbuseProtectionService abuseProtectionService;
   private final ObjectMapper objectMapper;
   private final String publicKey;
@@ -64,6 +67,7 @@ public class PushNotificationService {
   public PushNotificationService(
       PushSubscriptionRepository repository,
       LeadRepository leadRepository,
+      BusinessRepository businessRepository,
       PublicLeadAbuseProtectionService abuseProtectionService,
       ObjectMapper objectMapper,
       @Value("${fixy.push.vapid-public-key:}") String publicKey,
@@ -72,6 +76,7 @@ public class PushNotificationService {
   ) {
     this.repository = repository;
     this.leadRepository = leadRepository;
+    this.businessRepository = businessRepository;
     this.abuseProtectionService = abuseProtectionService;
     this.objectMapper = objectMapper;
     this.publicKey = publicKey;
@@ -169,9 +174,16 @@ public class PushNotificationService {
    * Fixy reconoce, queda en null — igual que {@link #resolveLeadZone}.
    * Validación de abuso ({@code savedOfferIds} y rate limit por IP) antes de
    * tocar la base, mismo orden que el resto de las rutas públicas.
+   *
+   * <p>{@code merchantToken} (Fase 5, panel self-service del comercio):
+   * opcional — si resuelve a un {@link Business} (mismo token del panel),
+   * liga la fila a ese comercio ({@code businessId}). Si no resuelve (null,
+   * blank, o no matchea ningún comercio) se ignora en silencio: NUNCA pisa
+   * un {@code businessId} ya seteado con null, ni rompe el alta.
    */
   public void upsertPublicSubscription(
-      String clientIp, String endpoint, String p256dh, String auth, String zoneRaw, List<Long> savedOfferIds
+      String clientIp, String endpoint, String p256dh, String auth, String zoneRaw,
+      List<Long> savedOfferIds, String merchantToken
   ) {
     abuseProtectionService.validatePushSubscription(clientIp, savedOfferIds);
     String zone = CoverageZone.fromLabel(zoneRaw).map(CoverageZone::label).orElse(null);
@@ -181,6 +193,10 @@ public class PushNotificationService {
     subscription.setAuth(auth);
     subscription.setZone(zone);
     subscription.setSavedOfferIds(SavedOfferIdsCodec.format(savedOfferIds));
+    if (merchantToken != null && !merchantToken.isBlank()) {
+      businessRepository.findByPanelToken(merchantToken.trim())
+          .ifPresent(business -> subscription.setBusinessId(business.getId()));
+    }
     repository.save(subscription);
   }
 

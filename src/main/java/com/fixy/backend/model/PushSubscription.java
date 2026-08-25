@@ -34,6 +34,16 @@ import java.time.OffsetDateTime;
  * {@code SavedOfferIdsCodec}, la única pieza que sabe leer/escribir ese CSV).
  * {@link #lastSavedReminderAt} es el rate-limit propio de ese recordatorio
  * (máx 1 por día), independiente del digest semanal.
+ *
+ * <p>Fase 5 (panel self-service del comercio, V23): {@link #businessId} liga
+ * la suscripción al comercio dueño — la setea {@code POST
+ * /api/public/push-subscriptions} cuando el body trae un {@code
+ * merchantToken} que resuelve a un {@code Business} (ver {@code
+ * PushNotificationService#upsertPublicSubscription}). Campo independiente
+ * de {@link #leadId}/{@link #providerId}: nunca los pisa. {@link
+ * #lastMerchantReminderAt} es el throttle propio (máx 1 por día) del aviso
+ * "tu oferta vence en 2 días" ({@code MerchantOfferExpiryScheduler}), mismo
+ * patrón que {@link #lastSavedReminderAt}.
  */
 @Entity
 @Table(name = "push_subscriptions")
@@ -67,6 +77,11 @@ public class PushSubscription {
 
   private OffsetDateTime lastSavedReminderAt;
 
+  @Column
+  private Long businessId;
+
+  private OffsetDateTime lastMerchantReminderAt;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -95,6 +110,10 @@ public class PushSubscription {
   public void setSavedOfferIds(String savedOfferIds) { this.savedOfferIds = savedOfferIds; }
   public OffsetDateTime getLastSavedReminderAt() { return lastSavedReminderAt; }
   public void setLastSavedReminderAt(OffsetDateTime lastSavedReminderAt) { this.lastSavedReminderAt = lastSavedReminderAt; }
+  public Long getBusinessId() { return businessId; }
+  public void setBusinessId(Long businessId) { this.businessId = businessId; }
+  public OffsetDateTime getLastMerchantReminderAt() { return lastMerchantReminderAt; }
+  public void setLastMerchantReminderAt(OffsetDateTime lastMerchantReminderAt) { this.lastMerchantReminderAt = lastMerchantReminderAt; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

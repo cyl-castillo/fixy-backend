@@ -18,11 +18,20 @@ import java.util.List;
  * null si no la reconoce — nunca rompe el alta por una zona rara.
  * {@code savedOfferIds} es opcional (null/vacío = no guardó ninguna
  * oferta).
+ *
+ * <p>{@code merchantToken} (Fase 5, panel self-service del comercio):
+ * opcional — si viene y resuelve a un {@link com.fixy.backend.model.Business}
+ * (mismo token del panel, ver {@code BusinessService.ensurePanelLink}), la
+ * suscripción queda ligada a ese comercio ({@code businessId}) para que
+ * {@code MerchantOfferExpiryScheduler} pueda avisarle al dueño. Un token que
+ * no resuelve se ignora en silencio — nunca rompe el alta de push por un
+ * token de comercio inválido o vencido.
  */
 public record PublicPushSubscriptionRequest(
     @NotBlank String endpoint,
     @NotNull @Valid PushSubscriptionRequest.Keys keys,
     String zone,
-    List<Long> savedOfferIds
+    List<Long> savedOfferIds,
+    String merchantToken
 ) {
 }
