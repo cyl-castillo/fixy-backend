@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.OfferDigestSendResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.Provider;
@@ -503,6 +504,25 @@ public class TelegramNotifyService {
       post(text.toString());
     } catch (Exception ex) {
       log.warn("telegram notify auto-release-summary failed: {}", ex.getMessage());
+    }
+  }
+
+  /**
+   * Resumen de una corrida AUTOMÁTICA del digest de ofertas (Fase Push-2,
+   * {@code OfferDigestAutoScheduler}) — solo avisa si mandó al menos un push
+   * (una corrida sin nada que enviar no merece un mensaje; el disparo manual
+   * desde /admin sigue sin avisar por acá, tiene su propia respuesta HTTP).
+   * Best-effort: el caller ya envuelve esta llamada en su propio catch-all,
+   * se repite acá para no romper si algún día se llama directo.
+   */
+  public void notifyAutoDigestSummary(OfferDigestSendResponse response) {
+    if (!enabled || response == null || response.sent() == 0) return;
+    try {
+      String text = "📬 Digest automático de ofertas: %d enviados (omitidos: %d recientes, %d con pocas ofertas, %d sin zona)."
+          .formatted(response.sent(), response.skippedRecent(), response.skippedFewOffers(), response.skippedNoZone());
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify auto-digest-summary failed: {}", ex.getMessage());
     }
   }
 

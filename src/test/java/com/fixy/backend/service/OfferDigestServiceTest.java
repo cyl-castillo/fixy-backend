@@ -41,6 +41,7 @@ class OfferDigestServiceTest {
   private static final String ZONE_MAIN = "San José de Carrasco";
   private static final String ZONE_FEW_OFFERS = "Barra de Carrasco";
   private static final String ZONE_SEND = "Colinas de Solymar";
+  private static final String ZONE_UNIVERSE = "Montes de Solymar";
 
   @Autowired private MockMvc mockMvc;
   @Autowired private PushSubscriptionRepository pushSubscriptionRepository;
@@ -80,6 +81,26 @@ class OfferDigestServiceTest {
     sub.setAuth("dummy-auth-digest-test");
     sub.setZone(zone);
     sub.setLastOffersDigestAt(lastOffersDigestAt);
+    return pushSubscriptionRepository.save(sub);
+  }
+
+  /** Visitante (Fase Push-2): ni leadId ni providerId — sigue siendo universo del digest. */
+  private PushSubscription persistVisitorSub(String uniqueTag, String zone) {
+    PushSubscription sub = new PushSubscription();
+    sub.setEndpoint("https://digest-test.example/visitor-" + uniqueTag);
+    sub.setP256dh("dummy-p256dh-digest-test");
+    sub.setAuth("dummy-auth-digest-test");
+    sub.setZone(zone);
+    return pushSubscriptionRepository.save(sub);
+  }
+
+  private PushSubscription persistProviderSub(Long providerId, String zone) {
+    PushSubscription sub = new PushSubscription();
+    sub.setProviderId(providerId);
+    sub.setEndpoint("https://digest-test.example/provider-" + providerId);
+    sub.setP256dh("dummy-p256dh-digest-test");
+    sub.setAuth("dummy-auth-digest-test");
+    sub.setZone(zone);
     return pushSubscriptionRepository.save(sub);
   }
 
@@ -171,6 +192,40 @@ class OfferDigestServiceTest {
 
     Integer skippedNoZone = JsonPath.read(res.getResponse().getContentAsString(), "$.skippedNoZone");
     assertThat(skippedNoZone).isGreaterThanOrEqualTo(1);
+  }
+
+  @Test
+  void preview_universoIncluyeVisitanteYExcluyeProveedor() throws Exception {
+    Integer businessId = createBusiness("098500004");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "20% off en el local");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "2x1 en el segundo servicio");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "$500 de descuento fijo");
+
+    persistVisitorSub("910010", ZONE_UNIVERSE); // sin lead ni provider: cuenta.
+    persistProviderSub(910011L, ZONE_UNIVERSE); // proveedor: NUNCA cuenta.
+
+    MvcResult res = mockMvc.perform(get("/api/offers/digest/preview").with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    Map<String, Object> entry = zoneEntry(res, ZONE_UNIVERSE);
+    assertThat(entry.get("subscribers")).as("visitante cuenta, proveedor no").isEqualTo(1);
+    assertThat(entry.get("willSend")).isEqualTo(true);
+  }
+
+  @Test
+  void send_visitanteSinLeadRecibeElDigestYQuedaMarcado() throws Exception {
+    Integer businessId = createBusiness("098500005");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "20% off en el local");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "2x1 en el segundo servicio");
+    createActiveOffer(businessId, ZONE_UNIVERSE, "$500 de descuento fijo");
+    PushSubscription visitor = persistVisitorSub("910012", ZONE_UNIVERSE);
+
+    mockMvc.perform(post("/api/offers/digest/send").with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk());
+
+    PushSubscription reloaded = pushSubscriptionRepository.findById(visitor.getId()).orElseThrow();
+    assertThat(reloaded.getLastOffersDigestAt()).as("el visitante también queda marcado, sin necesitar leadId").isNotNull();
   }
 
   @SuppressWarnings("unchecked")
