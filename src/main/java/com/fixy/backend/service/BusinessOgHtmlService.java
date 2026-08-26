@@ -276,10 +276,20 @@ public class BusinessOgHtmlService {
         + html.substring(matcher.end());
   }
 
-  /** "{nombre} — {rubro} en {zona} | Fixy"; sin zona: "{nombre} — {rubro} | Fixy". */
+  /**
+   * "{nombre} — {rubro} en {zona} | Fixy", omitiendo las partes que falten:
+   * sin zona "{nombre} — {rubro} | Fixy", sin rubro "{nombre} en {zona} |
+   * Fixy", sin ninguna "{nombre} | Fixy". El rubro "otro" cuenta como
+   * ausente: casi todos los comercios de la ingesta de beneficios lo tienen
+   * como placeholder y "TaTa — otro | Fixy" queda mal en resultados de
+   * búsqueda (detectado en el backfill de slugs 2026-08-26).
+   */
   private String buildTitle(Business business) {
-    String rubro = business.getCategory();
-    StringBuilder title = new StringBuilder(business.getName()).append(" — ").append(rubro);
+    StringBuilder title = new StringBuilder(business.getName());
+    String rubro = displayCategory(business);
+    if (rubro != null) {
+      title.append(" — ").append(rubro);
+    }
     if (hasText(business.getPrimaryZone())) {
       title.append(" en ").append(business.getPrimaryZone());
     }
@@ -293,11 +303,26 @@ public class BusinessOgHtmlService {
       return business.getDescription();
     }
     List<String> parts = new ArrayList<>();
-    parts.add(business.getCategory());
+    String rubro = displayCategory(business);
+    if (rubro != null) {
+      parts.add(rubro);
+    }
     if (hasText(business.getPrimaryZone())) {
       parts.add(business.getPrimaryZone());
     }
+    if (parts.isEmpty()) {
+      return "Comercio del barrio en Fixy";
+    }
     return String.join(" · ", parts);
+  }
+
+  /** Rubro mostrable, o null si falta o es el placeholder "otro". */
+  private String displayCategory(Business business) {
+    String category = business.getCategory();
+    if (!hasText(category) || "otro".equalsIgnoreCase(category.trim())) {
+      return null;
+    }
+    return category;
   }
 
   private boolean hasText(String value) {

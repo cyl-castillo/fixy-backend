@@ -182,6 +182,56 @@ class BusinessOgControllerTest {
   }
 
   @Test
+  void categoriaOtroSeOmiteDelTituloYDeLaDescripcion() throws Exception {
+    // Casi todos los comercios de la ingesta de beneficios quedaron con el
+    // placeholder "otro" — "TaTa — otro | Fixy" en un resultado de búsqueda
+    // es peor que no mostrar rubro (detectado en el backfill de slugs
+    // 2026-08-26).
+    Business business = new Business();
+    business.setName("Kiosko Otro OG Test");
+    business.setWhatsappNumber("098900005");
+    business.setCategory("otro");
+    business.setPrimaryZone("Solymar");
+    business.setStatus(BusinessStatus.ACTIVE);
+    business = businessRepository.save(business);
+    String slug = businessSlugService.ensureSlug(business);
+
+    MvcResult res = mockMvc.perform(get("/og/comercio/{slug}", slug))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + org.springframework.web.util.HtmlUtils.htmlEscape("Kiosko Otro OG Test en Solymar | Fixy")
+            + "\" />");
+    assertThat(body).contains(
+        "<meta property=\"og:description\" content=\"Solymar\" />");
+    assertThat(body).doesNotContain(org.springframework.web.util.HtmlUtils.htmlEscape("— otro"));
+  }
+
+  @Test
+  void categoriaOtroSinZonaNiDescripcionUsaSoloElNombreYUnaDescripcionNeutra() throws Exception {
+    Business business = new Business();
+    business.setName("Comercio Pelado OG Test");
+    business.setWhatsappNumber("098900006");
+    business.setCategory("otro");
+    business.setStatus(BusinessStatus.ACTIVE);
+    business = businessRepository.save(business);
+    String slug = businessSlugService.ensureSlug(business);
+
+    MvcResult res = mockMvc.perform(get("/og/comercio/{slug}", slug))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\"Comercio Pelado OG Test | Fixy\" />");
+    assertThat(body).contains(
+        "<meta property=\"og:description\" content=\"Comercio del barrio en Fixy\" />");
+  }
+
+  @Test
   void comercioInexistenteDevuelve200ConElShellGenericoSinJsonLd() throws Exception {
     MvcResult res = mockMvc.perform(get("/og/comercio/{slug}", "no-existe-este-comercio-og"))
         .andExpect(status().isOk())
