@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -49,6 +50,7 @@ public class BusinessCatalogItemService {
         .toList();
   }
 
+  @Transactional
   public BusinessCatalogItemResponse create(Long businessId, BusinessCatalogItemCreateRequest request) {
     Business business = findBusiness(businessId);
     BusinessCatalogItemKind kind = parseKind(request.kind());
@@ -73,6 +75,7 @@ public class BusinessCatalogItemService {
     return toResponse(saved);
   }
 
+  @Transactional
   public BusinessCatalogItemResponse update(Long businessId, Long itemId, BusinessCatalogItemUpdateRequest request) {
     findBusiness(businessId);
     BusinessCatalogItem item = findItem(businessId, itemId);
@@ -101,6 +104,7 @@ public class BusinessCatalogItemService {
 
   /** Soft delete idempotente: si ya estaba inactivo, no genera un evento
    * nuevo ni falla — repetir el DELETE deja el mismo estado final. */
+  @Transactional
   public void delete(Long businessId, Long itemId) {
     findBusiness(businessId);
     BusinessCatalogItem item = findItem(businessId, itemId);

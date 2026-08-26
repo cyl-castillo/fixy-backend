@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.regex.Pattern;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
@@ -43,6 +44,10 @@ public class BusinessHourService {
         .toList();
   }
 
+  // Transaccional: deleteByBusinessId + inserts deben ser atómicos (y el
+  // delete derivado de Spring Data exige transacción activa; los tests
+  // @Transactional la aportaban solos y el 500 solo aparecía en runtime real).
+  @Transactional
   public List<BusinessHourResponse> replace(Long businessId, List<BusinessHourRequest> requests) {
     Business business = findBusiness(businessId);
     List<BusinessHourRequest> safeRequests = requests == null ? List.of() : requests;
