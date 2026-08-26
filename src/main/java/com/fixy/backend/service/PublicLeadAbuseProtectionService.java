@@ -94,6 +94,16 @@ public class PublicLeadAbuseProtectionService {
   private final Duration businessInquiryWindow;
   private final Map<String, Deque<Instant>> requestsByBusinessInquiryIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia y GENEROSA para la página pública del comercio (Fase 3,
+   * {@code PublicBusinessService}): a diferencia del panel del dueño (chica,
+   * a propósito, para frenar fuerza bruta de token), acá es tráfico
+   * orgánico esperado — visitas reales, bots de preview, compartidos — así
+   * que un tope alto con ventana corta alcanza para frenar solo scraping
+   * agresivo sin afectar el uso legítimo. */
+  private final int publicBusinessPageMaxRequestsPerWindow;
+  private final Duration publicBusinessPageWindow;
+  private final Map<String, Deque<Instant>> requestsByPublicBusinessPageIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
@@ -106,7 +116,9 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.merchant-panel.max-requests-per-window:20}") int merchantPanelMaxRequestsPerWindow,
       @Value("${fixy.abuse.merchant-panel.window-seconds:60}") long merchantPanelWindowSeconds,
       @Value("${fixy.abuse.business-inquiry.max-requests-per-window:5}") int businessInquiryMaxRequestsPerWindow,
-      @Value("${fixy.abuse.business-inquiry.window-seconds:600}") long businessInquiryWindowSeconds
+      @Value("${fixy.abuse.business-inquiry.window-seconds:600}") long businessInquiryWindowSeconds,
+      @Value("${fixy.abuse.public-business-page.max-requests-per-window:60}") int publicBusinessPageMaxRequestsPerWindow,
+      @Value("${fixy.abuse.public-business-page.window-seconds:60}") long publicBusinessPageWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -120,6 +132,8 @@ public class PublicLeadAbuseProtectionService {
     this.merchantPanelWindow = Duration.ofSeconds(merchantPanelWindowSeconds);
     this.businessInquiryMaxRequestsPerWindow = businessInquiryMaxRequestsPerWindow;
     this.businessInquiryWindow = Duration.ofSeconds(businessInquiryWindowSeconds);
+    this.publicBusinessPageMaxRequestsPerWindow = publicBusinessPageMaxRequestsPerWindow;
+    this.publicBusinessPageWindow = Duration.ofSeconds(publicBusinessPageWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -286,6 +300,16 @@ public class PublicLeadAbuseProtectionService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pushEndpoint exceeds max length");
     }
     enforceRateLimit(requestsByBusinessInquiryIp, normalizeIp(clientIp), businessInquiryMaxRequestsPerWindow, businessInquiryWindow);
+  }
+
+  /**
+   * Página pública del comercio (Fase 3): sin validación de contenido (es
+   * un GET, no hay body) — solo rate limit por IP con ventana propia y
+   * generosa (ver javadoc del campo).
+   */
+  public void validatePublicBusinessPage(String clientIp) {
+    enforceRateLimit(requestsByPublicBusinessPageIp, normalizeIp(clientIp),
+        publicBusinessPageMaxRequestsPerWindow, publicBusinessPageWindow);
   }
 
   private void validateProblem(String problem) {
