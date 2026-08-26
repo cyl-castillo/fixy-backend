@@ -219,6 +219,31 @@ class OfferOgControllerTest {
   }
 
   @Test
+  void ofertaActivaReescribeElCanonicalALaUrlDeLaOferta() throws Exception {
+    Business business = persistBusiness("Comercio Canonical OG Test", "098555009");
+    Offer offer = persistOffer(business, "15% en pintura");
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<link rel=\"canonical\" href=\"https://www.fixy.com.uy/oferta/" + offer.getId() + "\" />");
+    assertThat(body).doesNotContain("<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />");
+  }
+
+  @Test
+  void ofertaInexistenteMantieneElCanonicalGenericoDeLaHome() throws Exception {
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", 999999))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains("<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />");
+  }
+
+  @Test
   void esPublicoSinCredencialesDeAuth() throws Exception {
     mockMvc.perform(get("/og/oferta/{id}", 999999))
         .andExpect(status().isOk());

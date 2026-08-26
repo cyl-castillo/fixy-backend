@@ -39,6 +39,7 @@ public class OfferOgHtmlService {
    */
   private static final String FALLBACK_HTML = "<!doctype html><html lang=\"es\"><head>"
       + "<meta charset=\"UTF-8\" />"
+      + "<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />"
       + "<title>Fixy — Servicios del hogar en Ciudad de la Costa</title>"
       + "</head><body><div id=\"root\"></div></body></html>";
 
@@ -48,6 +49,13 @@ public class OfferOgHtmlService {
 
   private static final Pattern TITLE_TAG = Pattern.compile(
       "<title>.*?</title>", Pattern.CASE_INSENSITIVE);
+
+  /** Shell base tiene el canonical hardcodeado a la home (ver index.html del
+   * frontend) — para /og/oferta/{id} se reescribe a la URL canónica de la
+   * oferta, la misma que og:url, para que motores de búsqueda no indexen
+   * todas las ofertas apuntando a "/". */
+  private static final Pattern CANONICAL_LINK_TAG = Pattern.compile(
+      "<link[^>]*rel=\"canonical\"[^>]*/?>", Pattern.CASE_INSENSITIVE);
 
   private final OfferService offerService;
   private final Path indexPath;
@@ -109,7 +117,8 @@ public class OfferOgHtmlService {
         + "<meta name=\"twitter:card\" content=\"summary_large_image\" />";
 
     String withTags = insertBeforeHeadClose(withoutOldTags, tags);
-    return replaceTitleTag(withTags, title);
+    String withTitle = replaceTitleTag(withTags, title);
+    return replaceCanonicalTag(withTitle, url);
   }
 
   private String insertBeforeHeadClose(String html, String tags) {
@@ -126,6 +135,23 @@ public class OfferOgHtmlService {
       return html;
     }
     return html.substring(0, matcher.start()) + "<title>" + escapedTitle + "</title>" + html.substring(matcher.end());
+  }
+
+  /**
+   * Reescribe {@code <link rel="canonical">} a la URL canónica de la oferta
+   * (misma que og:url). Si el shell no trae el tag (caso del fallback en
+   * dev/test cuando no hay index.html real en disco todavía sin canonical),
+   * no inserta uno nuevo — nada roto, solo no hay tag que reescribir.
+   */
+  private String replaceCanonicalTag(String html, String url) {
+    Matcher matcher = CANONICAL_LINK_TAG.matcher(html);
+    if (!matcher.find()) {
+      return html;
+    }
+    String escapedUrl = HtmlUtils.htmlEscape(url);
+    return html.substring(0, matcher.start())
+        + "<link rel=\"canonical\" href=\"" + escapedUrl + "\" />"
+        + html.substring(matcher.end());
   }
 
   /**
