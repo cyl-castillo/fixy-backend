@@ -6,7 +6,14 @@
 - App bind: `127.0.0.1:8080`
 - Health endpoint: `/api/health`
 - Log principal: `/var/log/fixy-backend.log`
-- Base de datos actual: H2 archivo local en `./data/fixy`
+- Base de datos: este doc describe la instancia LOCAL de `fixy-backend.service`
+  (`127.0.0.1:8080` en esta máquina), que usa H2 archivo local en `./data/fixy`
+  — solo para dev/verificación. **Prod (AWS Lightsail `fixy-prod`) usa
+  Postgres + Flyway** (`SPRING_JPA_HIBERNATE_DDL_AUTO=validate`,
+  `SPRING_FLYWAY_ENABLED=true`, ver `deploy/aws/fixy-backend.env.example` y
+  `db/migration/V1__baseline.sql` en adelante) — Hibernate NO es dueño del
+  esquema de prod desde el incidente 2026-07-22. Ver
+  `fixy-docs/infrastructure/aws.md`.
 - Servicio activo esperado: `fixy-backend.service` (systemd del sistema)
 - Se removió `AUTO_SERVER=TRUE` para evitar exposición TCP extra de H2.
 
@@ -51,7 +58,7 @@ bash scripts/healthcheck.sh
 
 ## Riesgos operativos actuales
 
-- H2 sirve para etapa actual, pero no es la base final ideal para crecimiento serio.
+- H2 (esta instancia local) sirve para dev/test; prod ya migró a Postgres + Flyway (ver arriba).
 - El backend ya corre como servicio, pero el acceso público todavía depende de exposición temporal o futura integración formal con Cloudflare Tunnel.
 - La UI interna usa auth básica; alcanza para esta etapa, pero más adelante conviene una capa de acceso más seria.
 
