@@ -19,6 +19,10 @@ public record BusinessResponse(
     // Fase 5 (panel self-service del comercio): null hasta que ops pide el
     // link por primera vez (POST /api/businesses/{id}/panel-link) — ver
     // BusinessService.ensurePanelLink.
-    String panelToken
+    String panelToken,
+    // Fase 1 de la ficha (V24): descripción libre y multi-rubro CSV
+    // (patrón Provider.categories) — aditivos sobre `category` (singular).
+    String description,
+    String categories
 ) {
 }

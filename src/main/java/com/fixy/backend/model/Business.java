@@ -39,9 +39,24 @@ public class Business {
   @Column(nullable = false)
   private String whatsappNumber;
 
-  /** Rubro: reusa ServiceCategory.id si aplica, o texto libre "otro". */
+  /** Rubro: reusa ServiceCategory.id si aplica, o texto libre "otro". Queda
+   * por compatibilidad con lo que ya lee OfferService.ingest — {@link
+   * #categories} es la generalización multi-rubro de la ficha (Fase 1,
+   * V24), no un reemplazo. */
   @Column(nullable = false)
   private String category;
+
+  /** Descripción libre de la ficha (Fase 1, V24) — nullable, sin backfill;
+   * lo carga ops o el dueño desde el panel self-service. */
+  @Column(length = 500)
+  private String description;
+
+  /** Multi-rubro CSV, mismo patrón que {@code Provider.categories} — NO
+   * catálogo paralelo de rubros, texto libre separado por comas. {@link
+   * #category} (singular) sigue siendo la fuente que usa el matching
+   * existente; este campo es aditivo. */
+  @Column(length = 500)
+  private String categories;
 
   /** Reusa CoverageZone (fromLabel) — NO catálogo paralelo de zonas. */
   private String primaryZone;
@@ -98,6 +113,10 @@ public class Business {
   public void setWhatsappNumber(String whatsappNumber) { this.whatsappNumber = whatsappNumber; }
   public String getCategory() { return category; }
   public void setCategory(String category) { this.category = category; }
+  public String getDescription() { return description; }
+  public void setDescription(String description) { this.description = description; }
+  public String getCategories() { return categories; }
+  public void setCategories(String categories) { this.categories = categories; }
   public String getPrimaryZone() { return primaryZone; }
   public void setPrimaryZone(String primaryZone) { this.primaryZone = primaryZone; }
   public String getAddress() { return address; }

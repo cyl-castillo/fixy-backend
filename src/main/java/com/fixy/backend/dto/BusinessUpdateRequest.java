@@ -11,6 +11,9 @@ public record BusinessUpdateRequest(
     Long providerId,
     String address,
     Double latitude,
-    Double longitude
+    Double longitude,
+    // Fase 1 de la ficha (V24) — ver BusinessResponse.
+    String description,
+    String categories
 ) {
 }
