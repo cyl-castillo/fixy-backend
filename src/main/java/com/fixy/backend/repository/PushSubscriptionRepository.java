@@ -17,6 +17,14 @@ public interface PushSubscriptionRepository extends JpaRepository<PushSubscripti
   /** Upsert por endpoint (Fase Push-2): mismo dispositivo = misma fila, sin importar de quién sea. */
   Optional<PushSubscription> findByEndpoint(String endpoint);
 
+  /**
+   * Upsert tolerante a duplicados (hotfix 2026-08-25): prod arrastra filas
+   * repetidas del mismo endpoint de la era pre-upsert (cada re-suscripción
+   * insertaba una nueva) y {@link #findByEndpoint} tira NonUniqueResult.
+   * El upsert las trae todas, se queda con una y borra el resto.
+   */
+  List<PushSubscription> findAllByEndpointOrderByCreatedAtDesc(String endpoint);
+
   /** Universo del digest de ofertas por zona: clientes Y visitantes — nunca proveedor (Fase Push-2). */
   List<PushSubscription> findByProviderIdIsNull();
 

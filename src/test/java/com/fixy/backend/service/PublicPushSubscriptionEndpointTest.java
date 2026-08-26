@@ -35,6 +35,38 @@ class PublicPushSubscriptionEndpointTest {
   }
 
   @Test
+  void endpointDuplicadoHistorico_sobreviveLaFilaConIdentidadYSeBorranLasDemas() throws Exception {
+    // Hotfix 2026-08-25: prod arrastra filas repetidas del mismo endpoint
+    // (era pre-upsert). El upsert debe quedarse con UNA (la que tiene
+    // lead/provider) y borrar el resto, en vez de tirar NonUniqueResult.
+    String endpoint = "https://push-test.example/duplicated-historic";
+    PushSubscription conLead = new PushSubscription();
+    conLead.setEndpoint(endpoint);
+    conLead.setP256dh("old-1");
+    conLead.setAuth("old-1");
+    conLead.setLeadId(9876543L);
+    pushSubscriptionRepository.save(conLead);
+    for (int i = 0; i < 2; i++) {
+      PushSubscription huerfana = new PushSubscription();
+      huerfana.setEndpoint(endpoint);
+      huerfana.setP256dh("old-orphan-" + i);
+      huerfana.setAuth("old-orphan-" + i);
+      pushSubscriptionRepository.save(huerfana);
+    }
+
+    mockMvc.perform(post("/api/public/push-subscriptions")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body(endpoint, "Solymar", "[7]")))
+        .andExpect(status().isOk());
+
+    PushSubscription superviviente = pushSubscriptionRepository.findByEndpoint(endpoint).orElseThrow();
+    assertThat(superviviente.getLeadId()).isEqualTo(9876543L);
+    assertThat(superviviente.getZone()).isEqualTo("Solymar");
+    assertThat(superviviente.getP256dh()).isEqualTo("dummy-p256dh");
+    assertThat(superviviente.getSavedOfferIds()).isEqualTo("7");
+  }
+
+  @Test
   void visitanteNuevo_seDaDeAltaSinLeadNiProvider() throws Exception {
     String endpoint = "https://push-test.example/visitor-new";
 

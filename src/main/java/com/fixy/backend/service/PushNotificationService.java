@@ -187,7 +187,21 @@ public class PushNotificationService {
   ) {
     abuseProtectionService.validatePushSubscription(clientIp, savedOfferIds);
     String zone = CoverageZone.fromLabel(zoneRaw).map(CoverageZone::label).orElse(null);
-    PushSubscription subscription = repository.findByEndpoint(endpoint).orElseGet(PushSubscription::new);
+    // Hotfix 2026-08-25: prod arrastra endpoints duplicados de la era
+    // pre-upsert (cada re-suscripción insertaba fila nueva) y findByEndpoint
+    // tiraba NonUniqueResult. Sobrevive la fila con identidad (lead/provider,
+    // la más nueva de esas) o la más nueva a secas; el resto se borra acá
+    // mismo — la tabla se sanea sola a medida que los dispositivos vuelven.
+    List<PushSubscription> existing = repository.findAllByEndpointOrderByCreatedAtDesc(endpoint);
+    PushSubscription subscription = existing.stream()
+        .filter(s -> s.getLeadId() != null || s.getProviderId() != null)
+        .findFirst()
+        .or(() -> existing.stream().findFirst())
+        .orElseGet(PushSubscription::new);
+    List<PushSubscription> duplicates = existing.stream().filter(s -> s != subscription).toList();
+    if (!duplicates.isEmpty()) {
+      repository.deleteAll(duplicates);
+    }
     subscription.setEndpoint(endpoint);
     subscription.setP256dh(p256dh);
     subscription.setAuth(auth);
