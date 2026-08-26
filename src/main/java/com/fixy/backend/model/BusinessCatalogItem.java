@@ -60,8 +60,12 @@ public class BusinessCatalogItem {
    * (típicamente estampado por {@code BusinessInquiryService.answerAsOwner}
    * cuando el dueño contesta que no), no un ítem que simplemente no aplica.
    * {@link CatalogAnswerService} lo usa para decidir si el motor responde
-   * "sí" o "no" cuando la confianza alcanza. */
-  @Column(nullable = false)
+   * "sí" o "no" cuando la confianza alcanza.
+   * columnDefinition con default: en dev/test el esquema lo mantiene
+   * ddl-auto=update sobre una H2 persistente con filas previas — sin el
+   * default el ALTER ADD COLUMN NOT NULL falla en silencio y el arranque
+   * queda con la columna faltante (500 en runtime; V25 en prod sí lo trae). */
+  @Column(nullable = false, columnDefinition = "boolean not null default true")
   private boolean available = true;
 
   @Column(nullable = false)
