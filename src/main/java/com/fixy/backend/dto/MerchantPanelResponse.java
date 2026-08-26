@@ -15,11 +15,22 @@ public record MerchantPanelResponse(
     List<MerchantOfferSummary> offers,
     List<BusinessInquiryPendingSummary> pendingInquiries
 ) {
+  /**
+   * {@code publicUrl} se agregó de forma aditiva en Fase 3 (página pública
+   * del comercio, gap analysis 2026-08-25 §8): a diferencia de {@code
+   * OfferPublicResponse.businessSlug} (GET público anónimo, nunca genera
+   * slug), ACÁ el GET del panel SÍ dispara {@code
+   * BusinessSlugService.ensureSlug} — es un endpoint autenticado por token
+   * (no un GET anónimo cualquiera) y de bajo tráfico (el dueño entra a su
+   * propio panel), así que el dueño ve el link de su ficha pública desde el
+   * primer ingreso sin tener que pedirlo aparte a ops.
+   */
   public record BusinessSummary(
       Long id,
       String name,
       String category,
-      String primaryZone
+      String primaryZone,
+      String publicUrl
   ) {
   }
 }

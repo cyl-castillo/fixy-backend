@@ -15,6 +15,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -58,7 +59,9 @@ public class MerchantPanelService {
   private final PublicLeadAbuseProtectionService abuseProtectionService;
   private final TelegramNotifyService telegramNotifyService;
   private final BusinessInquiryService businessInquiryService;
+  private final BusinessSlugService businessSlugService;
   private final Clock clock;
+  private final String publicAppBaseUrl;
 
   public MerchantPanelService(
       BusinessRepository businessRepository,
@@ -68,7 +71,9 @@ public class MerchantPanelService {
       PublicLeadAbuseProtectionService abuseProtectionService,
       TelegramNotifyService telegramNotifyService,
       BusinessInquiryService businessInquiryService,
-      Clock clock
+      BusinessSlugService businessSlugService,
+      Clock clock,
+      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.businessRepository = businessRepository;
     this.offerRepository = offerRepository;
@@ -77,7 +82,9 @@ public class MerchantPanelService {
     this.abuseProtectionService = abuseProtectionService;
     this.telegramNotifyService = telegramNotifyService;
     this.businessInquiryService = businessInquiryService;
+    this.businessSlugService = businessSlugService;
     this.clock = clock;
+    this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
 
   /** Todas las ofertas del comercio (cualquier estado), métricas reales sin umbral de social proof. */
@@ -91,9 +98,14 @@ public class MerchantPanelService {
         .map(this::toSummary)
         .toList();
 
+    // Ensure-slug ACÁ sí (a diferencia de un GET público anónimo): ver
+    // javadoc de MerchantPanelResponse.BusinessSummary.publicUrl.
+    String slug = businessSlugService.ensureSlug(business);
+    String publicUrl = publicAppBaseUrl + "/comercio/" + slug;
+
     return new MerchantPanelResponse(
         new MerchantPanelResponse.BusinessSummary(
-            business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone()),
+            business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone(), publicUrl),
         offers,
         businessInquiryService.listPendingForBusiness(business.getId())
     );

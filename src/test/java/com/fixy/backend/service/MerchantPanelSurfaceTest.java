@@ -103,6 +103,24 @@ class MerchantPanelSurfaceTest {
   }
 
   @Test
+  void panelIncluyePublicUrlYLaGeneraSiElComercioTodaviaNoTieneSlug() throws Exception {
+    Business business = persistBusiness("015");
+    // sin slug todavía — el GET del panel lo genera (ensureSlug, a diferencia del GET público anónimo).
+    assertThat(business.getSlug()).isNull();
+
+    MvcResult result = mockMvc.perform(get("/api/public/merchant/{token}", business.getPanelToken()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String publicUrl = JsonPath.read(result.getResponse().getContentAsString(), "$.business.publicUrl");
+    assertThat(publicUrl).contains("/comercio/");
+
+    Business reloaded = businessRepository.findById(business.getId()).orElseThrow();
+    assertThat(reloaded.getSlug()).isNotBlank();
+    assertThat(publicUrl).endsWith("/comercio/" + reloaded.getSlug());
+  }
+
+  @Test
   void panelIncluyeInquiryCountYLeadCountAunqueSeanCero() throws Exception {
     Business business = persistBusiness("002");
     persistOffer(business, OfferStatus.ACTIVE, OffsetDateTime.now().minusDays(1), OffsetDateTime.now().plusDays(5), "Oferta sola");

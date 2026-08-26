@@ -284,7 +284,8 @@ public class OfferService {
             business.getLatitude(),
             business.getLongitude(),
             analysis,
-            business.getId()
+            business.getId(),
+            business.getSlug()
         ))
         .orElse(null);
   }

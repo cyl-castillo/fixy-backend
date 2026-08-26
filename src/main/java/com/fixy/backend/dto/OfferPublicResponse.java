@@ -70,6 +70,14 @@ import java.time.OffsetDateTime;
  * existe, ver {@code OfferService.toPublicResponse}), pero el campo viaja
  * nullable por si ese invariante cambia — patrón defensivo, no confiar en
  * que siempre esté.
+ *
+ * <p>{@code businessSlug} se agregó de forma aditiva en Fase 3 (página
+ * pública del comercio, gap analysis 2026-08-25 §8): el frontend lo
+ * necesita para linkear "ver ficha del comercio" desde la tarjeta de
+ * oferta. {@code null} si el comercio todavía no tiene slug asignado — este
+ * GET nunca dispara {@code BusinessSlugService.ensureSlug} (una lectura
+ * pública no puede tener el efecto secundario de decidir una URL
+ * permanente).
  */
 public record OfferPublicResponse(
     Long id,
@@ -92,6 +100,7 @@ public record OfferPublicResponse(
     Double businessLatitude,
     Double businessLongitude,
     OfferAnalysis analysis,
-    Long businessId
+    Long businessId,
+    String businessSlug
 ) {
 }

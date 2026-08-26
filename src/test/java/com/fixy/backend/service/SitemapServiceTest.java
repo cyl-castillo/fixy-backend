@@ -29,6 +29,7 @@ class SitemapServiceTest {
   @Autowired private SitemapService sitemapService;
   @Autowired private OfferRepository offerRepository;
   @Autowired private BusinessRepository businessRepository;
+  @Autowired private BusinessSlugService businessSlugService;
 
   private Business persistBusiness(String name, String whatsapp) {
     Business business = new Business();
@@ -106,5 +107,48 @@ class SitemapServiceTest {
     String xml = sitemapService.render();
 
     assertThat(xml).doesNotContain("<loc>https://www.fixy.com.uy/oferta/" + offer.getId() + "</loc>");
+  }
+
+  // --- Fase 3: comercios con slug (gap analysis 2026-08-25 §3, punto 6) ---
+
+  @Test
+  void incluyeUnComercioActivoConSlugYSuLastmod() {
+    Business business = persistBusiness("Comercio Sitemap Con Slug Test", "098777001");
+    String slug = businessSlugService.ensureSlug(business);
+
+    String xml = sitemapService.render();
+
+    // Releer el updatedAt DESPUÉS de render(): ensureSlug hace un UPDATE que
+    // Hibernate no flushea hasta la próxima query real (find-by-id no
+    // dispara auto-flush) — recién la consulta de render() lo materializa.
+    // Leer antes comparaba contra el updatedAt viejo (el del alta), no el
+    // real post-slug (mismo motivo documentado para el caso de Offer abajo).
+    Business reloaded = businessRepository.findById(business.getId()).orElseThrow();
+    String expectedLastmod = DateTimeFormatter.ISO_OFFSET_DATE_TIME.format(reloaded.getUpdatedAt());
+
+    assertThat(xml).contains("<loc>https://www.fixy.com.uy/comercio/" + slug + "</loc>");
+    assertThat(xml).contains("<lastmod>" + expectedLastmod + "</lastmod>");
+  }
+
+  @Test
+  void noIncluyeUnComercioActivoSinSlugTodavia() {
+    Business business = persistBusiness("Comercio Sitemap Sin Slug Test", "098777002");
+    // nunca se llama ensureSlug — comercio activo pero sin slug asignado.
+
+    String xml = sitemapService.render();
+
+    assertThat(xml).doesNotContain(business.getName());
+  }
+
+  @Test
+  void noIncluyeUnComercioInactivoAunqueTengaSlug() {
+    Business business = persistBusiness("Comercio Sitemap Inactivo Test", "098777003");
+    String slug = businessSlugService.ensureSlug(business);
+    business.setStatus(com.fixy.backend.model.BusinessStatus.INACTIVE);
+    businessRepository.save(business);
+
+    String xml = sitemapService.render();
+
+    assertThat(xml).doesNotContain("<loc>https://www.fixy.com.uy/comercio/" + slug + "</loc>");
   }
 }

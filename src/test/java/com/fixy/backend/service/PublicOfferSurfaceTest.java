@@ -36,6 +36,7 @@ class PublicOfferSurfaceTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private OfferRepository offerRepository;
   @Autowired private BusinessRepository businessRepository;
+  @Autowired private BusinessSlugService businessSlugService;
 
   private Business persistBusiness(String name, String whatsapp) {
     Business business = new Business();
@@ -494,6 +495,33 @@ class PublicOfferSurfaceTest {
 
     assertThat(ids.indexOf(urgente.getId().intValue()))
         .isLessThan(ids.indexOf(lejana.getId().intValue()));
+  }
+
+  // --- businessSlug (Fase 3, gap analysis 2026-08-25 §8) ---
+
+  @Test
+  void businessSlugSeExponeCuandoElComercioYaLoTiene() throws Exception {
+    Business business = persistBusiness("Comercio Con Slug Oferta Test", "098444024");
+    String slug = businessSlugService.ensureSlug(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessSlug").value(slug));
+  }
+
+  @Test
+  void businessSlugQuedaNullSinDispararEnsureSlugCuandoElComercioTodaviaNoLoTiene() throws Exception {
+    Business business = persistBusiness("Comercio Sin Slug Oferta Test", "098444025");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessSlug").doesNotExist());
+
+    // El GET público NUNCA debe generar un slug como efecto secundario.
+    Business reloaded = businessRepository.findById(business.getId()).orElseThrow();
+    assertThat(reloaded.getSlug()).isNull();
   }
 
   @Test

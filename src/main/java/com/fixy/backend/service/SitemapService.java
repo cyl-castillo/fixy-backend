@@ -1,7 +1,10 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.model.Business;
+import com.fixy.backend.model.BusinessStatus;
 import com.fixy.backend.model.Offer;
 import com.fixy.backend.model.OfferStatus;
+import com.fixy.backend.repository.BusinessRepository;
 import com.fixy.backend.repository.OfferRepository;
 import java.time.Clock;
 import java.time.OffsetDateTime;
@@ -29,23 +32,30 @@ public class SitemapService {
   private static final DateTimeFormatter LASTMOD_FORMAT = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
 
   private final OfferRepository offerRepository;
+  private final BusinessRepository businessRepository;
   private final Clock clock;
   private final String publicAppBaseUrl;
 
   public SitemapService(
       OfferRepository offerRepository,
+      BusinessRepository businessRepository,
       Clock clock,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.offerRepository = offerRepository;
+    this.businessRepository = businessRepository;
     this.clock = clock;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
 
-  /** Arma el XML completo. Nunca lanza — sin ofertas vigentes, igual devuelve home + /ofertas. */
+  /** Arma el XML completo. Nunca lanza — sin ofertas/comercios, igual devuelve home + /ofertas. */
   public String render() {
     OffsetDateTime now = OffsetDateTime.now(clock);
     List<Offer> vigentes = offerRepository.findByStatusAndValidUntilAfter(OfferStatus.ACTIVE, now);
+    // Un comercio entra recién cuando YA tiene slug — el sitemap nunca fuerza
+    // BusinessSlugService.ensureSlug (mutar en un GET de sitemap no, ver gap
+    // analysis §6): los existentes lo ganan cuando ops pide el link público.
+    List<Business> businessesConSlug = businessRepository.findByStatusAndSlugIsNotNull(BusinessStatus.ACTIVE);
 
     StringBuilder xml = new StringBuilder();
     xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
@@ -54,6 +64,9 @@ public class SitemapService {
     appendUrl(xml, publicAppBaseUrl + "/ofertas", null);
     for (Offer offer : vigentes) {
       appendUrl(xml, publicAppBaseUrl + "/oferta/" + offer.getId(), offer.getUpdatedAt());
+    }
+    for (Business business : businessesConSlug) {
+      appendUrl(xml, publicAppBaseUrl + "/comercio/" + business.getSlug(), business.getUpdatedAt());
     }
     xml.append("</urlset>\n");
     return xml.toString();
