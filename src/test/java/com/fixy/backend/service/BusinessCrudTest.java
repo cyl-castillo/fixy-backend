@@ -106,6 +106,37 @@ class BusinessCrudTest {
   }
 
   @Test
+  void creaConCoordenadasDescripcionYCategoriasYLasPersiste() throws Exception {
+    // El form del admin manda todo esto en el alta; antes el create los
+    // ignoraba en silencio y había que editar el comercio para cargarlos.
+    MvcResult res = mockMvc.perform(post("/api/businesses")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Ferretería Ficha Completa",
+                  "whatsappNumber": "098111015",
+                  "category": "ferreteria-crud-create",
+                  "primaryZone": "Solymar",
+                  "latitude": -34.8123,
+                  "longitude": -55.9456,
+                  "description": "Ferretería de barrio con pinturería",
+                  "categories": "ferreteria-crud-create,pinturas-crud-create"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat((Double) JsonPath.read(body, "$.latitude")).isEqualTo(-34.8123);
+    assertThat((Double) JsonPath.read(body, "$.longitude")).isEqualTo(-55.9456);
+    assertThat((String) JsonPath.read(body, "$.description"))
+        .isEqualTo("Ferretería de barrio con pinturería");
+    assertThat((String) JsonPath.read(body, "$.categories"))
+        .isEqualTo("ferreteria-crud-create,pinturas-crud-create");
+  }
+
+  @Test
   void altaSinAddressQuedaNull() throws Exception {
     Integer id = createBusiness("098111006");
 

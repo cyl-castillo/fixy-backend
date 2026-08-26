@@ -66,6 +66,10 @@ public class BusinessService {
     business.setPrimaryZone(trimToNull(request.primaryZone()));
     business.setProviderId(request.providerId());
     business.setAddress(trimToNull(request.address()));
+    business.setLatitude(request.latitude());
+    business.setLongitude(request.longitude());
+    business.setDescription(trimToNull(request.description()));
+    business.setCategories(trimToNull(request.categories()));
     business.setStatus(BusinessStatus.ACTIVE);
     return toResponse(businessRepository.save(business));
   }
