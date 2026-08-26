@@ -55,6 +55,15 @@ public class BusinessCatalogItem {
   @Column(length = 500)
   private String notes;
 
+  /** Fase 2 (V25, motor de respuesta): true por default — un ítem DECLARADO
+   * o CONFIRMADO con {@code available=false} es un "no tenemos X" real
+   * (típicamente estampado por {@code BusinessInquiryService.answerAsOwner}
+   * cuando el dueño contesta que no), no un ítem que simplemente no aplica.
+   * {@link CatalogAnswerService} lo usa para decidir si el motor responde
+   * "sí" o "no" cuando la confianza alcanza. */
+  @Column(nullable = false)
+  private boolean available = true;
+
   @Column(nullable = false)
   private boolean active = true;
 
@@ -92,6 +101,8 @@ public class BusinessCatalogItem {
   public void setVerifiedAt(OffsetDateTime verifiedAt) { this.verifiedAt = verifiedAt; }
   public String getNotes() { return notes; }
   public void setNotes(String notes) { this.notes = notes; }
+  public boolean isAvailable() { return available; }
+  public void setAvailable(boolean available) { this.available = available; }
   public boolean isActive() { return active; }
   public void setActive(boolean active) { this.active = active; }
   public OffsetDateTime getCreatedAt() { return createdAt; }

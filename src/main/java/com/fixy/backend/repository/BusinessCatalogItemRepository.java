@@ -12,4 +12,7 @@ public interface BusinessCatalogItemRepository extends JpaRepository<BusinessCat
   List<BusinessCatalogItem> findByBusinessIdOrderByCreatedAtDesc(Long businessId);
 
   Optional<BusinessCatalogItem> findByIdAndBusinessId(Long id, Long businessId);
+
+  /** Universo del motor de respuesta (Fase 2, {@code CatalogAnswerService}): solo ítems vigentes. */
+  List<BusinessCatalogItem> findByBusinessIdAndActiveTrue(Long businessId);
 }
