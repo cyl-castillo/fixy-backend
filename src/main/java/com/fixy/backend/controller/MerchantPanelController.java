@@ -1,8 +1,11 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.BusinessInquiryOwnerAnswerRequest;
+import com.fixy.backend.dto.BusinessInquiryOwnerAnswerResponse;
 import com.fixy.backend.dto.MerchantOfferRenewRequest;
 import com.fixy.backend.dto.MerchantOfferSummary;
 import com.fixy.backend.dto.MerchantPanelResponse;
+import com.fixy.backend.service.BusinessInquiryService;
 import com.fixy.backend.service.MerchantPanelService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class MerchantPanelController {
 
   private final MerchantPanelService merchantPanelService;
+  private final BusinessInquiryService businessInquiryService;
 
-  public MerchantPanelController(MerchantPanelService merchantPanelService) {
+  public MerchantPanelController(MerchantPanelService merchantPanelService, BusinessInquiryService businessInquiryService) {
     this.merchantPanelService = merchantPanelService;
+    this.businessInquiryService = businessInquiryService;
   }
 
   @GetMapping("/{token}")
@@ -51,5 +56,22 @@ public class MerchantPanelController {
       HttpServletRequest httpRequest
   ) {
     return merchantPanelService.pause(httpRequest.getRemoteAddr(), token, offerId);
+  }
+
+  /**
+   * El dueño contesta SÍ/NO a una consulta escalada del motor de respuesta
+   * (Fase 2). Mismo criterio de token-en-el-path que el resto del panel;
+   * 404 opaco si la consulta no es de este comercio, 409 si ya la
+   * contestaron (ver {@code BusinessInquiryService.answerAsOwner}).
+   */
+  @PostMapping("/{token}/inquiries/{inquiryId}/answer")
+  public BusinessInquiryOwnerAnswerResponse answerInquiry(
+      @PathVariable String token,
+      @PathVariable Long inquiryId,
+      @RequestBody BusinessInquiryOwnerAnswerRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    return businessInquiryService.answerAsOwner(
+        httpRequest.getRemoteAddr(), token, inquiryId, request.answer(), request.priceFrom(), request.note());
   }
 }

@@ -57,6 +57,7 @@ public class MerchantPanelService {
   private final OfferInquiryRepository offerInquiryRepository;
   private final PublicLeadAbuseProtectionService abuseProtectionService;
   private final TelegramNotifyService telegramNotifyService;
+  private final BusinessInquiryService businessInquiryService;
   private final Clock clock;
 
   public MerchantPanelService(
@@ -66,6 +67,7 @@ public class MerchantPanelService {
       OfferInquiryRepository offerInquiryRepository,
       PublicLeadAbuseProtectionService abuseProtectionService,
       TelegramNotifyService telegramNotifyService,
+      BusinessInquiryService businessInquiryService,
       Clock clock
   ) {
     this.businessRepository = businessRepository;
@@ -74,6 +76,7 @@ public class MerchantPanelService {
     this.offerInquiryRepository = offerInquiryRepository;
     this.abuseProtectionService = abuseProtectionService;
     this.telegramNotifyService = telegramNotifyService;
+    this.businessInquiryService = businessInquiryService;
     this.clock = clock;
   }
 
@@ -91,7 +94,8 @@ public class MerchantPanelService {
     return new MerchantPanelResponse(
         new MerchantPanelResponse.BusinessSummary(
             business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone()),
-        offers
+        offers,
+        businessInquiryService.listPendingForBusiness(business.getId())
     );
   }
 

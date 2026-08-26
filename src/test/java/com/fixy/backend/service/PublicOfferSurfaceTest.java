@@ -232,6 +232,7 @@ class PublicOfferSurfaceTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id").value(active.getId().intValue()))
         .andExpect(jsonPath("$.businessName").value("Comercio Detalle Test"))
+        .andExpect(jsonPath("$.businessId").value(business.getId().intValue()))
         .andExpect(jsonPath("$.sourceMessageRaw").doesNotExist())
         .andExpect(jsonPath("$.whatsappNumber").doesNotExist());
   }

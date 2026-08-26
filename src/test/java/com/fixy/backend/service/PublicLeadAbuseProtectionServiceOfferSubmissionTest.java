@@ -18,7 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 class PublicLeadAbuseProtectionServiceOfferSubmissionTest {
 
   private PublicLeadAbuseProtectionService service(int offerSubmissionMax) {
-    return new PublicLeadAbuseProtectionService(200, 600, 200, 600, offerSubmissionMax, 600, 200, 600, 200, 60);
+    return new PublicLeadAbuseProtectionService(200, 600, 200, 600, offerSubmissionMax, 600, 200, 600, 200, 60, 200, 600);
   }
 
   private void validOk(PublicLeadAbuseProtectionService service, String ip) {

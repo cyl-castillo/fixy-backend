@@ -283,7 +283,8 @@ public class OfferService {
             inquiryCount,
             business.getLatitude(),
             business.getLongitude(),
-            analysis
+            analysis,
+            business.getId()
         ))
         .orElse(null);
   }

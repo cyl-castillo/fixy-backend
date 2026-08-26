@@ -101,10 +101,17 @@ fixy:
     merchant-reminder:
       enabled: ${FIXY_OFFERS_MERCHANT_REMINDER_ENABLED:true}
       scheduler-fixed-delay-ms: ${FIXY_OFFERS_MERCHANT_REMINDER_SCHEDULER_FIXED_DELAY_MS:3600000}
+  business-inquiries:
+    expiry:
+      enabled: ${FIXY_BUSINESS_INQUIRIES_EXPIRY_ENABLED:true}
+      scheduler-fixed-delay-ms: ${FIXY_BUSINESS_INQUIRIES_EXPIRY_SCHEDULER_FIXED_DELAY_MS:3600000}
   abuse:
     offer-inquiry:
       max-requests-per-window: ${FIXY_ABUSE_OFFER_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_OFFER_INQUIRY_WINDOW_SECONDS:600}
+    business-inquiry:
+      max-requests-per-window: ${FIXY_ABUSE_BUSINESS_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_BUSINESS_INQUIRY_WINDOW_SECONDS:600}
     offer-submission:
       max-requests-per-window: ${FIXY_ABUSE_OFFER_SUBMISSION_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_OFFER_SUBMISSION_WINDOW_SECONDS:600}

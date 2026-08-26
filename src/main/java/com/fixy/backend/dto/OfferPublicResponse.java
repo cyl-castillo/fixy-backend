@@ -59,6 +59,17 @@ import java.time.OffsetDateTime;
  * determinista "¿esta oferta conviene?", ver {@code OfferAnalysisService} y
  * {@code OfferAnalysis}): siempre presente como objeto, sin migración de DB
  * — todo se computa en lectura a partir de columnas ya existentes.
+ *
+ * <p>{@code businessId} se agregó de forma aditiva en Fase 2 (motor de
+ * respuesta sobre el catálogo, gap analysis 2026-08-25 §2): el frontend lo
+ * necesita para dirigir la consulta "¿lo tienen?" ({@code POST
+ * /api/public/businesses/{businessId}/inquiries}) al comercio correcto —
+ * a diferencia de {@code whatsappNumber} no es un dato sensible (mismo
+ * criterio que {@code businessAddress}). Siempre no-nulo en la práctica
+ * (este DTO nunca se construye si el {@code Business} referenciado no
+ * existe, ver {@code OfferService.toPublicResponse}), pero el campo viaja
+ * nullable por si ese invariante cambia — patrón defensivo, no confiar en
+ * que siempre esté.
  */
 public record OfferPublicResponse(
     Long id,
@@ -80,6 +91,7 @@ public record OfferPublicResponse(
     int inquiryCount,
     Double businessLatitude,
     Double businessLongitude,
-    OfferAnalysis analysis
+    OfferAnalysis analysis,
+    Long businessId
 ) {
 }

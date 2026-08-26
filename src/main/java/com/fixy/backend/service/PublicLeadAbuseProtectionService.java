@@ -41,6 +41,14 @@ public class PublicLeadAbuseProtectionService {
   /** Alta pública de suscripción push (Fase Push-2, enganche): tope de ofertas guardadas por suscripción. */
   private static final int PUSH_SUBSCRIPTION_SAVED_OFFER_IDS_MAX = 50;
 
+  /** Consulta al catálogo de la ficha (Fase 2, motor de respuesta): largos
+   * calcados de las columnas reales de {@code business_inquiries} (V25). */
+  private static final int BUSINESS_INQUIRY_QUESTION_MIN_LENGTH = 5;
+  private static final int BUSINESS_INQUIRY_QUESTION_MAX_LENGTH = 500;
+  private static final int BUSINESS_INQUIRY_VISITOR_NAME_MAX_LENGTH = 80;
+  private static final int BUSINESS_INQUIRY_VISITOR_WHATSAPP_MAX_LENGTH = 30;
+  private static final int BUSINESS_INQUIRY_PUSH_ENDPOINT_MAX_LENGTH = 500;
+
   private final int maxRequestsPerWindow;
   private final Duration window;
   private final Map<String, Deque<Instant>> requestsByIp = new ConcurrentHashMap<>();
@@ -78,6 +86,14 @@ public class PublicLeadAbuseProtectionService {
   private final Duration merchantPanelWindow;
   private final Map<String, Deque<Instant>> requestsByMerchantPanelIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia para la consulta pública al catálogo de la ficha (Fase
+   * 2): mismo criterio que offer-inquiry (§6 del CTA original) — un vecino
+   * preguntándole a un comercio no debería competir por cupo con las demás
+   * familias públicas. */
+  private final int businessInquiryMaxRequestsPerWindow;
+  private final Duration businessInquiryWindow;
+  private final Map<String, Deque<Instant>> requestsByBusinessInquiryIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
@@ -88,7 +104,9 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.push-subscription.max-requests-per-window:5}") int pushSubscriptionMaxRequestsPerWindow,
       @Value("${fixy.abuse.push-subscription.window-seconds:600}") long pushSubscriptionWindowSeconds,
       @Value("${fixy.abuse.merchant-panel.max-requests-per-window:20}") int merchantPanelMaxRequestsPerWindow,
-      @Value("${fixy.abuse.merchant-panel.window-seconds:60}") long merchantPanelWindowSeconds
+      @Value("${fixy.abuse.merchant-panel.window-seconds:60}") long merchantPanelWindowSeconds,
+      @Value("${fixy.abuse.business-inquiry.max-requests-per-window:5}") int businessInquiryMaxRequestsPerWindow,
+      @Value("${fixy.abuse.business-inquiry.window-seconds:600}") long businessInquiryWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -100,6 +118,8 @@ public class PublicLeadAbuseProtectionService {
     this.pushSubscriptionWindow = Duration.ofSeconds(pushSubscriptionWindowSeconds);
     this.merchantPanelMaxRequestsPerWindow = merchantPanelMaxRequestsPerWindow;
     this.merchantPanelWindow = Duration.ofSeconds(merchantPanelWindowSeconds);
+    this.businessInquiryMaxRequestsPerWindow = businessInquiryMaxRequestsPerWindow;
+    this.businessInquiryWindow = Duration.ofSeconds(businessInquiryWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -222,6 +242,50 @@ public class PublicLeadAbuseProtectionService {
    */
   public void validateMerchantPanel(String clientIp) {
     enforceRateLimit(requestsByMerchantPanelIp, normalizeIp(clientIp), merchantPanelMaxRequestsPerWindow, merchantPanelWindow);
+  }
+
+  /**
+   * Consulta pública al catálogo de la ficha (Fase 2, motor de respuesta):
+   * {@code question} obligatoria 5-500 (igual criterio que {@link
+   * #validateOfferInquiry}), el resto opcional pero acotado a la longitud
+   * real de columna de {@code business_inquiries} (V25). El honeypot ({@code
+   * website} no vacío) se valida en el caller ({@code
+   * BusinessInquiryService.create}), no acá — nunca debe llegar a un error.
+   */
+  public void validateBusinessInquiry(
+      String clientIp, String question, String visitorName, String visitorWhatsapp, String pushEndpoint
+  ) {
+    String trimmedQuestion = question == null ? "" : question.trim();
+    if (trimmedQuestion.length() < BUSINESS_INQUIRY_QUESTION_MIN_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "question must be at least %d characters".formatted(BUSINESS_INQUIRY_QUESTION_MIN_LENGTH));
+    }
+    if (trimmedQuestion.length() > BUSINESS_INQUIRY_QUESTION_MAX_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "question exceeds max length");
+    }
+    if (hasText(visitorName) && visitorName.trim().length() > BUSINESS_INQUIRY_VISITOR_NAME_MAX_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "visitorName exceeds max length");
+    }
+    if (hasText(visitorWhatsapp) && visitorWhatsapp.trim().length() > BUSINESS_INQUIRY_VISITOR_WHATSAPP_MAX_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "visitorWhatsapp exceeds max length");
+    }
+    if (hasText(pushEndpoint) && pushEndpoint.trim().length() > BUSINESS_INQUIRY_PUSH_ENDPOINT_MAX_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pushEndpoint exceeds max length");
+    }
+    enforceRateLimit(requestsByBusinessInquiryIp, normalizeIp(clientIp), businessInquiryMaxRequestsPerWindow, businessInquiryWindow);
+  }
+
+  /**
+   * Adjuntar {@code pushEndpoint} tardío a una consulta ya creada (Fase 2,
+   * hueco de contrato): mismo pool que {@link #validateBusinessInquiry} —
+   * es la misma familia de acciones del vecino sobre su propia consulta,
+   * no amerita una ventana separada.
+   */
+  public void validateBusinessInquiryPushUpdate(String clientIp, String pushEndpoint) {
+    if (hasText(pushEndpoint) && pushEndpoint.trim().length() > BUSINESS_INQUIRY_PUSH_ENDPOINT_MAX_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "pushEndpoint exceeds max length");
+    }
+    enforceRateLimit(requestsByBusinessInquiryIp, normalizeIp(clientIp), businessInquiryMaxRequestsPerWindow, businessInquiryWindow);
   }
 
   private void validateProblem(String problem) {

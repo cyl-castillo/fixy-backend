@@ -396,6 +396,64 @@ public class TelegramNotifyService {
   }
 
   /**
+   * Consulta al catálogo de la ficha escalada al dueño (Fase 2, motor de
+   * respuesta): {@link CatalogAnswerService} no tuvo
+   * confianza suficiente para responder sola. Mismo sub-patrón que {@link
+   * #notifyOfferInquiry}: sin idempotencia por evento (cada consulta es un
+   * hecho distinto), respeta el guard "[smoke]".
+   */
+  public void notifyBusinessInquiryEscalated(
+      com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry
+  ) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(inquiry.getQuestion())) return;
+    try {
+      String text = "❓ Consulta al catálogo de %s: \"%s\" — el motor no supo responder solo, contestá SÍ o NO desde el panel: %s"
+          .formatted(
+              safe(business.getName()),
+              truncate(safe(inquiry.getQuestion()), 300),
+              merchantInquiryUrl(business, inquiry)
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-inquiry-escalated id={} failed: {}", inquiry.getId(), ex.getMessage());
+    }
+  }
+
+  private String merchantInquiryUrl(com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry) {
+    return "%s/mi-comercio/%s?inquiry=%d".formatted(publicAppBaseUrl, business.getPanelToken(), inquiry.getId());
+  }
+
+  /** Una línea del digest de {@link BusinessInquiryExpiryScheduler}: consulta escalada que venció sin respuesta del dueño. */
+  public record ExpiredBusinessInquiry(
+      com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry
+  ) {
+  }
+
+  /**
+   * Digest best-effort de {@link BusinessInquiryExpiryScheduler}: consultas
+   * ESCALATED que llevaban más de 72h sin respuesta del dueño y pasaron a
+   * EXPIRED en esta corrida. Un solo mensaje por corrida con todas juntas,
+   * mismo criterio que {@link #notifyMerchantOffersExpiringWithoutOwnerPush}.
+   */
+  public void notifyBusinessInquiriesExpired(List<ExpiredBusinessInquiry> items) {
+    if (!enabled || items == null || items.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("⌛ ").append(items.size())
+          .append(items.size() == 1 ? " consulta venció" : " consultas vencieron")
+          .append(" sin respuesta del dueño (72h):");
+      for (ExpiredBusinessInquiry item : items) {
+        text.append('\n').append(safe(item.business().getName())).append(": \"")
+            .append(truncate(safe(item.inquiry().getQuestion()), 150)).append('"');
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify business-inquiries-expired failed: {}", ex.getMessage());
+    }
+  }
+
+  /**
    * Alta pública de una oferta (fase 2 "ofertas protagonistas", puerta del
    * comerciante): mismo sub-patrón que {@link #notifyProviderSelfRegistered}
    * — sin {@code Lead} de por medio, así que no aplica la idempotencia "un

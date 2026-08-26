@@ -62,6 +62,9 @@ fixy:
     merchant-panel:
       max-requests-per-window: 200
       window-seconds: 60
+    business-inquiry:
+      max-requests-per-window: 200
+      window-seconds: 60
   chat:
     max-messages-per-window: 100
     window-seconds: 60
@@ -89,6 +92,10 @@ fixy:
       enabled: false
     merchant-reminder:
       enabled: false
+  business-inquiries:
+    expiry:
+      enabled: false
+      scheduler-fixed-delay-ms: 3600000
   auth:
     google-client-id: test-client-id.apps.googleusercontent.com
     session-secret: test-session-secret-at-least-32-bytes-long-for-hmac
