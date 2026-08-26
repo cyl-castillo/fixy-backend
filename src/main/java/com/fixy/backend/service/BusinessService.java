@@ -8,8 +8,10 @@ import com.fixy.backend.model.Business;
 import com.fixy.backend.model.BusinessStatus;
 import com.fixy.backend.repository.BusinessRepository;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,14 +34,17 @@ public class BusinessService {
   private static final int PANEL_TOKEN_BYTES = 32;
 
   private final BusinessRepository businessRepository;
+  private final BusinessTimelineService businessTimelineService;
   private final String publicAppBaseUrl;
   private final SecureRandom random = new SecureRandom();
 
   public BusinessService(
       BusinessRepository businessRepository,
+      BusinessTimelineService businessTimelineService,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.businessRepository = businessRepository;
+    this.businessTimelineService = businessTimelineService;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
 
@@ -67,18 +72,82 @@ public class BusinessService {
 
   public BusinessResponse update(Long id, BusinessUpdateRequest request) {
     Business business = findBusiness(id);
+    List<String> changes = new ArrayList<>();
 
-    if (request.name() != null) business.setName(request.name().trim());
-    if (request.whatsappNumber() != null) business.setWhatsappNumber(request.whatsappNumber().trim());
-    if (request.category() != null) business.setCategory(request.category().trim());
-    if (request.primaryZone() != null) business.setPrimaryZone(trimToNull(request.primaryZone()));
-    if (request.status() != null) business.setStatus(request.status());
-    if (request.providerId() != null) business.setProviderId(request.providerId());
-    if (request.address() != null) business.setAddress(trimToNull(request.address()));
-    if (request.latitude() != null) business.setLatitude(request.latitude());
-    if (request.longitude() != null) business.setLongitude(request.longitude());
+    if (request.name() != null) {
+      applyIfChanged(changes, "name", business.getName(), request.name().trim(), business::setName);
+    }
+    if (request.whatsappNumber() != null) {
+      applyIfChanged(changes, "whatsappNumber", business.getWhatsappNumber(),
+          request.whatsappNumber().trim(), business::setWhatsappNumber);
+    }
+    if (request.category() != null) {
+      applyIfChanged(changes, "category", business.getCategory(), request.category().trim(), business::setCategory);
+    }
+    if (request.primaryZone() != null) {
+      applyIfChanged(changes, "primaryZone", business.getPrimaryZone(),
+          trimToNull(request.primaryZone()), business::setPrimaryZone);
+    }
+    if (request.status() != null) {
+      applyIfChanged(changes, "status",
+          business.getStatus() == null ? null : business.getStatus().name(),
+          request.status().name(), value -> business.setStatus(request.status()));
+    }
+    if (request.providerId() != null) {
+      applyIfChanged(changes, "providerId",
+          business.getProviderId() == null ? null : business.getProviderId().toString(),
+          request.providerId().toString(), value -> business.setProviderId(request.providerId()));
+    }
+    if (request.address() != null) {
+      applyIfChanged(changes, "address", business.getAddress(), trimToNull(request.address()), business::setAddress);
+    }
+    if (request.latitude() != null) {
+      business.setLatitude(request.latitude());
+    }
+    if (request.longitude() != null) {
+      business.setLongitude(request.longitude());
+    }
+    if (request.description() != null) {
+      applyIfChanged(changes, "description", business.getDescription(),
+          trimToNull(request.description()), business::setDescription);
+    }
+    if (request.categories() != null) {
+      applyIfChanged(changes, "categories", business.getCategories(),
+          normalizeCsv(request.categories()), business::setCategories);
+    }
 
-    return toResponse(businessRepository.save(business));
+    Business saved = businessRepository.save(business);
+    if (!changes.isEmpty()) {
+      businessTimelineService.appendEvent(saved.getId(), "FICHA_UPDATED", "admin", String.join("; ", changes));
+    }
+    return toResponse(saved);
+  }
+
+  /** Aplica el nuevo valor y registra "campo: viejo → nuevo" en {@code
+   * changes} solo si realmente cambió — evita eventos vacíos en un PATCH que
+   * reenvía el mismo valor que ya tenía. */
+  private void applyIfChanged(
+      List<String> changes, String field, String oldValue, String newValue, java.util.function.Consumer<String> setter
+  ) {
+    setter.accept(newValue);
+    if (!Objects.equals(oldValue, newValue)) {
+      changes.add(field + ": " + describe(oldValue) + " → " + describe(newValue));
+    }
+  }
+
+  private String describe(String value) {
+    return value == null || value.isBlank() ? "(vacío)" : value;
+  }
+
+  private String normalizeCsv(String raw) {
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    List<String> parts = java.util.Arrays.stream(raw.split(","))
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .toList();
+    return parts.isEmpty() ? null : String.join(", ", parts);
   }
 
   /**
@@ -121,7 +190,9 @@ public class BusinessService {
         business.getLongitude(),
         business.getCreatedAt(),
         business.getUpdatedAt(),
-        business.getPanelToken()
+        business.getPanelToken(),
+        business.getDescription(),
+        business.getCategories()
     );
   }
 
