@@ -2,6 +2,7 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.BusinessCreateRequest;
 import com.fixy.backend.dto.BusinessPanelLinkResponse;
+import com.fixy.backend.dto.BusinessPublicLinkResponse;
 import com.fixy.backend.dto.BusinessResponse;
 import com.fixy.backend.dto.BusinessUpdateRequest;
 import com.fixy.backend.model.Business;
@@ -35,16 +36,19 @@ public class BusinessService {
 
   private final BusinessRepository businessRepository;
   private final BusinessTimelineService businessTimelineService;
+  private final BusinessSlugService businessSlugService;
   private final String publicAppBaseUrl;
   private final SecureRandom random = new SecureRandom();
 
   public BusinessService(
       BusinessRepository businessRepository,
       BusinessTimelineService businessTimelineService,
+      BusinessSlugService businessSlugService,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.businessRepository = businessRepository;
     this.businessTimelineService = businessTimelineService;
+    this.businessSlugService = businessSlugService;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
 
@@ -71,7 +75,12 @@ public class BusinessService {
     business.setDescription(trimToNull(request.description()));
     business.setCategories(trimToNull(request.categories()));
     business.setStatus(BusinessStatus.ACTIVE);
-    return toResponse(businessRepository.save(business));
+    Business saved = businessRepository.save(business);
+    // Slug de la página pública (Fase 3, V26): se asigna en el alta, no
+    // lazy-solo-a-pedido como panelToken — así un comercio recién creado ya
+    // tiene URL pública estable desde el día 1 (ver gap analysis §6).
+    businessSlugService.ensureSlug(saved);
+    return toResponse(saved);
   }
 
   public BusinessResponse update(Long id, BusinessUpdateRequest request) {
@@ -169,6 +178,18 @@ public class BusinessService {
     return new BusinessPanelLinkResponse(publicAppBaseUrl + "/mi-comercio/" + business.getPanelToken());
   }
 
+  /**
+   * Link de la página pública del comercio (Fase 3, V26, patrón "public-link"
+   * del gap analysis §7): idempotente vía {@code BusinessSlugService} — si el
+   * comercio no tiene slug todavía (comercio dado de alta antes de esta fase)
+   * lo genera acá; si ya lo tiene, devuelve la misma URL sin regenerar.
+   */
+  public BusinessPublicLinkResponse ensurePublicLink(Long id) {
+    Business business = findBusiness(id);
+    String slug = businessSlugService.ensureSlug(business);
+    return new BusinessPublicLinkResponse(publicAppBaseUrl + "/comercio/" + slug);
+  }
+
   private String newPanelToken() {
     byte[] buf = new byte[PANEL_TOKEN_BYTES];
     random.nextBytes(buf);
@@ -196,7 +217,8 @@ public class BusinessService {
         business.getUpdatedAt(),
         business.getPanelToken(),
         business.getDescription(),
-        business.getCategories()
+        business.getCategories(),
+        business.getSlug()
     );
   }
 

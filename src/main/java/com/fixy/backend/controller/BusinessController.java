@@ -8,6 +8,7 @@ import com.fixy.backend.dto.BusinessEventResponse;
 import com.fixy.backend.dto.BusinessHourRequest;
 import com.fixy.backend.dto.BusinessHourResponse;
 import com.fixy.backend.dto.BusinessPanelLinkResponse;
+import com.fixy.backend.dto.BusinessPublicLinkResponse;
 import com.fixy.backend.dto.BusinessResponse;
 import com.fixy.backend.dto.BusinessUpdateRequest;
 import com.fixy.backend.service.BusinessCatalogItemService;
@@ -79,6 +80,16 @@ public class BusinessController {
   @PostMapping("/{id}/panel-link")
   public BusinessPanelLinkResponse panelLink(@PathVariable Long id) {
     return businessService.ensurePanelLink(id);
+  }
+
+  /**
+   * Link de la página pública del comercio (Fase 3, V26): genera el slug si
+   * no existe, devuelve el mismo si ya lo tenía — nunca regenera solo (ver
+   * {@code BusinessSlugService.ensureSlug}).
+   */
+  @PostMapping("/{id}/public-link")
+  public BusinessPublicLinkResponse publicLink(@PathVariable Long id) {
+    return businessService.ensurePublicLink(id);
   }
 
   // --- Fase 1 de la ficha (V24): catálogo estructurado ---

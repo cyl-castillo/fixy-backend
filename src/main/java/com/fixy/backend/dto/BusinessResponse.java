@@ -23,6 +23,10 @@ public record BusinessResponse(
     // Fase 1 de la ficha (V24): descripción libre y multi-rubro CSV
     // (patrón Provider.categories) — aditivos sobre `category` (singular).
     String description,
-    String categories
+    String categories,
+    // Fase 3 (V26): slug de la página pública /comercio/{slug} — null hasta
+    // que se crea el comercio o ops pide el link público (ver
+    // BusinessSlugService.ensureSlug), igual criterio que panelToken.
+    String slug
 ) {
 }

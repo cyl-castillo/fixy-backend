@@ -84,6 +84,24 @@ public class Business {
   @Column(unique = true, length = 64)
   private String panelToken;
 
+  /** Identificador URL-safe de la ficha pública {@code /comercio/{slug}}
+   * (Fase 3, V26) — lazy e idempotente, mismo criterio que {@link
+   * #panelToken}: nunca se regenera solo una vez asignado (ver
+   * {@code BusinessSlugService.ensureSlug}). Único cuando no es null. */
+  @Column(unique = true, length = 80)
+  private String slug;
+
+  /** Contador de vistas de la ficha pública (Fase 3, V26): {@code GET
+   * /api/public/businesses/{slug}} lo incrementa fire-and-forget (ver
+   * {@code PublicBusinessService}) — a diferencia de {@code
+   * Offer.viewCount} no hay un POST /view separado, el propio GET detalle
+   * lo suma. columnDefinition con default: en dev/test el esquema lo
+   * mantiene ddl-auto=update sobre una H2 persistente con filas previas —
+   * sin el default el ALTER ADD COLUMN NOT NULL falla en silencio (ver
+   * BusinessCatalogItem.available). */
+  @Column(name = "view_count", nullable = false, columnDefinition = "bigint not null default 0")
+  private long viewCount;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -131,6 +149,10 @@ public class Business {
   public void setProviderId(Long providerId) { this.providerId = providerId; }
   public String getPanelToken() { return panelToken; }
   public void setPanelToken(String panelToken) { this.panelToken = panelToken; }
+  public String getSlug() { return slug; }
+  public void setSlug(String slug) { this.slug = slug; }
+  public long getViewCount() { return viewCount; }
+  public void setViewCount(long viewCount) { this.viewCount = viewCount; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

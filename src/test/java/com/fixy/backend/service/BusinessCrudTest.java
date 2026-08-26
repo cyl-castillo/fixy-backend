@@ -290,6 +290,59 @@ class BusinessCrudTest {
         .andExpect(status().isUnauthorized());
   }
 
+  // --- Fase 3 (V26): página pública del comercio ---
+
+  @Test
+  void altaNaceConSlugYaAsignado() throws Exception {
+    // Nombre deliberadamente único en TODA la suite (no el de createBusiness,
+    // compartido por decenas de tests de esta clase SIN @Transactional —
+    // asertar un slug exacto sobre un nombre repetido sería frágil: el slug
+    // real dependería del orden de ejecución y de si ya colisionó antes).
+    MvcResult res = mockMvc.perform(post("/api/businesses")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Comercio Alta Con Slug Automatico Test",
+                  "whatsappNumber": "098111014",
+                  "category": "otro",
+                  "primaryZone": "Solymar"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+
+    assertThat((String) JsonPath.read(res.getResponse().getContentAsString(), "$.slug"))
+        .isEqualTo("comercio-alta-con-slug-automatico-test");
+  }
+
+  @Test
+  void publicLinkEsIdempotenteYDevuelveLaMismaUrlSiSePideDeNuevo() throws Exception {
+    Integer id = createBusiness("098111016");
+
+    MvcResult first = mockMvc.perform(post("/api/businesses/{id}/public-link", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String firstUrl = JsonPath.read(first.getResponse().getContentAsString(), "$.url");
+    assertThat(firstUrl).contains("/comercio/");
+
+    MvcResult second = mockMvc.perform(post("/api/businesses/{id}/public-link", id)
+            .with(httpBasic("test-ops", "test-pass")))
+        .andExpect(status().isOk())
+        .andReturn();
+    String secondUrl = JsonPath.read(second.getResponse().getContentAsString(), "$.url");
+    assertThat(secondUrl).isEqualTo(firstUrl);
+  }
+
+  @Test
+  void publicLinkRequiereAutenticacion() throws Exception {
+    Integer id = createBusiness("098111017");
+
+    mockMvc.perform(post("/api/businesses/{id}/public-link", id))
+        .andExpect(status().isUnauthorized());
+  }
+
   @Test
   void listaIncluyeLosComerciosCreadosEnElTest() throws Exception {
     Integer a = createBusiness("098111003");
