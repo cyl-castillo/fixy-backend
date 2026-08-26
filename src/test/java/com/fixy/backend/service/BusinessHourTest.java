@@ -153,4 +153,22 @@ class BusinessHourTest {
         .andExpect(jsonPath("$[0].type").value("HOURS_UPDATED"))
         .andExpect(jsonPath("$[0].actor").value("admin"));
   }
+
+  @Test
+  void preflightCorsPermitePutYDeleteDesdeElAdmin() throws Exception {
+    // La config CORS histórica solo listaba GET/POST/PATCH y el navegador
+    // recibía 403 en el preflight de horarios (PUT) y catálogo (DELETE),
+    // aunque los endpoints funcionaran por curl/MockMvc.
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .options("/api/businesses/1/hours")
+            .header("Origin", "http://localhost:5173")
+            .header("Access-Control-Request-Method", "PUT"))
+        .andExpect(status().isOk());
+
+    mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+            .options("/api/businesses/1/catalog/1")
+            .header("Origin", "http://localhost:5173")
+            .header("Access-Control-Request-Method", "DELETE"))
+        .andExpect(status().isOk());
+  }
 }
