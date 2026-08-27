@@ -1,5 +1,10 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.BusinessCatalogItemCreateRequest;
+import com.fixy.backend.dto.BusinessCatalogItemResponse;
+import com.fixy.backend.dto.BusinessCatalogItemUpdateRequest;
+import com.fixy.backend.dto.BusinessHourRequest;
+import com.fixy.backend.dto.BusinessHourResponse;
 import com.fixy.backend.dto.MerchantOfferSummary;
 import com.fixy.backend.dto.MerchantPanelResponse;
 import com.fixy.backend.model.Business;
@@ -61,6 +66,9 @@ public class MerchantPanelService {
   private final BusinessInquiryService businessInquiryService;
   private final BusinessSlugService businessSlugService;
   private final BusinessGoogleAuthService businessGoogleAuthService;
+  private final BusinessCatalogItemService businessCatalogItemService;
+  private final BusinessHourService businessHourService;
+  private final BusinessService businessService;
   private final Clock clock;
   private final String publicAppBaseUrl;
 
@@ -74,6 +82,9 @@ public class MerchantPanelService {
       BusinessInquiryService businessInquiryService,
       BusinessSlugService businessSlugService,
       BusinessGoogleAuthService businessGoogleAuthService,
+      BusinessCatalogItemService businessCatalogItemService,
+      BusinessHourService businessHourService,
+      BusinessService businessService,
       Clock clock,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
@@ -86,6 +97,9 @@ public class MerchantPanelService {
     this.businessInquiryService = businessInquiryService;
     this.businessSlugService = businessSlugService;
     this.businessGoogleAuthService = businessGoogleAuthService;
+    this.businessCatalogItemService = businessCatalogItemService;
+    this.businessHourService = businessHourService;
+    this.businessService = businessService;
     this.clock = clock;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
@@ -109,7 +123,7 @@ public class MerchantPanelService {
     return new MerchantPanelResponse(
         new MerchantPanelResponse.BusinessSummary(
             business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone(), publicUrl,
-            business.getGoogleEmail()),
+            business.getGoogleEmail(), business.getDescription()),
         offers,
         businessInquiryService.listPendingForBusiness(business.getId())
     );
@@ -125,6 +139,64 @@ public class MerchantPanelService {
     abuseProtectionService.validateMerchantPanel(clientIp);
     Business business = requireBusiness(token);
     return businessGoogleAuthService.link(business, credential);
+  }
+
+  // --- Fase 2 del panel self-service: el dueño edita su propia ficha ---
+  // Mismo criterio de auth por token + mismo rate limit que el resto del
+  // panel; reusan los services admin (BusinessCatalogItemService/
+  // BusinessHourService/BusinessService) con sus variantes "AsOwner" —
+  // mismas validaciones, actor "owner" en la timeline en vez de "admin".
+
+  public List<BusinessCatalogItemResponse> getCatalog(String clientIp, String token) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessCatalogItemService.list(business.getId());
+  }
+
+  /** Alta desde el panel: la confianza queda SIEMPRE CONFIRMADO (ver {@code
+   * BusinessCatalogItemService.createAsOwner}). */
+  public BusinessCatalogItemResponse createCatalogItem(String clientIp, String token, BusinessCatalogItemCreateRequest request) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessCatalogItemService.createAsOwner(business.getId(), request);
+  }
+
+  /** 404 opaco también si el ítem es de otro comercio (ver {@code
+   * BusinessCatalogItemService.findItem}, scoping por businessId). */
+  public BusinessCatalogItemResponse updateCatalogItem(
+      String clientIp, String token, Long itemId, BusinessCatalogItemUpdateRequest request
+  ) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessCatalogItemService.updateAsOwner(business.getId(), itemId, request);
+  }
+
+  /** Soft delete, mismo comportamiento idempotente que el admin. */
+  public void deleteCatalogItem(String clientIp, String token, Long itemId) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    businessCatalogItemService.deleteAsOwner(business.getId(), itemId);
+  }
+
+  public List<BusinessHourResponse> getHours(String clientIp, String token) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessHourService.list(business.getId());
+  }
+
+  /** Reemplaza el set completo de franjas horarias, igual que el admin. */
+  public List<BusinessHourResponse> replaceHours(String clientIp, String token, List<BusinessHourRequest> requests) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessHourService.replaceAsOwner(business.getId(), requests);
+  }
+
+  /** Solo {@code description} — categories/matching queda territorio admin,
+   * ver {@code BusinessService.updateDescriptionAsOwner}. */
+  public String updateDescription(String clientIp, String token, String description) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessService.updateDescriptionAsOwner(business.getId(), description);
   }
 
   /**

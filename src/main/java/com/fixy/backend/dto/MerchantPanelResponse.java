@@ -31,13 +31,20 @@ public record MerchantPanelResponse(
    * cuenta — el panel lo usa para mostrar "vinculado como ..." vs. el botón
    * de "entrar con Google".
    */
+  /**
+   * {@code description} se agregó de forma aditiva en Fase 2 (edición desde
+   * el panel, 2026-08-27): null si el comercio todavía no tiene descripción
+   * cargada. El dueño la edita con {@code PATCH
+   * /api/public/merchant/{token}/business}.
+   */
   public record BusinessSummary(
       Long id,
       String name,
       String category,
       String primaryZone,
       String publicUrl,
-      String googleEmail
+      String googleEmail,
+      String description
   ) {
   }
 }

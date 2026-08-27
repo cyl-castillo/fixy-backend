@@ -1,5 +1,10 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.BusinessCatalogItemCreateRequest;
+import com.fixy.backend.dto.BusinessCatalogItemResponse;
+import com.fixy.backend.dto.BusinessCatalogItemUpdateRequest;
+import com.fixy.backend.dto.BusinessHourRequest;
+import com.fixy.backend.dto.BusinessHourResponse;
 import com.fixy.backend.dto.BusinessInquiryOwnerAnswerRequest;
 import com.fixy.backend.dto.BusinessInquiryOwnerAnswerResponse;
 import com.fixy.backend.dto.MerchantOfferRenewRequest;
@@ -11,11 +16,18 @@ import com.fixy.backend.service.MerchantPanelService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -98,5 +110,80 @@ public class MerchantPanelController {
   }
 
   public record LinkGoogleResponse(String googleEmail) {
+  }
+
+  // --- Fase 2 del panel self-service: el dueño edita su propia ficha ---
+  // Mismo criterio de token-en-el-path; MISMO shape de DTO que los
+  // endpoints admin espejo bajo /api/businesses/{id}/... (BusinessController)
+  // para que el frontend reuse los mismos tipos.
+
+  @GetMapping("/{token}/catalog")
+  public List<BusinessCatalogItemResponse> getCatalog(@PathVariable String token, HttpServletRequest httpRequest) {
+    return merchantPanelService.getCatalog(httpRequest.getRemoteAddr(), token);
+  }
+
+  @PostMapping("/{token}/catalog")
+  @ResponseStatus(HttpStatus.CREATED)
+  public BusinessCatalogItemResponse createCatalogItem(
+      @PathVariable String token,
+      @Valid @RequestBody BusinessCatalogItemCreateRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    return merchantPanelService.createCatalogItem(httpRequest.getRemoteAddr(), token, request);
+  }
+
+  @PutMapping("/{token}/catalog/{itemId}")
+  public BusinessCatalogItemResponse updateCatalogItem(
+      @PathVariable String token,
+      @PathVariable Long itemId,
+      @Valid @RequestBody BusinessCatalogItemUpdateRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    return merchantPanelService.updateCatalogItem(httpRequest.getRemoteAddr(), token, itemId, request);
+  }
+
+  /** Soft delete (active=false), idempotente — igual que el admin. */
+  @DeleteMapping("/{token}/catalog/{itemId}")
+  public void deleteCatalogItem(@PathVariable String token, @PathVariable Long itemId, HttpServletRequest httpRequest) {
+    merchantPanelService.deleteCatalogItem(httpRequest.getRemoteAddr(), token, itemId);
+  }
+
+  @GetMapping("/{token}/hours")
+  public List<BusinessHourResponse> getHours(@PathVariable String token, HttpServletRequest httpRequest) {
+    return merchantPanelService.getHours(httpRequest.getRemoteAddr(), token);
+  }
+
+  /** Reemplaza el set completo de franjas horarias — igual que el admin. */
+  @PutMapping("/{token}/hours")
+  public List<BusinessHourResponse> replaceHours(
+      @PathVariable String token,
+      @Valid @RequestBody List<BusinessHourRequest> hours,
+      HttpServletRequest httpRequest
+  ) {
+    return merchantPanelService.replaceHours(httpRequest.getRemoteAddr(), token, hours);
+  }
+
+  /**
+   * El dueño solo puede tocar {@code description} desde su panel —
+   * categories/matching queda territorio admin, por eso este DTO NO tiene
+   * esos campos (a diferencia de {@code BusinessUpdateRequest} del PATCH
+   * admin). {@code null} borra la descripción.
+   */
+  @PatchMapping("/{token}/business")
+  public UpdateDescriptionResponse updateDescription(
+      @PathVariable String token,
+      @Valid @RequestBody UpdateDescriptionRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    String description = merchantPanelService.updateDescription(httpRequest.getRemoteAddr(), token, request.description());
+    return new UpdateDescriptionResponse(description);
+  }
+
+  public record UpdateDescriptionRequest(
+      @Size(max = 500, message = "description must be at most 500 characters") String description
+  ) {
+  }
+
+  public record UpdateDescriptionResponse(String description) {
   }
 }

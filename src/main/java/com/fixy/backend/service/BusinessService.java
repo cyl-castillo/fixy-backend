@@ -34,6 +34,11 @@ public class BusinessService {
    * tiene que ser inadivinable de verdad. */
   private static final int PANEL_TOKEN_BYTES = 32;
 
+  /** Límite de {@code description} solo cuando la edita el dueño desde su
+   * panel (ver {@link #updateDescriptionAsOwner}) — el PATCH admin no lo
+   * valida. */
+  private static final int MAX_OWNER_DESCRIPTION_LENGTH = 500;
+
   private final BusinessRepository businessRepository;
   private final BusinessTimelineService businessTimelineService;
   private final BusinessSlugService businessSlugService;
@@ -134,6 +139,32 @@ public class BusinessService {
       businessTimelineService.appendEvent(saved.getId(), "FICHA_UPDATED", "admin", String.join("; ", changes));
     }
     return toResponse(saved);
+  }
+
+  /**
+   * PATCH de descripción desde el panel del dueño (Fase 2 del panel
+   * self-service): a diferencia del PATCH admin ({@link #update}, cualquier
+   * campo de {@link BusinessUpdateRequest}, sin validar longitud — ops es
+   * confiable), acá el dueño SOLO puede tocar {@code description}
+   * (categories/matching queda territorio admin, no se expone este método
+   * para eso) y el server valida el límite de 500 caracteres. Reusa {@link
+   * #applyIfChanged} para no duplicar el patrón "campo: viejo → nuevo" de la
+   * timeline; actor {@code owner} (mismo valor que {@code
+   * BusinessInquiryService.answerAsOwner}) para distinguir en la ficha admin
+   * qué cambió el comerciante. {@code null} borra la descripción.
+   */
+  public String updateDescriptionAsOwner(Long id, String description) {
+    if (description != null && description.length() > MAX_OWNER_DESCRIPTION_LENGTH) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "description must be at most 500 characters");
+    }
+    Business business = findBusiness(id);
+    List<String> changes = new ArrayList<>();
+    applyIfChanged(changes, "description", business.getDescription(), trimToNull(description), business::setDescription);
+    Business saved = businessRepository.save(business);
+    if (!changes.isEmpty()) {
+      businessTimelineService.appendEvent(saved.getId(), "FICHA_UPDATED", "owner", String.join("; ", changes));
+    }
+    return saved.getDescription();
   }
 
   /** Aplica el nuevo valor y registra "campo: viejo → nuevo" en {@code

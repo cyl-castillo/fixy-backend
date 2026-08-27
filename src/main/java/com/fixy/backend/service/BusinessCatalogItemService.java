@@ -52,9 +52,31 @@ public class BusinessCatalogItemService {
 
   @Transactional
   public BusinessCatalogItemResponse create(Long businessId, BusinessCatalogItemCreateRequest request) {
+    return create(businessId, request, "admin", null);
+  }
+
+  /**
+   * Alta desde el panel del dueño (Fase 2 del panel self-service): mismo
+   * body que el {@code POST} admin, pero la confianza queda SIEMPRE
+   * {@code CONFIRMADO} — el dueño es la autoridad sobre su propio catálogo,
+   * no hace falta que otro humano lo valide — y el evento de timeline queda
+   * con actor {@code owner} (mismo valor que {@code
+   * BusinessInquiryService.answerAsOwner}) para que se distinga en la ficha
+   * admin qué cambió el comerciante.
+   */
+  @Transactional
+  public BusinessCatalogItemResponse createAsOwner(Long businessId, BusinessCatalogItemCreateRequest request) {
+    return create(businessId, request, "owner", BusinessCatalogItemConfidence.CONFIRMADO);
+  }
+
+  private BusinessCatalogItemResponse create(
+      Long businessId, BusinessCatalogItemCreateRequest request, String actor,
+      BusinessCatalogItemConfidence forcedConfidence
+  ) {
     Business business = findBusiness(businessId);
     BusinessCatalogItemKind kind = parseKind(request.kind());
-    BusinessCatalogItemConfidence confidence = parseConfidence(request.confidence());
+    BusinessCatalogItemConfidence confidence =
+        forcedConfidence != null ? forcedConfidence : parseConfidence(request.confidence());
     Integer priceFrom = validatePriceFrom(request.priceFrom());
 
     BusinessCatalogItem item = new BusinessCatalogItem();
@@ -70,18 +92,33 @@ public class BusinessCatalogItemService {
     }
 
     BusinessCatalogItem saved = catalogItemRepository.save(item);
-    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_ADDED", "admin",
+    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_ADDED", actor,
         saved.getLabel() + " (" + kind + ", " + confidence + ")");
     return toResponse(saved);
   }
 
   @Transactional
   public BusinessCatalogItemResponse update(Long businessId, Long itemId, BusinessCatalogItemUpdateRequest request) {
+    return update(businessId, itemId, request, "admin", null);
+  }
+
+  /** Igual que {@link #createAsOwner} pero para {@code PUT}: la confianza
+   * pasa SIEMPRE a {@code CONFIRMADO}, sin importar lo que venga en el body. */
+  @Transactional
+  public BusinessCatalogItemResponse updateAsOwner(Long businessId, Long itemId, BusinessCatalogItemUpdateRequest request) {
+    return update(businessId, itemId, request, "owner", BusinessCatalogItemConfidence.CONFIRMADO);
+  }
+
+  private BusinessCatalogItemResponse update(
+      Long businessId, Long itemId, BusinessCatalogItemUpdateRequest request, String actor,
+      BusinessCatalogItemConfidence forcedConfidence
+  ) {
     findBusiness(businessId);
     BusinessCatalogItem item = findItem(businessId, itemId);
 
     BusinessCatalogItemKind kind = parseKind(request.kind());
-    BusinessCatalogItemConfidence confidence = parseConfidence(request.confidence());
+    BusinessCatalogItemConfidence confidence =
+        forcedConfidence != null ? forcedConfidence : parseConfidence(request.confidence());
     Integer priceFrom = validatePriceFrom(request.priceFrom());
     boolean wasConfirmed = item.getConfidence() == BusinessCatalogItemConfidence.CONFIRMADO;
 
@@ -97,7 +134,7 @@ public class BusinessCatalogItemService {
     // si deja de ser CONFIRMADO, verifiedAt queda tal cual (histórico, no se borra).
 
     BusinessCatalogItem saved = catalogItemRepository.save(item);
-    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_UPDATED", "admin",
+    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_UPDATED", actor,
         saved.getLabel() + " (" + kind + ", " + confidence + ", active=" + saved.isActive() + ")");
     return toResponse(saved);
   }
@@ -106,6 +143,16 @@ public class BusinessCatalogItemService {
    * nuevo ni falla — repetir el DELETE deja el mismo estado final. */
   @Transactional
   public void delete(Long businessId, Long itemId) {
+    delete(businessId, itemId, "admin");
+  }
+
+  /** Igual que {@link #delete} pero con actor {@code owner} en la timeline. */
+  @Transactional
+  public void deleteAsOwner(Long businessId, Long itemId) {
+    delete(businessId, itemId, "owner");
+  }
+
+  private void delete(Long businessId, Long itemId, String actor) {
     findBusiness(businessId);
     BusinessCatalogItem item = findItem(businessId, itemId);
     if (!item.isActive()) {
@@ -113,7 +160,7 @@ public class BusinessCatalogItemService {
     }
     item.setActive(false);
     BusinessCatalogItem saved = catalogItemRepository.save(item);
-    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_REMOVED", "admin", saved.getLabel());
+    businessTimelineService.appendEvent(businessId, "CATALOG_ITEM_REMOVED", actor, saved.getLabel());
   }
 
   private BusinessCatalogItemKind parseKind(String raw) {

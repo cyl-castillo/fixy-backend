@@ -49,6 +49,18 @@ public class BusinessHourService {
   // @Transactional la aportaban solos y el 500 solo aparecía en runtime real).
   @Transactional
   public List<BusinessHourResponse> replace(Long businessId, List<BusinessHourRequest> requests) {
+    return replace(businessId, requests, "admin");
+  }
+
+  /** Igual que {@link #replace} pero invocado desde el panel del dueño
+   * (Fase 2): mismo body, mismo reemplazo completo del set, actor {@code
+   * owner} en la timeline para distinguirlo del cambio hecho por ops. */
+  @Transactional
+  public List<BusinessHourResponse> replaceAsOwner(Long businessId, List<BusinessHourRequest> requests) {
+    return replace(businessId, requests, "owner");
+  }
+
+  private List<BusinessHourResponse> replace(Long businessId, List<BusinessHourRequest> requests, String actor) {
     Business business = findBusiness(businessId);
     List<BusinessHourRequest> safeRequests = requests == null ? List.of() : requests;
     safeRequests.forEach(this::validate);
@@ -59,7 +71,7 @@ public class BusinessHourService {
         .map(businessHourRepository::save)
         .toList();
 
-    businessTimelineService.appendEvent(businessId, "HOURS_UPDATED", "admin",
+    businessTimelineService.appendEvent(businessId, "HOURS_UPDATED", actor,
         saved.size() + " franja(s) horaria(s) reemplazadas");
 
     return businessHourRepository.findByBusinessIdOrderByDayOfWeekAscOpensAtAsc(businessId).stream()
