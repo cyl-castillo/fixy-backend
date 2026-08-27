@@ -232,6 +232,23 @@ public class BusinessService {
     return new BusinessPublicLinkResponse(publicAppBaseUrl + "/comercio/" + slug);
   }
 
+  /**
+   * Resuelve el comercio vinculado a una cuenta de Google por su sub (Fase 3
+   * del panel del dueño): usa {@code /api/public/me/merchant} para descubrir
+   * desde la sesión del chat si el usuario logueado es también dueño de un
+   * comercio. 404 si esa cuenta no tiene ningún comercio vinculado (mismo
+   * mensaje/semántica que {@code BusinessGoogleAuthService.login}, pero acá
+   * el sub viene del {@code AppUser} de la sesión, no de un credential nuevo
+   * de Google). El panelToken viene garantizado (lazy, sin rotar) vía
+   * {@link #ensurePanel}.
+   */
+  public Business findLinkedByGoogleSub(String googleSub) {
+    Business business = businessRepository.findByGoogleSub(googleSub)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+            "esta cuenta no tiene un comercio vinculado"));
+    return ensurePanel(business);
+  }
+
   private String newPanelToken() {
     byte[] buf = new byte[PANEL_TOKEN_BYTES];
     random.nextBytes(buf);

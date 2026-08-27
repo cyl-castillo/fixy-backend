@@ -71,6 +71,17 @@ public class AuthService {
         .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "invalid or expired session token"));
   }
 
+  /** Igual que {@link #requireUser} pero devuelve el {@link AppUser} completo
+   * en vez de solo el id — lo usa /api/public/me/merchant (Fase 3 del panel
+   * del dueño) para leer el googleSub y descubrir si la sesión es dueña de
+   * un comercio. 401 también si el userId de un token válido ya no resuelve
+   * a un AppUser existente (borrado manual, no debería pasar en la práctica). */
+  public AppUser requireUserEntity(String authorizationHeader) {
+    Long userId = requireUser(authorizationHeader);
+    return appUserRepository.findById(userId)
+        .orElseThrow(() -> new ResponseStatusException(UNAUTHORIZED, "session user not found"));
+  }
+
   private void requireEnabled() {
     if (!isEnabled()) {
       throw new ResponseStatusException(SERVICE_UNAVAILABLE, "google auth not configured");
