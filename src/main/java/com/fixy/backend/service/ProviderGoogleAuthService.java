@@ -60,6 +60,23 @@ public class ProviderGoogleAuthService {
     return selfService.ensureAccessToken(provider.getId());
   }
 
+  /**
+   * Resuelve el proveedor vinculado a una cuenta de Google por su sub (Fase
+   * 4 de la puerta única, espejo de {@code BusinessService.findLinkedByGoogleSub}):
+   * usa {@code /api/public/me/provider} para descubrir desde la sesión del
+   * chat (login de cliente) si el googleSub del {@code AppUser} logueado
+   * también está vinculado a un proveedor (Fase de vinculación, ver
+   * {@link #link}). 404 si esa cuenta no tiene ningún proveedor vinculado.
+   * El accessToken viene garantizado (lazy, sin rotar) vía
+   * {@link ProviderSelfService#ensureAccessToken}.
+   */
+  public Provider findLinkedByGoogleSub(String googleSub) {
+    Provider provider = providerRepository.findByGoogleSub(googleSub)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND,
+            "esta cuenta no tiene un proveedor vinculado"));
+    return selfService.ensureAccessToken(provider.getId());
+  }
+
   private GoogleIdTokenVerifierService.GoogleIdentity verifyOrThrow(String credential) {
     if (credential == null || credential.isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "credential requerido");
