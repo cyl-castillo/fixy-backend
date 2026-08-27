@@ -52,11 +52,15 @@ class SitemapServiceTest {
   }
 
   @Test
-  void incluyeSiempreHomeYOfertas() {
+  void incluyeSiempreHomeOfertasYSumate() {
     String xml = sitemapService.render();
 
     assertThat(xml).contains("<loc>https://www.fixy.com.uy/</loc>");
     assertThat(xml).contains("<loc>https://www.fixy.com.uy/ofertas</loc>");
+    // Puerta única de registro (Fase 3+4, 2026-08-27): la landing de alta de
+    // comercios/proveedores es una ruta estática más, mismo patrón que home
+    // y /ofertas — siempre presente, sin depender de datos.
+    assertThat(xml).contains("<loc>https://www.fixy.com.uy/sumate</loc>");
   }
 
   @Test

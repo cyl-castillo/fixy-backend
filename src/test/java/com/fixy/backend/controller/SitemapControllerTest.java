@@ -35,5 +35,6 @@ class SitemapControllerTest {
     assertThat(body).contains("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
     assertThat(body).contains("<loc>https://www.fixy.com.uy/</loc>");
     assertThat(body).contains("<loc>https://www.fixy.com.uy/ofertas</loc>");
+    assertThat(body).contains("<loc>https://www.fixy.com.uy/sumate</loc>");
   }
 }

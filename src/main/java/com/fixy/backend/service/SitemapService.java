@@ -15,8 +15,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Arma el {@code sitemap.xml} servido en {@code GET /sitemap.xml} (ver
- * {@code SitemapController}) — SEO básico: home, {@code /ofertas} y una
- * entrada por cada oferta pública vigente. Mismo criterio {@code ACTIVE} +
+ * {@code SitemapController}) — SEO básico: home, {@code /ofertas},
+ * {@code /sumate} (puerta única de registro) y una entrada por cada oferta
+ * pública vigente. Mismo criterio {@code ACTIVE} +
  * {@code validUntil} no vencida que {@code OfferService.listPublic}, para
  * que un buscador nunca indexe una oferta que el propio backend ya no le
  * serviría a un vecino (misma consulta: {@link OfferRepository#findByStatusAndValidUntilAfter}).
@@ -62,6 +63,7 @@ public class SitemapService {
     xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
     appendUrl(xml, publicAppBaseUrl + "/", null);
     appendUrl(xml, publicAppBaseUrl + "/ofertas", null);
+    appendUrl(xml, publicAppBaseUrl + "/sumate", null);
     for (Offer offer : vigentes) {
       appendUrl(xml, publicAppBaseUrl + "/oferta/" + offer.getId(), offer.getUpdatedAt());
     }
