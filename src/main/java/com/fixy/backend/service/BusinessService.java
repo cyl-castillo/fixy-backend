@@ -6,6 +6,7 @@ import com.fixy.backend.dto.BusinessPublicLinkResponse;
 import com.fixy.backend.dto.BusinessResponse;
 import com.fixy.backend.dto.BusinessUpdateRequest;
 import com.fixy.backend.model.Business;
+import com.fixy.backend.model.BusinessCategory;
 import com.fixy.backend.model.BusinessStatus;
 import com.fixy.backend.repository.BusinessRepository;
 import java.security.SecureRandom;
@@ -71,7 +72,7 @@ public class BusinessService {
     Business business = new Business();
     business.setName(request.name().trim());
     business.setWhatsappNumber(request.whatsappNumber().trim());
-    business.setCategory(request.category().trim());
+    business.setCategory(validateCategory(request.category()));
     business.setPrimaryZone(trimToNull(request.primaryZone()));
     business.setProviderId(request.providerId());
     business.setAddress(trimToNull(request.address()));
@@ -100,7 +101,17 @@ public class BusinessService {
           request.whatsappNumber().trim(), business::setWhatsappNumber);
     }
     if (request.category() != null) {
-      applyIfChanged(changes, "category", business.getCategory(), request.category().trim(), business::setCategory);
+      // Solo se valida contra el catálogo cuando category REALMENTE CAMBIA
+      // (Fase 1+2 "puerta única de registro"): un comercio con una category
+      // legacy fuera del catálogo (ver javadoc de BusinessCategory) puede
+      // seguir reenviando la MISMA category en un PATCH que toca otros
+      // campos sin romper — eso es un no-op, no una escritura nueva. Recién
+      // si el valor pedido es DISTINTO del actual se exige catálogo.
+      String requestedCategory = request.category().trim();
+      String nextCategory = Objects.equals(business.getCategory(), requestedCategory)
+          ? requestedCategory
+          : validateCategory(requestedCategory);
+      applyIfChanged(changes, "category", business.getCategory(), nextCategory, business::setCategory);
     }
     if (request.primaryZone() != null) {
       applyIfChanged(changes, "primaryZone", business.getPrimaryZone(),
@@ -181,6 +192,14 @@ public class BusinessService {
 
   private String describe(String value) {
     return value == null || value.isBlank() ? "(vacío)" : value;
+  }
+
+  /** Valida {@code category} contra el catálogo (Fase 1+2 "puerta única de
+   * registro") y devuelve el id canónico. 400 si no está en {@link BusinessCategory}. */
+  private String validateCategory(String rawCategory) {
+    return BusinessCategory.fromId(rawCategory)
+        .map(BusinessCategory::id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "categoría desconocida: " + rawCategory));
   }
 
   private String normalizeCsv(String raw) {

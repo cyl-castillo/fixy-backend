@@ -343,6 +343,56 @@ public class TelegramNotifyService {
       new java.util.concurrent.ConcurrentHashMap<>();
 
   /**
+   * Intento de autoregistro de COMERCIO con un WhatsApp que YA pertenece a
+   * OTRO comercio (Fase 1+2 "puerta única de registro", 2026-08-27): mismo
+   * motivo y patrón que {@link #notifyExistingProviderRegistrationAttempt}
+   * — no se reclama un comercio ajeno solo por conocer su WhatsApp público,
+   * ops lo resuelve a mano. Mapa de throttle PROPIO (claves por
+   * {@code Business.id}, que colisionaría con el de {@code Provider} si
+   * compartieran mapa — son secuencias de id independientes).
+   */
+  public void notifyExistingBusinessRegistrationAttempt(com.fixy.backend.model.Business existing, String googleEmail) {
+    if (!enabled) return;
+    try {
+      long now = System.currentTimeMillis();
+      Long last = businessRegistrationAttemptNotifiedAt.get(existing.getId());
+      if (last != null && now - last < REGISTRATION_ATTEMPT_THROTTLE_MS) return;
+      businessRegistrationAttemptNotifiedAt.put(existing.getId(), now);
+      String text = "🔁 Intento de autoregistro de comercio con el WhatsApp de %s (ya registrado en Fixy) con la cuenta Google %s — si es el dueño real, resolvé a mano."
+          .formatted(safe(existing.getName()), safe(googleEmail));
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-registration-attempt business={} failed: {}", existing.getId(), ex.getMessage());
+    }
+  }
+
+  private final java.util.concurrent.ConcurrentHashMap<Long, Long> businessRegistrationAttemptNotifiedAt =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
+   * Autoregistro de comercio (Fase 1+2 "puerta única de registro"): mismo
+   * sub-patrón que {@link #notifyProviderSelfRegistered} — sin {@code Lead}
+   * de por medio, el registro pasa una sola vez, no hace falta idempotencia
+   * por evento.
+   */
+  public void notifyBusinessSelfRegistered(com.fixy.backend.model.Business business) {
+    if (!enabled) return;
+    try {
+      String text = "🆕 Comercio nuevo autoregistrado: %s (%s) — %s en %s. Cuenta Google: %s. Ya está ACTIVE (las ofertas siguen moderadas una por una)."
+          .formatted(
+              safe(business.getName()),
+              safe(business.getWhatsappNumber()),
+              safe(business.getCategory()),
+              safe(business.getPrimaryZone()),
+              safe(business.getGoogleEmail())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-self-registered {} failed: {}", business.getId(), ex.getMessage());
+    }
+  }
+
+  /**
    * Autoregistro de proveedor (sin lead asociado → sin evento de timeline;
    * el registro pasa una sola vez, no hace falta idempotencia por evento).
    */

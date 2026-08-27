@@ -2,6 +2,7 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.ProviderRegistrationService;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
@@ -30,14 +31,15 @@ public class PublicProviderRegistrationController {
 
   @PostMapping("/register")
   @ResponseStatus(HttpStatus.CREATED)
-  public RegisterResponse register(@Valid @RequestBody RegisterRequest request) {
+  public RegisterResponse register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
     Provider provider = registrationService.register(
         request.credential(),
         request.name(),
         request.phone(),
         request.categories(),
         request.primaryZone(),
-        request.coverageZones()
+        request.coverageZones(),
+        httpRequest.getRemoteAddr()
     );
     return new RegisterResponse(provider.getId(), provider.getAccessToken(), provider.getName());
   }

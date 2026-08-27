@@ -65,6 +65,12 @@ fixy:
     business-inquiry:
       max-requests-per-window: 200
       window-seconds: 60
+    provider-registration:
+      max-requests-per-window: 200
+      window-seconds: 60
+    business-registration:
+      max-requests-per-window: 200
+      window-seconds: 60
   chat:
     max-messages-per-window: 100
     window-seconds: 60

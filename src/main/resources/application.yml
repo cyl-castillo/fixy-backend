@@ -121,6 +121,12 @@ fixy:
     merchant-panel:
       max-requests-per-window: ${FIXY_ABUSE_MERCHANT_PANEL_MAX_REQUESTS_PER_WINDOW:20}
       window-seconds: ${FIXY_ABUSE_MERCHANT_PANEL_WINDOW_SECONDS:60}
+    provider-registration:
+      max-requests-per-window: ${FIXY_ABUSE_PROVIDER_REGISTRATION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_PROVIDER_REGISTRATION_WINDOW_SECONDS:600}
+    business-registration:
+      max-requests-per-window: ${FIXY_ABUSE_BUSINESS_REGISTRATION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_BUSINESS_REGISTRATION_WINDOW_SECONDS:600}
   auth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     session-secret: ${AUTH_SESSION_SECRET:}

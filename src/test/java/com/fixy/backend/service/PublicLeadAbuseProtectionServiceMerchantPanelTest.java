@@ -18,7 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 class PublicLeadAbuseProtectionServiceMerchantPanelTest {
 
   private PublicLeadAbuseProtectionService service(int merchantPanelMax) {
-    return new PublicLeadAbuseProtectionService(200, 600, 200, 600, 200, 600, 200, 600, merchantPanelMax, 600, 200, 600, 200, 60);
+    return new PublicLeadAbuseProtectionService(200, 600, 200, 600, 200, 600, 200, 600, merchantPanelMax, 600, 200, 600, 200, 60, 200, 600, 200, 600);
   }
 
   @Test

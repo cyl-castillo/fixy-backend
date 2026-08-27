@@ -104,6 +104,21 @@ public class PublicLeadAbuseProtectionService {
   private final Duration publicBusinessPageWindow;
   private final Map<String, Deque<Instant>> requestsByPublicBusinessPageIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia para el autoregistro público de PROVEEDOR (Fase 1+2
+   * "puerta única de registro", 2026-08-27): hasta ahora {@code
+   * ProviderRegistrationService} no tenía ningún freno de abuso — mismo tope
+   * que el resto de la familia (~5/600s), agregado acá sin tocar el
+   * comportamiento de validación existente del servicio. */
+  private final int providerRegistrationMaxRequestsPerWindow;
+  private final Duration providerRegistrationWindow;
+  private final Map<String, Deque<Instant>> requestsByProviderRegistrationIp = new ConcurrentHashMap<>();
+
+  /** Ventana propia para el autoregistro público de COMERCIO (Fase 1+2):
+   * misma familia y mismo criterio que {@link #providerRegistrationMaxRequestsPerWindow}. */
+  private final int businessRegistrationMaxRequestsPerWindow;
+  private final Duration businessRegistrationWindow;
+  private final Map<String, Deque<Instant>> requestsByBusinessRegistrationIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
@@ -118,7 +133,11 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.business-inquiry.max-requests-per-window:5}") int businessInquiryMaxRequestsPerWindow,
       @Value("${fixy.abuse.business-inquiry.window-seconds:600}") long businessInquiryWindowSeconds,
       @Value("${fixy.abuse.public-business-page.max-requests-per-window:60}") int publicBusinessPageMaxRequestsPerWindow,
-      @Value("${fixy.abuse.public-business-page.window-seconds:60}") long publicBusinessPageWindowSeconds
+      @Value("${fixy.abuse.public-business-page.window-seconds:60}") long publicBusinessPageWindowSeconds,
+      @Value("${fixy.abuse.provider-registration.max-requests-per-window:5}") int providerRegistrationMaxRequestsPerWindow,
+      @Value("${fixy.abuse.provider-registration.window-seconds:600}") long providerRegistrationWindowSeconds,
+      @Value("${fixy.abuse.business-registration.max-requests-per-window:5}") int businessRegistrationMaxRequestsPerWindow,
+      @Value("${fixy.abuse.business-registration.window-seconds:600}") long businessRegistrationWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -134,6 +153,10 @@ public class PublicLeadAbuseProtectionService {
     this.businessInquiryWindow = Duration.ofSeconds(businessInquiryWindowSeconds);
     this.publicBusinessPageMaxRequestsPerWindow = publicBusinessPageMaxRequestsPerWindow;
     this.publicBusinessPageWindow = Duration.ofSeconds(publicBusinessPageWindowSeconds);
+    this.providerRegistrationMaxRequestsPerWindow = providerRegistrationMaxRequestsPerWindow;
+    this.providerRegistrationWindow = Duration.ofSeconds(providerRegistrationWindowSeconds);
+    this.businessRegistrationMaxRequestsPerWindow = businessRegistrationMaxRequestsPerWindow;
+    this.businessRegistrationWindow = Duration.ofSeconds(businessRegistrationWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -310,6 +333,27 @@ public class PublicLeadAbuseProtectionService {
   public void validatePublicBusinessPage(String clientIp) {
     enforceRateLimit(requestsByPublicBusinessPageIp, normalizeIp(clientIp),
         publicBusinessPageMaxRequestsPerWindow, publicBusinessPageWindow);
+  }
+
+  /**
+   * Autoregistro público de PROVEEDOR (Fase 1+2 "puerta única de registro"):
+   * solo rate limit por IP con ventana propia — la validación de contenido
+   * (nombre, teléfono, categorías) sigue viviendo en
+   * {@code ProviderRegistrationService}, igual que antes de este freno.
+   */
+  public void validateProviderRegistration(String clientIp) {
+    enforceRateLimit(requestsByProviderRegistrationIp, normalizeIp(clientIp),
+        providerRegistrationMaxRequestsPerWindow, providerRegistrationWindow);
+  }
+
+  /**
+   * Autoregistro público de COMERCIO (Fase 1+2): mismo criterio que {@link
+   * #validateProviderRegistration} — solo rate limit, la validación de
+   * contenido vive en {@code BusinessRegistrationService}.
+   */
+  public void validateBusinessRegistration(String clientIp) {
+    enforceRateLimit(requestsByBusinessRegistrationIp, normalizeIp(clientIp),
+        businessRegistrationMaxRequestsPerWindow, businessRegistrationWindow);
   }
 
   private void validateProblem(String problem) {

@@ -7,6 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.fixy.backend.model.Business;
+import com.fixy.backend.model.BusinessStatus;
+import com.fixy.backend.repository.BusinessRepository;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,6 +29,7 @@ import org.springframework.test.web.servlet.MvcResult;
 class BusinessCrudTest {
 
   @Autowired private org.springframework.test.web.servlet.MockMvc mockMvc;
+  @Autowired private BusinessRepository businessRepository;
 
   private Integer createBusiness(String whatsapp) throws Exception {
     MvcResult res = mockMvc.perform(post("/api/businesses")
@@ -116,7 +120,7 @@ class BusinessCrudTest {
                 {
                   "name": "Ferretería Ficha Completa",
                   "whatsappNumber": "098111015",
-                  "category": "ferreteria-crud-create",
+                  "category": "ferreteria",
                   "primaryZone": "Solymar",
                   "latitude": -34.8123,
                   "longitude": -55.9456,
@@ -355,5 +359,117 @@ class BusinessCrudTest {
 
     java.util.List<Integer> ids = JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
     assertThat(ids).contains(a, b);
+  }
+
+  // --- Fase 1+2 "puerta única de registro" (2026-08-27): catálogo de rubros ---
+
+  @Test
+  void altaConCategoriaFueraDelCatalogo_es400() throws Exception {
+    mockMvc.perform(post("/api/businesses")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Comercio Categoria Invalida",
+                  "whatsappNumber": "098111018",
+                  "category": "categoria-inventada",
+                  "primaryZone": "Solymar"
+                }
+                """))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void altaConCategoriaDelCatalogo_persisteElIdCanonico() throws Exception {
+    MvcResult res = mockMvc.perform(post("/api/businesses")
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                {
+                  "name": "Panadería Catálogo Test",
+                  "whatsappNumber": "098111019",
+                  "category": "panaderia",
+                  "primaryZone": "Solymar"
+                }
+                """))
+        .andExpect(status().isCreated())
+        .andReturn();
+    assertThat((String) JsonPath.read(res.getResponse().getContentAsString(), "$.category"))
+        .isEqualTo("panaderia");
+  }
+
+  @Test
+  void patchCambiandoCategoryAUnaFueraDelCatalogo_es400() throws Exception {
+    Integer id = createBusiness("098111020");
+
+    mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                { "category": "categoria-inventada" }
+                """))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void patchCambiandoCategoryAUnaDelCatalogo_seAplica() throws Exception {
+    Integer id = createBusiness("098111021"); // nace con "otro"
+
+    MvcResult res = mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                { "category": "kiosco" }
+                """))
+        .andExpect(status().isOk())
+        .andReturn();
+    assertThat((String) JsonPath.read(res.getResponse().getContentAsString(), "$.category"))
+        .isEqualTo("kiosco");
+  }
+
+  @Test
+  void businessConCategoryLegacyInvalida_elPatchDeOtroCampoNoSeRompe() throws Exception {
+    // Comercio con category fuera del catálogo nuevo (dato histórico real de
+    // prod, ver CURRENT_WORK.md 2026-08-26: "supermercado", "cine", etc.) —
+    // un PATCH que NO toca category debe seguir andando.
+    Business business = new Business();
+    business.setName("Comercio Legacy Category Test");
+    business.setWhatsappNumber("098111022");
+    business.setCategory("supermercado");
+    business.setPrimaryZone("Solymar");
+    business.setStatus(BusinessStatus.ACTIVE);
+    Long id = businessRepository.save(business).getId();
+
+    mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                { "primaryZone": "Lagomar" }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.category").value("supermercado"))
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.primaryZone").value("Lagomar"));
+  }
+
+  @Test
+  void businessConCategoryLegacyInvalida_reenviarLaMismaCategoryNoRompe() throws Exception {
+    // Reenviar EXACTAMENTE el mismo valor legacy (no-op real) no debe 400 —
+    // solo se exige catálogo cuando category REALMENTE cambia.
+    Business business = new Business();
+    business.setName("Comercio Legacy Category Idempotente Test");
+    business.setWhatsappNumber("098111023");
+    business.setCategory("estación de servicio");
+    business.setPrimaryZone("Solymar");
+    business.setStatus(BusinessStatus.ACTIVE);
+    Long id = businessRepository.save(business).getId();
+
+    mockMvc.perform(patch("/api/businesses/{id}", id)
+            .with(httpBasic("test-ops", "test-pass"))
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("""
+                { "category": "estación de servicio" }
+                """))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.category").value("estación de servicio"));
   }
 }
