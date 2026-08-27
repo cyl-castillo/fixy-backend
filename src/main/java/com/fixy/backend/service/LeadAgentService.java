@@ -531,7 +531,41 @@ public class LeadAgentService {
       leadMessageService.postFromAgent(leadId, heuristicPriceReply(refreshed));
       return;
     }
-    leadMessageService.postFromAgent(leadId, heuristicFallbackReply(refreshed));
+    String reply = heuristicFallbackReply(refreshed);
+    // El fallback determinista también se atasca repitiéndose (reporte de un
+    // cliente 2026-08-27: pidió aires y recibió "Anotado: ... estoy buscando
+    // uno para vos" varias veces — cada mensaje suyo en espera caía acá y el
+    // builder devuelve siempre el mismo texto). Mismo criterio que
+    // isStuckRepeatingItself aplica al LLM: en espera se reconoce una vez,
+    // ante la insistencia se contesta el ESTADO de la búsqueda, y si eso
+    // también se dijo ya, silencio — como haría una persona.
+    if (refreshed.isReadyForMatching() && isStuckRepeatingItself(leadId, reply)) {
+      String waiting = waitingStatusReply(refreshed);
+      if (isStuckRepeatingItself(leadId, waiting)) {
+        log.info("fallback en espera ya dicho dos veces en lead {}: silencio", leadId);
+        return;
+      }
+      reply = waiting;
+    }
+    leadMessageService.postFromAgent(leadId, reply);
+  }
+
+  /**
+   * Variante de espera para cuando el "Anotado: ... estoy buscando" ya se
+   * dijo: responde el estado real de la búsqueda sin repetir el texto del
+   * reconocimiento inicial.
+   */
+  private String waitingStatusReply(Lead lead) {
+    String category = humanCategory(lead.getDetectedCategory());
+    if (countProvidersInZone(lead.getDetectedCategory(), lead.getLocation()) > 0) {
+      return ("Sigo en eso: apenas confirme un proveedor de %s disponible te escribo por acá. "
+          + "Si querés sumar algún detalle del trabajo, contámelo.").formatted(category);
+    }
+    // Redacción deliberadamente distinta del "Anotado: ... te avisamos por acá
+    // apenas haya" inicial: isStuckRepeatingItself usa solapamiento de tokens
+    // (umbral 0.8) y una variante muy parecida quedaría atrapada por el guard.
+    return "Todavía no se sumó nadie que haga %s cerca tuyo. Sigo pendiente y te escribo ni bien aparezca."
+        .formatted(category);
   }
 
   /**
