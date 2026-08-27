@@ -25,12 +25,19 @@ public record MerchantPanelResponse(
    * propio panel), así que el dueño ve el link de su ficha pública desde el
    * primer ingreso sin tener que pedirlo aparte a ops.
    */
+  /**
+   * {@code googleEmail} se agregó de forma aditiva en Fase 1 (Google
+   * Sign-In del dueño, 2026-08-27): null si el dueño todavía no vinculó su
+   * cuenta — el panel lo usa para mostrar "vinculado como ..." vs. el botón
+   * de "entrar con Google".
+   */
   public record BusinessSummary(
       Long id,
       String name,
       String category,
       String primaryZone,
-      String publicUrl
+      String publicUrl,
+      String googleEmail
   ) {
   }
 }

@@ -170,12 +170,23 @@ public class BusinessService {
    * token invalidaría el que el comerciante ya guardó en su celular.
    */
   public BusinessPanelLinkResponse ensurePanelLink(Long id) {
-    Business business = findBusiness(id);
+    Business business = ensurePanel(findBusiness(id));
+    return new BusinessPanelLinkResponse(publicAppBaseUrl + "/mi-comercio/" + business.getPanelToken());
+  }
+
+  /**
+   * Igual que {@link #ensurePanelLink} pero devuelve el {@link Business} con
+   * el token garantizado en vez de la URL armada — lo usa {@code
+   * BusinessGoogleAuthService.login} (Fase 1) para no rotar el panelToken en
+   * cada login, extraído de {@link #ensurePanelLink} para no duplicar la
+   * lógica de "generar lazy, nunca regenerar".
+   */
+  public Business ensurePanel(Business business) {
     if (business.getPanelToken() == null || business.getPanelToken().isBlank()) {
       business.setPanelToken(newPanelToken());
       business = businessRepository.save(business);
     }
-    return new BusinessPanelLinkResponse(publicAppBaseUrl + "/mi-comercio/" + business.getPanelToken());
+    return business;
   }
 
   /**

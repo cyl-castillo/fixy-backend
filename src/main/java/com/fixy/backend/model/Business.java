@@ -102,6 +102,21 @@ public class Business {
   @Column(name = "view_count", nullable = false, columnDefinition = "bigint not null default 0")
   private long viewCount;
 
+  /** Google Sign-In del dueño del comercio (Fase 1, V27) — mismo patrón que
+   * {@code Provider.googleSub}: llave estable de la cuenta vinculada, único
+   * cuando no es null. Re-vincular el MISMO comercio con OTRA cuenta está
+   * permitido (la posesión del link del panel manda); solo se rechaza si el
+   * sub ya está vinculado a OTRO comercio (ver {@code
+   * BusinessGoogleAuthService.link}). */
+  @Column(name = "google_sub", unique = true, length = 255)
+  private String googleSub;
+
+  /** Email de la cuenta de Google vinculada — dato aditivo, nullable hasta
+   * que el dueño vincula. Primera vez que Fixy conoce el email real del
+   * dueño del comercio (ver {@code BusinessGoogleAuthService}). */
+  @Column(name = "google_email", length = 255)
+  private String googleEmail;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -153,6 +168,10 @@ public class Business {
   public void setSlug(String slug) { this.slug = slug; }
   public long getViewCount() { return viewCount; }
   public void setViewCount(long viewCount) { this.viewCount = viewCount; }
+  public String getGoogleSub() { return googleSub; }
+  public void setGoogleSub(String googleSub) { this.googleSub = googleSub; }
+  public String getGoogleEmail() { return googleEmail; }
+  public void setGoogleEmail(String googleEmail) { this.googleEmail = googleEmail; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

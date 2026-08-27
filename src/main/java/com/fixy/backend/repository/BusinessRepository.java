@@ -38,6 +38,9 @@ public interface BusinessRepository extends JpaRepository<Business, Long> {
    */
   Optional<Business> findByPanelToken(String panelToken);
 
+  /** Login con Google del dueño del comercio (Fase 1, V27): el sub del ID token es la llave estable de la cuenta vinculada. */
+  Optional<Business> findByGoogleSub(String googleSub);
+
   /**
    * Resuelve la página pública del comercio (Fase 3, V26): {@code
    * PublicBusinessService} y {@code BusinessOgHtmlService} buscan por acá.

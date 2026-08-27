@@ -3,8 +3,10 @@ package com.fixy.backend.controller;
 import com.fixy.backend.dto.GoogleLoginRequest;
 import com.fixy.backend.dto.GoogleLoginResponse;
 import com.fixy.backend.model.AppUser;
+import com.fixy.backend.model.Business;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.AuthService;
+import com.fixy.backend.service.BusinessGoogleAuthService;
 import com.fixy.backend.service.ProviderGoogleAuthService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,10 +26,16 @@ public class PublicAuthController {
 
   private final AuthService authService;
   private final ProviderGoogleAuthService providerGoogleAuthService;
+  private final BusinessGoogleAuthService businessGoogleAuthService;
 
-  public PublicAuthController(AuthService authService, ProviderGoogleAuthService providerGoogleAuthService) {
+  public PublicAuthController(
+      AuthService authService,
+      ProviderGoogleAuthService providerGoogleAuthService,
+      BusinessGoogleAuthService businessGoogleAuthService
+  ) {
     this.authService = authService;
     this.providerGoogleAuthService = providerGoogleAuthService;
+    this.businessGoogleAuthService = businessGoogleAuthService;
   }
 
   @PostMapping("/google")
@@ -55,5 +63,21 @@ public class PublicAuthController {
   }
 
   public record ProviderGoogleLoginResponse(Long providerId, String accessToken, String name) {
+  }
+
+  /**
+   * Login con Google del DUEÑO DEL COMERCIO (ver BusinessGoogleAuthService):
+   * devuelve el panelToken existente (sin rotarlo) si la cuenta está
+   * vinculada. 404 si no lo está — el frontend guía a vincular desde el
+   * panel abierto por link mágico. 503 si falta GOOGLE_CLIENT_ID.
+   */
+  @PostMapping("/google-business")
+  @ResponseStatus(HttpStatus.OK)
+  public BusinessGoogleLoginResponse businessLoginWithGoogle(@RequestBody GoogleLoginRequest request) {
+    Business business = businessGoogleAuthService.login(request.credential());
+    return new BusinessGoogleLoginResponse(business.getId(), business.getName(), business.getPanelToken());
+  }
+
+  public record BusinessGoogleLoginResponse(Long businessId, String name, String panelToken) {
   }
 }

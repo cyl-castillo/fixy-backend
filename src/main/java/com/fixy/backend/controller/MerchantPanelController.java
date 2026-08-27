@@ -5,9 +5,12 @@ import com.fixy.backend.dto.BusinessInquiryOwnerAnswerResponse;
 import com.fixy.backend.dto.MerchantOfferRenewRequest;
 import com.fixy.backend.dto.MerchantOfferSummary;
 import com.fixy.backend.dto.MerchantPanelResponse;
+import com.fixy.backend.model.Business;
 import com.fixy.backend.service.BusinessInquiryService;
 import com.fixy.backend.service.MerchantPanelService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -73,5 +76,27 @@ public class MerchantPanelController {
   ) {
     return businessInquiryService.answerAsOwner(
         httpRequest.getRemoteAddr(), token, inquiryId, request.answer(), request.priceFrom(), request.note());
+  }
+
+  /**
+   * Vincula la cuenta de Google al comercio (Google Sign-In del panel, Fase
+   * 1): el token del link mágico prueba posesión; después el dueño puede
+   * entrar desde cualquier teléfono vía POST /api/public/auth/google-business.
+   * Mismo criterio de token-en-el-path que el resto de este controller.
+   */
+  @PostMapping("/{token}/link-google")
+  public LinkGoogleResponse linkGoogle(
+      @PathVariable String token,
+      @Valid @RequestBody LinkGoogleRequest request,
+      HttpServletRequest httpRequest
+  ) {
+    Business linked = merchantPanelService.linkGoogle(httpRequest.getRemoteAddr(), token, request.credential());
+    return new LinkGoogleResponse(linked.getGoogleEmail());
+  }
+
+  public record LinkGoogleRequest(@NotNull String credential) {
+  }
+
+  public record LinkGoogleResponse(String googleEmail) {
   }
 }

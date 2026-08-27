@@ -60,6 +60,7 @@ public class MerchantPanelService {
   private final TelegramNotifyService telegramNotifyService;
   private final BusinessInquiryService businessInquiryService;
   private final BusinessSlugService businessSlugService;
+  private final BusinessGoogleAuthService businessGoogleAuthService;
   private final Clock clock;
   private final String publicAppBaseUrl;
 
@@ -72,6 +73,7 @@ public class MerchantPanelService {
       TelegramNotifyService telegramNotifyService,
       BusinessInquiryService businessInquiryService,
       BusinessSlugService businessSlugService,
+      BusinessGoogleAuthService businessGoogleAuthService,
       Clock clock,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
@@ -83,6 +85,7 @@ public class MerchantPanelService {
     this.telegramNotifyService = telegramNotifyService;
     this.businessInquiryService = businessInquiryService;
     this.businessSlugService = businessSlugService;
+    this.businessGoogleAuthService = businessGoogleAuthService;
     this.clock = clock;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
@@ -105,10 +108,23 @@ public class MerchantPanelService {
 
     return new MerchantPanelResponse(
         new MerchantPanelResponse.BusinessSummary(
-            business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone(), publicUrl),
+            business.getId(), business.getName(), business.getCategory(), business.getPrimaryZone(), publicUrl,
+            business.getGoogleEmail()),
         offers,
         businessInquiryService.listPendingForBusiness(business.getId())
     );
+  }
+
+  /**
+   * Vincula la cuenta de Google al comercio (Google Sign-In del panel, Fase
+   * 1): mismo criterio de auth por token que el resto del panel — 404
+   * opaco si el token no resuelve, mismo rate limit que {@link #getPanel}.
+   * 401/409/503 los resuelve {@link BusinessGoogleAuthService#link}.
+   */
+  public Business linkGoogle(String clientIp, String token, String credential) {
+    abuseProtectionService.validateMerchantPanel(clientIp);
+    Business business = requireBusiness(token);
+    return businessGoogleAuthService.link(business, credential);
   }
 
   /**
