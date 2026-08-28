@@ -18,7 +18,7 @@ import java.util.Set;
 import org.springframework.stereotype.Service;
 
 /**
- * "Dónde está la demanda" (mejora diaria 2026-08-28).
+ * "Dónde está la demanda" (mejora diaria 2026-08-27).
  *
  * <p>Dato que lo motivó: el 27/08 el tablero tenía <b>21 pedidos reales
  * abiertos y 11 de ellos eran de mandados</b> — el 52% de la demanda sin
