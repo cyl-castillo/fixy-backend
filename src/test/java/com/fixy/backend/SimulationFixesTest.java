@@ -76,6 +76,25 @@ class SimulationFixesTest {
     assertThat(LeadAgentService.phoneMentionedIn("sin numero")).isNull();
   }
 
+  /**
+   * Contrato con el asistente paso a paso del front (mejora 2026-08-28: el
+   * WhatsApp se pide en la confirmación, con el vecino todavía presente).
+   * El front arma el primer mensaje y le anexa "Mi WhatsApp es 099XXXXXXX";
+   * si este regex dejara de capturarlo, el número se perdería EN SILENCIO y
+   * el pedido quedaría otra vez incontactable. Espeja
+   * fixy-app/src/chat-first/guidedIntake.ts (composeGuidedMessage).
+   */
+  @Test
+  void elMensajeDelAsistenteConWhatsAppSeCaptura() {
+    assertThat(LeadAgentService.phoneMentionedIn(
+        "Necesito plomería: tengo una pérdida de agua, en Solymar. Mi WhatsApp es 099123456"))
+        .isEqualTo("099123456");
+    // Sin WhatsApp el mensaje es el de siempre y no inventa teléfono.
+    assertThat(LeadAgentService.phoneMentionedIn(
+        "Necesito un mandado: necesito la compra del supermercado, en Lagomar"))
+        .isNull();
+  }
+
   @Test
   void aireRotoClasificaAires() {
     assertThat(ServiceCategory.detectFromText("aire roto"))
