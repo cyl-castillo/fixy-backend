@@ -298,6 +298,18 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
+      // Guard determinista de ESTADO (guardia diaria 2026-08-27, lead #257):
+      // Carnot Clima ya estaba contactado y escribiendo en el chat, y el
+      // agente igual contestó "Ya tengo proveedores disponibles en tu zona,
+      // estoy buscando uno para vos" — el prompt no ve PROVIDER_CONTACTED.
+      // Que el pedido tenga o no proveedor encima no puede depender del 8B:
+      // si la respuesta dice que está buscando y el lead ya tiene uno, gana
+      // el camino determinista (regla fixy-8b-codigo-no-prompt).
+      if (hasProviderOnTheLine(lead) && claimsStillSearching(result.reply())) {
+        log.info("LLM dice que busca proveedor con uno ya contactado en lead {}: fallback determinista", leadId);
+        respondWithHeuristicFallback(leadId, lead, pendingTexts);
+        return;
+      }
       Map<String, String> extracted = result.extracted();
       // Guard determinista contra zonas alucinadas: el 8B extrajo dos veces
       // en prod (leads #111 y #112) una zona que solo aparecía en las
@@ -539,7 +551,8 @@ public class LeadAgentService {
     // isStuckRepeatingItself aplica al LLM: en espera se reconoce una vez,
     // ante la insistencia se contesta el ESTADO de la búsqueda, y si eso
     // también se dijo ya, silencio — como haría una persona.
-    if (refreshed.isReadyForMatching() && isStuckRepeatingItself(leadId, reply)) {
+    if ((refreshed.isReadyForMatching() || hasProviderOnTheLine(refreshed))
+        && isStuckRepeatingItself(leadId, reply)) {
       String waiting = waitingStatusReply(refreshed);
       if (isStuckRepeatingItself(leadId, waiting)) {
         log.info("fallback en espera ya dicho dos veces en lead {}: silencio", leadId);
@@ -551,12 +564,67 @@ public class LeadAgentService {
   }
 
   /**
+   * true si el pedido YA tiene un proveedor concreto encima: contactado y
+   * esperando su confirmación (PROVIDER_CONTACTED) o ya aceptado
+   * (ASSIGNED/IN_PROGRESS). En cualquiera de esos estados decir "estoy
+   * buscando un proveedor para vos" es falso. Package-private para test.
+   */
+  static boolean hasProviderOnTheLine(Lead lead) {
+    return lead != null
+        && lead.getAssignedProviderId() != null
+        && (lead.getStatus() == com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED
+            || lead.getStatus() == com.fixy.backend.model.LeadStatus.ASSIGNED
+            || lead.getStatus() == com.fixy.backend.model.LeadStatus.IN_PROGRESS);
+  }
+
+  /** true si el proveedor ya escribió en el chat del pedido. */
+  private boolean providerAlreadyWroteInChat(Long leadId) {
+    try {
+      return leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
+          .anyMatch(m -> "provider".equals(m.getSender()));
+    } catch (Exception ex) {
+      return false;
+    }
+  }
+
+  /**
+   * Estado REAL cuando ya hay un proveedor en el hilo (guardia diaria
+   * 2026-08-27, lead #257): Carnot Clima había sido contactado y estaba
+   * escribiendo en el chat, y Fixy seguía contestando "estoy buscando uno
+   * para vos". El pedido nunca se dice "en búsqueda" cuando ya tiene nombre.
+   */
+  private String providerOnTheLineReply(Lead lead) {
+    String name = safe(lead.getAssignedProvider(), "el proveedor");
+    if (providerAlreadyWroteInChat(lead.getId())) {
+      return ("%s ya te escribió acá arriba: contestale por este mismo chat y coordinan directo. "
+          + "Si necesitás algo de mi lado, decímelo.").formatted(name);
+    }
+    if (lead.getStatus() == com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED) {
+      return "Le pasé tu pedido a %s y estoy esperando que confirme. Te aviso por acá apenas responda."
+          .formatted(name);
+    }
+    return "%s ya tomó tu pedido: lo que necesites coordinar, escribilo por este chat.".formatted(name);
+  }
+
+  /**
    * Variante de espera para cuando el "Anotado: ... estoy buscando" ya se
    * dijo: responde el estado real de la búsqueda sin repetir el texto del
    * reconocimiento inicial.
    */
   private String waitingStatusReply(Lead lead) {
     String category = humanCategory(lead.getDetectedCategory());
+    // Con proveedor ya encima, la insistencia no se contesta con el estado de
+    // una búsqueda que no está corriendo (mismo caso #257). Redacción con
+    // solapamiento <0.8 contra providerOnTheLineReply, para no caer en el
+    // propio guard de repetición.
+    if (hasProviderOnTheLine(lead)) {
+      String name = safe(lead.getAssignedProvider(), "el proveedor");
+      if (lead.getStatus() == com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED) {
+        return "Sigo pendiente de la respuesta de %s. En cuanto tenga novedades te las paso.".formatted(name);
+      }
+      return "El trabajo quedó en manos de %s. Cualquier detalle, hablalo con %s por este chat."
+          .formatted(name, name);
+    }
     if (countProvidersInZone(lead.getDetectedCategory(), lead.getLocation()) > 0) {
       return ("Sigo en eso: apenas confirme un proveedor de %s disponible te escribo por acá. "
           + "Si querés sumar algún detalle del trabajo, contámelo.").formatted(category);
@@ -1001,6 +1069,26 @@ public class LeadAgentService {
         || normalized.contains("direccion");
   }
 
+  /**
+   * Frases con las que una respuesta afirma que la búsqueda de proveedor
+   * sigue abierta. Solo se usan cuando el lead YA tiene proveedor encima:
+   * ahí cualquiera de estas es literalmente falsa (lead #257).
+   */
+  private static final List<String> STILL_SEARCHING_PHRASES = List.of(
+      "estoy buscando", "sigo buscando", "buscando un proveedor", "buscando uno",
+      "buscando a alguien", "voy a buscar", "busco un proveedor",
+      "no tengo proveedor", "no tenemos proveedor", "no tengo un proveedor",
+      "no tenemos un proveedor", "no hay proveedor", "todavia no se sumo nadie");
+
+  /** true si la respuesta afirma que todavía está buscando proveedor (insensible a acentos). */
+  static boolean claimsStillSearching(String reply) {
+    if (reply == null || reply.isBlank()) {
+      return false;
+    }
+    String normalized = stripAccents(reply.toLowerCase(Locale.ROOT));
+    return STILL_SEARCHING_PHRASES.stream().anyMatch(normalized::contains);
+  }
+
   /** true si la respuesta generada es (normalizada) igual al último mensaje
    * que el agente ya mandó — señal de LLM en loop. Package-private para test. */
   boolean isStuckRepeatingItself(Long leadId, String reply) {
@@ -1138,6 +1226,12 @@ public class LeadAgentService {
       return "Todos los proveedores de Fixy están verificados por el equipo. Apenas se asigne el tuyo "
           + "vas a ver acá mismo su nombre, su calificación y los trabajos que ya hizo — y siempre decidís vos. "
           + "Cualquier problema, tocás \"Hablá con una persona\" y entra alguien del equipo.";
+    }
+
+    // Con proveedor ya contactado/asignado no hay búsqueda que contar: se
+    // responde el estado real (guardia 2026-08-27, lead #257).
+    if (hasProviderOnTheLine(lead)) {
+      return providerOnTheLineReply(lead);
     }
 
     if (lead.isReadyForMatching()) {
