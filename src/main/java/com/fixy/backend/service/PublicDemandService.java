@@ -21,7 +21,7 @@ import org.springframework.stereotype.Service;
  * "Dónde está la demanda" (mejora diaria 2026-08-27).
  *
  * <p>Dato que lo motivó: el 27/08 el tablero tenía <b>21 pedidos reales
- * abiertos y 11 de ellos eran de mandados</b> — el 52% de la demanda sin
+ * abiertos y 12 de ellos eran de mandados</b> — el 57% de la demanda sin
  * cubrir — contra <b>cero proveedores reales de ese rubro</b> (el único
  * {@code AVAILABLE} en mandados era el alta de prueba del propio Carlos).
  * En paralelo, {@code /sumate} —la puerta única de registro— le ofrecía al
