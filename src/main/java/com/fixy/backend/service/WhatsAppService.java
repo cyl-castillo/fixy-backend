@@ -16,12 +16,22 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 /**
- * Envia mensajes a proveedores y clientes via WhatsApp Cloud API (Meta).
+ * Envia mensajes a proveedores y clientes via WhatsApp Cloud API (Meta) o un
+ * BSP compatible (ej. 360dialog) — el body/formato de mensajes e interactivos
+ * es el mismo en ambos, lo unico que cambia es el path del endpoint y el
+ * esquema de autenticacion, asi que eso es lo unico configurable.
  *
  * Config requerida:
- *   fixy.whatsapp.phone-number-id   (id del numero Fixy registrado en Cloud API)
- *   fixy.whatsapp.access-token      (system user token, never expires)
- *   fixy.whatsapp.api-version       (default v21.0)
+ *   fixy.whatsapp.phone-number-id   (id del numero Fixy; con BSPs puede no
+ *                                    usarse en el path, pero igual habilita
+ *                                    el servicio)
+ *   fixy.whatsapp.access-token      (token de Meta, o API key del BSP)
+ *   fixy.whatsapp.api-version       (default v21.0, solo aplica a Meta)
+ *   fixy.whatsapp.auth-scheme       (bearer [default, Meta] | d360-api-key
+ *                                    [360dialog])
+ *   fixy.whatsapp.messages-path     (override del path; vacio = calcula el
+ *                                    de Meta. 360dialog sandbox usa
+ *                                    "/v1/messages")
  *
  * Si las credenciales no estan seteadas, el servicio queda en estado "disabled"
  * y los metodos logean warning sin hacer la llamada. Eso permite tener el codigo
@@ -37,6 +47,8 @@ public class WhatsAppService {
   private final String phoneNumberId;
   private final String accessToken;
   private final String apiVersion;
+  private final String authScheme;
+  private final String messagesPathOverride;
   private final boolean enabled;
 
   public WhatsAppService(
@@ -44,19 +56,24 @@ public class WhatsAppService {
       @Value("${fixy.whatsapp.phone-number-id:}") String phoneNumberId,
       @Value("${fixy.whatsapp.access-token:}") String accessToken,
       @Value("${fixy.whatsapp.api-version:v21.0}") String apiVersion,
-      @Value("${fixy.whatsapp.base-url:https://graph.facebook.com}") String baseUrl
+      @Value("${fixy.whatsapp.base-url:https://graph.facebook.com}") String baseUrl,
+      @Value("${fixy.whatsapp.auth-scheme:bearer}") String authScheme,
+      @Value("${fixy.whatsapp.messages-path:}") String messagesPathOverride
   ) {
     this.objectMapper = objectMapper;
     this.phoneNumberId = phoneNumberId;
     this.accessToken = accessToken;
     this.apiVersion = apiVersion;
+    this.authScheme = authScheme == null ? "bearer" : authScheme.trim().toLowerCase(Locale.ROOT);
+    this.messagesPathOverride = messagesPathOverride;
     this.enabled = phoneNumberId != null && !phoneNumberId.isBlank()
         && accessToken != null && !accessToken.isBlank();
     this.client = WebClient.builder()
         .baseUrl(baseUrl)
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
         .build();
-    log.info("WhatsAppService initialized: enabled={} apiVersion={}", enabled, apiVersion);
+    log.info("WhatsAppService initialized: enabled={} apiVersion={} authScheme={}",
+        enabled, apiVersion, this.authScheme);
   }
 
   public boolean isEnabled() {
@@ -175,12 +192,30 @@ public class WhatsAppService {
     return post(body, "sendInteractiveList to=" + to);
   }
 
+  /** Path del endpoint de mensajes. Meta: /{apiVersion}/{phoneNumberId}/messages.
+   * Un BSP (ej. 360dialog: "/v1/messages" en sandbox) expone un path fijo
+   * distinto — se sobreescribe con fixy.whatsapp.messages-path en vez de
+   * asumir un unico formato de BSP acá adentro. */
+  String messagesPath() {
+    return (messagesPathOverride == null || messagesPathOverride.isBlank())
+        ? "/" + apiVersion + "/" + phoneNumberId + "/messages"
+        : messagesPathOverride;
+  }
+
+  /** Nombre y valor del header de autenticacion segun fixy.whatsapp.auth-scheme. */
+  String[] authHeader() {
+    if ("d360-api-key".equals(authScheme)) {
+      return new String[] { "D360-API-KEY", accessToken };
+    }
+    return new String[] { HttpHeaders.AUTHORIZATION, "Bearer " + accessToken };
+  }
+
   private boolean post(Map<String, Object> body, String contextDescription) {
     try {
-      String uri = "/" + apiVersion + "/" + phoneNumberId + "/messages";
+      String[] auth = authHeader();
       String response = client.post()
-          .uri(uri)
-          .header(HttpHeaders.AUTHORIZATION, "Bearer " + accessToken)
+          .uri(messagesPath())
+          .header(auth[0], auth[1])
           .bodyValue(body)
           .retrieve()
           .bodyToMono(String.class)
@@ -239,10 +274,5 @@ public class WhatsAppService {
       return "0" + rest;
     }
     return digits;
-  }
-
-  String unusedLocaleHint() {
-    // Solo para silenciar warnings de imports no usados en algunos compiladores.
-    return Locale.ROOT.toString();
   }
 }
