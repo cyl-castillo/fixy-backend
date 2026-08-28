@@ -95,7 +95,7 @@ class ProviderCancelReleasesLeadTest {
     mockMvc.perform(post("/api/public/providers/{pid}/leads/{lid}/status", provider.getId(), leadId)
             .param("token", provider.getAccessToken())
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\"status\":\"CANCELLED\"}"))
+            .content("{\"status\":\"CANCELLED\",\"cancelReason\":\"sin_disponibilidad\"}"))
         .andExpect(status().is2xxSuccessful());
   }
 

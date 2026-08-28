@@ -2,8 +2,13 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LinkLeadRequest;
 import com.fixy.backend.dto.UserLeadSummary;
+import com.fixy.backend.model.AppUser;
+import com.fixy.backend.model.Business;
 import com.fixy.backend.model.Lead;
+import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.AuthService;
+import com.fixy.backend.service.BusinessService;
+import com.fixy.backend.service.ProviderGoogleAuthService;
 import com.fixy.backend.service.UserLeadService;
 import java.util.List;
 import org.springframework.http.HttpHeaders;
@@ -18,9 +23,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * "Mis pedidos": vincular leads anónimos ya creados (posesión del
- * accessToken prueba propiedad) y listarlos. Bajo /api/public/** (permitAll
- * en SecurityConfig) — la seguridad acá es el Bearer del session token,
- * verificado a mano por AuthService.requireUser, no un filter chain nuevo.
+ * accessToken prueba propiedad) y listarlos. También descubre si la sesión
+ * del chat es dueña de un comercio (Fase 3 del panel del dueño, ver
+ * {@code /merchant}) o de un proveedor (Fase 4, ver {@code /provider}). Bajo
+ * /api/public/** (permitAll en SecurityConfig) — la seguridad acá es el
+ * Bearer del session token, verificado a mano por AuthService.requireUser,
+ * no un filter chain nuevo.
  */
 @RestController
 @RequestMapping("/api/public/me")
@@ -28,10 +36,58 @@ public class PublicMeController {
 
   private final AuthService authService;
   private final UserLeadService userLeadService;
+  private final BusinessService businessService;
+  private final ProviderGoogleAuthService providerGoogleAuthService;
 
-  public PublicMeController(AuthService authService, UserLeadService userLeadService) {
+  public PublicMeController(
+      AuthService authService, UserLeadService userLeadService, BusinessService businessService,
+      ProviderGoogleAuthService providerGoogleAuthService
+  ) {
     this.authService = authService;
     this.userLeadService = userLeadService;
+    this.businessService = businessService;
+    this.providerGoogleAuthService = providerGoogleAuthService;
+  }
+
+  /**
+   * Descubre desde la sesión del chat si el usuario logueado es dueño de un
+   * comercio (Fase 3 del panel del dueño): el googleSub del AppUser de la
+   * sesión se busca contra {@code Business.googleSub} (vinculado en Fase 1
+   * vía el link mágico del panel). 404 si la cuenta no tiene comercio
+   * vinculado — el frontend no muestra el acceso al panel. El panelToken
+   * viene garantizado (lazy, sin rotar) vía {@code BusinessService.ensurePanel}.
+   */
+  @GetMapping("/merchant")
+  public MerchantAccountResponse myMerchant(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+  ) {
+    AppUser user = authService.requireUserEntity(authorization);
+    Business business = businessService.findLinkedByGoogleSub(user.getGoogleSub());
+    return new MerchantAccountResponse(business.getId(), business.getName(), business.getPanelToken());
+  }
+
+  public record MerchantAccountResponse(Long businessId, String name, String panelToken) {
+  }
+
+  /**
+   * Espejo de {@link #myMerchant} para proveedores (Fase 4 de la puerta
+   * única): el googleSub del AppUser de la sesión se busca contra {@code
+   * Provider.googleSub} (vinculado vía {@code /api/public/providers/{id}/link-google}).
+   * 404 si la cuenta no tiene proveedor vinculado. El accessToken viene
+   * garantizado (lazy, sin rotar) vía {@code ProviderSelfService.ensureAccessToken}
+   * — mismo argumento que el panelToken del dueño: los links ya compartidos
+   * siguen valiendo.
+   */
+  @GetMapping("/provider")
+  public ProviderAccountResponse myProvider(
+      @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization
+  ) {
+    AppUser user = authService.requireUserEntity(authorization);
+    Provider provider = providerGoogleAuthService.findLinkedByGoogleSub(user.getGoogleSub());
+    return new ProviderAccountResponse(provider.getId(), provider.getName(), provider.getAccessToken());
+  }
+
+  public record ProviderAccountResponse(Long providerId, String name, String accessToken) {
   }
 
   @PostMapping("/leads")

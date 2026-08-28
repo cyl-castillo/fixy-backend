@@ -261,10 +261,13 @@ class ProviderSelfProfileAndStatsTest {
             .content("{\"status\": \"PROVIDER_CONTACTED\", \"assignedProviderId\": %d}".formatted(providerId)))
         .andExpect(status().isOk());
 
+    String body = "CANCELLED".equals(targetStatus)
+        ? "{\"status\": \"%s\", \"cancelReason\": \"sin_disponibilidad\"}".formatted(targetStatus)
+        : "{\"status\": \"%s\"}".formatted(targetStatus);
     mockMvc.perform(post("/api/public/providers/{id}/leads/{lid}/status", providerId, leadId)
             .param("token", token)
             .contentType(MediaType.APPLICATION_JSON)
-            .content("{\"status\": \"%s\"}".formatted(targetStatus)))
+            .content(body))
         .andExpect(status().isOk());
 
     return new ProviderAndLead(providerId, token, leadId);

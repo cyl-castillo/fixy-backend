@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.OfferDigestSendResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.Provider;
@@ -342,6 +343,56 @@ public class TelegramNotifyService {
       new java.util.concurrent.ConcurrentHashMap<>();
 
   /**
+   * Intento de autoregistro de COMERCIO con un WhatsApp que YA pertenece a
+   * OTRO comercio (Fase 1+2 "puerta única de registro", 2026-08-27): mismo
+   * motivo y patrón que {@link #notifyExistingProviderRegistrationAttempt}
+   * — no se reclama un comercio ajeno solo por conocer su WhatsApp público,
+   * ops lo resuelve a mano. Mapa de throttle PROPIO (claves por
+   * {@code Business.id}, que colisionaría con el de {@code Provider} si
+   * compartieran mapa — son secuencias de id independientes).
+   */
+  public void notifyExistingBusinessRegistrationAttempt(com.fixy.backend.model.Business existing, String googleEmail) {
+    if (!enabled) return;
+    try {
+      long now = System.currentTimeMillis();
+      Long last = businessRegistrationAttemptNotifiedAt.get(existing.getId());
+      if (last != null && now - last < REGISTRATION_ATTEMPT_THROTTLE_MS) return;
+      businessRegistrationAttemptNotifiedAt.put(existing.getId(), now);
+      String text = "🔁 Intento de autoregistro de comercio con el WhatsApp de %s (ya registrado en Fixy) con la cuenta Google %s — si es el dueño real, resolvé a mano."
+          .formatted(safe(existing.getName()), safe(googleEmail));
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-registration-attempt business={} failed: {}", existing.getId(), ex.getMessage());
+    }
+  }
+
+  private final java.util.concurrent.ConcurrentHashMap<Long, Long> businessRegistrationAttemptNotifiedAt =
+      new java.util.concurrent.ConcurrentHashMap<>();
+
+  /**
+   * Autoregistro de comercio (Fase 1+2 "puerta única de registro"): mismo
+   * sub-patrón que {@link #notifyProviderSelfRegistered} — sin {@code Lead}
+   * de por medio, el registro pasa una sola vez, no hace falta idempotencia
+   * por evento.
+   */
+  public void notifyBusinessSelfRegistered(com.fixy.backend.model.Business business) {
+    if (!enabled) return;
+    try {
+      String text = "🆕 Comercio nuevo autoregistrado: %s (%s) — %s en %s. Cuenta Google: %s. Ya está ACTIVE (las ofertas siguen moderadas una por una)."
+          .formatted(
+              safe(business.getName()),
+              safe(business.getWhatsappNumber()),
+              safe(business.getCategory()),
+              safe(business.getPrimaryZone()),
+              safe(business.getGoogleEmail())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-self-registered {} failed: {}", business.getId(), ex.getMessage());
+    }
+  }
+
+  /**
    * Autoregistro de proveedor (sin lead asociado → sin evento de timeline;
    * el registro pasa una sola vez, no hace falta idempotencia por evento).
    */
@@ -394,6 +445,146 @@ public class TelegramNotifyService {
     }
   }
 
+  /**
+   * Consulta al catálogo de la ficha escalada al dueño (Fase 2, motor de
+   * respuesta): {@link CatalogAnswerService} no tuvo
+   * confianza suficiente para responder sola. Mismo sub-patrón que {@link
+   * #notifyOfferInquiry}: sin idempotencia por evento (cada consulta es un
+   * hecho distinto), respeta el guard "[smoke]".
+   */
+  public void notifyBusinessInquiryEscalated(
+      com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry
+  ) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(inquiry.getQuestion())) return;
+    try {
+      String text = "❓ Consulta al catálogo de %s: \"%s\" — el motor no supo responder solo, contestá SÍ o NO desde el panel: %s"
+          .formatted(
+              safe(business.getName()),
+              truncate(safe(inquiry.getQuestion()), 300),
+              merchantInquiryUrl(business, inquiry)
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify business-inquiry-escalated id={} failed: {}", inquiry.getId(), ex.getMessage());
+    }
+  }
+
+  private String merchantInquiryUrl(com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry) {
+    return "%s/mi-comercio/%s?inquiry=%d".formatted(publicAppBaseUrl, business.getPanelToken(), inquiry.getId());
+  }
+
+  /** Una línea del digest de {@link BusinessInquiryExpiryScheduler}: consulta escalada que venció sin respuesta del dueño. */
+  public record ExpiredBusinessInquiry(
+      com.fixy.backend.model.Business business, com.fixy.backend.model.BusinessInquiry inquiry
+  ) {
+  }
+
+  /**
+   * Digest best-effort de {@link BusinessInquiryExpiryScheduler}: consultas
+   * ESCALATED que llevaban más de 72h sin respuesta del dueño y pasaron a
+   * EXPIRED en esta corrida. Un solo mensaje por corrida con todas juntas,
+   * mismo criterio que {@link #notifyMerchantOffersExpiringWithoutOwnerPush}.
+   */
+  public void notifyBusinessInquiriesExpired(List<ExpiredBusinessInquiry> items) {
+    if (!enabled || items == null || items.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("⌛ ").append(items.size())
+          .append(items.size() == 1 ? " consulta venció" : " consultas vencieron")
+          .append(" sin respuesta del dueño (72h):");
+      for (ExpiredBusinessInquiry item : items) {
+        text.append('\n').append(safe(item.business().getName())).append(": \"")
+            .append(truncate(safe(item.inquiry().getQuestion()), 150)).append('"');
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify business-inquiries-expired failed: {}", ex.getMessage());
+    }
+  }
+
+  /**
+   * Alta pública de una oferta (fase 2 "ofertas protagonistas", puerta del
+   * comerciante): mismo sub-patrón que {@link #notifyProviderSelfRegistered}
+   * — sin {@code Lead} de por medio, así que no aplica la idempotencia "un
+   * evento por lead" (cada alta es un hecho distinto, no hay "segunda vez"
+   * que filtrar). Best-effort: el caller ({@code PublicOfferSubmissionService})
+   * ya envuelve esta llamada en un catch-all propio, pero repetimos el
+   * guard acá también para no romper si algún día se llama directo.
+   */
+  public void notifyOfferSubmission(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(offer.getTitle())
+        || com.fixy.backend.model.SmokeTraffic.marks(business.getName())) {
+      return;
+    }
+    try {
+      String text = "🏪 Nueva oferta cargada por un comercio: \"%s\" — %s (%s en %s). Revisala y aprobala en el admin: Ofertas → Draft."
+          .formatted(
+              safe(offer.getTitle()),
+              safe(business.getName()),
+              safe(business.getCategory()),
+              safe(offer.getZone())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify offer-submission offerId={} failed: {}", offer.getId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * Fase 5 (panel self-service del comercio): el dueño renovó desde su panel
+   * una oferta que ya estaba {@code EXPIRED} — vuelve a {@code DRAFT} y
+   * necesita que ops la re-apruebe, misma regla que cualquier otro origen
+   * (ninguna oferta pasa a {@code ACTIVE} sin aprobación humana). Mismo
+   * sub-patrón que {@link #notifyOfferSubmission}: sin {@code Lead} de por
+   * medio, sin idempotencia por evento (cada renovación es un hecho
+   * distinto, no hay "segunda vez" que filtrar).
+   */
+  public void notifyMerchantOfferRenewal(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(offer.getTitle())
+        || com.fixy.backend.model.SmokeTraffic.marks(business.getName())) {
+      return;
+    }
+    try {
+      String text = "🔁 %s renovó su oferta vencida \"%s\" desde su panel — volvió a draft, aprobala en el admin: Ofertas → Draft."
+          .formatted(safe(business.getName()), safe(offer.getTitle()));
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify merchant-offer-renewal offerId={} failed: {}", offer.getId(), ex.getMessage());
+    }
+  }
+
+  /** Una línea del digest de {@link MerchantOfferExpiryScheduler}: oferta próxima a vencer cuyo comercio no tiene push. */
+  public record ExpiringWithoutOwnerPush(com.fixy.backend.model.Business business, com.fixy.backend.model.Offer offer) {
+  }
+
+  /**
+   * Digest best-effort de {@link MerchantOfferExpiryScheduler}: ofertas que
+   * vencen en <48h cuyo comercio no tiene ninguna suscripción push propia
+   * (nadie a quién avisarle "renovala con un toque") — sin esto, esas
+   * ofertas simplemente se vencían en silencio. Un solo mensaje por corrida
+   * con todas juntas, mismo criterio que {@link #notifyAutoDigestSummary}
+   * (no un mensaje por oferta).
+   */
+  public void notifyMerchantOffersExpiringWithoutOwnerPush(List<ExpiringWithoutOwnerPush> items) {
+    if (!enabled || items == null || items.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("⏳ ").append(items.size())
+          .append(items.size() == 1 ? " oferta vence" : " ofertas vencen")
+          .append(" en <48h sin aviso al dueño (sin suscripción push):");
+      for (ExpiringWithoutOwnerPush item : items) {
+        text.append('\n').append(safe(item.business().getName())).append(": \"")
+            .append(safe(item.offer().getTitle())).append('"');
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify merchant-offers-expiring-without-push failed: {}", ex.getMessage());
+    }
+  }
+
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;
@@ -405,6 +596,154 @@ public class TelegramNotifyService {
             minutes
         );
     send(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE, text, "Aviso de matching estancado enviado a ops");
+  }
+
+  /**
+   * El proveedor canceló un trabajo tomado (panel proveedor, motivo
+   * obligatorio desde 2026-08-19). Mismo patrón catch-all + guard "[smoke]"
+   * que el resto de los avisos; sin idempotencia por evento porque cada
+   * cancelación real es un hecho distinto (no hay "segunda vez" del mismo
+   * evento a filtrar, a diferencia de los avisos de oportunidad). Async por
+   * la misma razón que los demás: nunca debe demorar la respuesta al
+   * proveedor que está cancelando.
+   */
+  @Async
+  public void notifyProviderCancelled(Lead lead, Provider provider, String cancelReason, String cancelReasonDetail) {
+    if (!enabled || lead == null || lead.getId() == null) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(lead.getProblem())) return;
+    try {
+      String providerName = provider != null && provider.getName() != null && !provider.getName().isBlank()
+          ? provider.getName()
+          : safe(lead.getAssignedProvider());
+      String detailSuffix = cancelReasonDetail != null && !cancelReasonDetail.isBlank()
+          ? " — \"%s\"".formatted(truncate(cancelReasonDetail, 200))
+          : "";
+      String text = "❌ %s canceló el lead #%d (%s en %s). Motivo: %s%s"
+          .formatted(
+              providerName,
+              lead.getId(),
+              humanCategory(lead.getDetectedCategory()),
+              safe(lead.getLocation()),
+              humanCancelReason(cancelReason),
+              detailSuffix
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify provider-cancelled lead={} failed: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  private String humanCancelReason(String raw) {
+    return switch (raw == null ? "" : raw.trim().toLowerCase(java.util.Locale.ROOT)) {
+      case "sin_disponibilidad" -> "sin disponibilidad";
+      case "zona" -> "fuera de zona";
+      case "precio" -> "tema de precio";
+      case "otro" -> "otro motivo";
+      default -> raw == null || raw.isBlank() ? "sin especificar" : raw;
+    };
+  }
+
+  /**
+   * Resumen de {@link MatchingAutoReleaseScheduler}: throttle "por corrida"
+   * en vez de "por lead" — si el scheduler liberó varios leads de una vez,
+   * ops recibe UN mensaje con todos, no uno por lead (evita spam en una
+   * corrida con backlog grande). Sin idempotencia por evento a propósito:
+   * cada corrida que libera algo es información nueva.
+   */
+  public void notifyAutoReleaseSummary(List<Lead> released, long hours) {
+    if (!enabled || released == null || released.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("♻️ Auto-liberación: ").append(released.size())
+          .append(released.size() == 1 ? " pedido volvió" : " pedidos volvieron")
+          .append(" al pozo abierto tras ").append(hours)
+          .append("h sin respuesta del proveedor contactado:");
+      for (Lead lead : released) {
+        text.append('\n').append('#').append(lead.getId()).append(' ')
+            .append(humanCategory(lead.getDetectedCategory())).append(" en ").append(safe(lead.getLocation()));
+      }
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify auto-release-summary failed: {}", ex.getMessage());
+    }
+  }
+
+  /**
+   * Resumen de una corrida AUTOMÁTICA del digest de ofertas (Fase Push-2,
+   * {@code OfferDigestAutoScheduler}) — solo avisa si mandó al menos un push
+   * (una corrida sin nada que enviar no merece un mensaje; el disparo manual
+   * desde /admin sigue sin avisar por acá, tiene su propia respuesta HTTP).
+   * Best-effort: el caller ya envuelve esta llamada en su propio catch-all,
+   * se repite acá para no romper si algún día se llama directo.
+   */
+  public void notifyAutoDigestSummary(OfferDigestSendResponse response) {
+    if (!enabled || response == null || response.sent() == 0) return;
+    try {
+      String text = "📬 Digest automático de ofertas: %d enviados (omitidos: %d recientes, %d con pocas ofertas, %d sin zona)."
+          .formatted(response.sent(), response.skippedRecent(), response.skippedFewOffers(), response.skippedNoZone());
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify auto-digest-summary failed: {}", ex.getMessage());
+    }
+  }
+
+  /**
+   * Una línea del digest de {@link PendingProviderApprovalScheduler}: el
+   * proveedor que espera aprobación, hace cuántos días, y cuántos pedidos
+   * abiertos podría tomar hoy si estuviera activo (el costo de la demora).
+   */
+  public record PendingApproval(Provider provider, long daysWaiting, long openLeads) {
+  }
+
+  /**
+   * Proveedores parados en la puerta del padrón. Un solo mensaje por corrida
+   * (el throttle de cadencia vive en el scheduler) con el costo en pedidos
+   * al lado de cada nombre: sin ese número el aviso es una tarea más, con él
+   * es una decisión con precio. Cierra siempre con las DOS salidas —
+   * activarlo o rechazarlo — porque las dos apagan el recordatorio y ninguna
+   * es "ignorarlo".
+   */
+  public void notifyPendingProviderApprovals(List<PendingApproval> pending, int maxLines) {
+    if (!enabled || pending == null || pending.isEmpty()) return;
+    try {
+      StringBuilder text = new StringBuilder();
+      text.append("🧍 ").append(pending.size())
+          .append(pending.size() == 1 ? " proveedor espera" : " proveedores esperan")
+          .append(" aprobación en el padrón:");
+      pending.stream().limit(Math.max(1, maxLines)).forEach(row -> {
+        Provider p = row.provider();
+        text.append('\n').append('#').append(p.getId()).append(' ').append(safe(p.getName()))
+            .append(" (").append(humanCategories(p.getCategories()))
+            .append(" en ").append(safe(p.getPrimaryZone())).append(')')
+            .append(" · espera hace ").append(row.daysWaiting())
+            .append(row.daysWaiting() == 1 ? " día" : " días");
+        if (row.openLeads() > 0) {
+          text.append(" · ").append(row.openLeads())
+              .append(row.openLeads() == 1 ? " pedido abierto que podría tomar" : " pedidos abiertos que podría tomar");
+        }
+      });
+      if (pending.size() > maxLines) {
+        text.append("\n… y ").append(pending.size() - maxLines).append(" más.");
+      }
+      text.append("\nActivalo en ").append(publicAppBaseUrl).append("/admin")
+          .append(" — o marcalo rechazado si no va, y deja de aparecer acá.");
+      post(text.toString());
+    } catch (Exception ex) {
+      log.warn("telegram notify pending-provider-approvals failed: {}", ex.getMessage());
+    }
+  }
+
+  /** "mandados, plomería" a partir del CSV de categorías del proveedor. */
+  private String humanCategories(String rawCsv) {
+    if (rawCsv == null || rawCsv.isBlank()) {
+      return "sin categoría";
+    }
+    return java.util.Arrays.stream(rawCsv.split(","))
+        .map(String::trim)
+        .filter(s -> !s.isEmpty())
+        .map(this::humanCategory)
+        .reduce((a, b) -> a + ", " + b)
+        .orElse("sin categoría");
   }
 
   public void notifyStaleJob(Lead lead, String providerName) {

@@ -1,5 +1,6 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.service.PhoneInUseException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
@@ -14,6 +15,20 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+
+  /**
+   * Autoregistro público de comercio con WhatsApp ya en uso (Fase 1+2
+   * "puerta única de registro"): el contrato con el frontend pide un body
+   * PLANO {@code {"code":"phone-in-use"}}, distinto del sobre genérico
+   * {@code {"error":{...}}} que arma {@link #handleResponseStatus} para
+   * cualquier otro {@link ResponseStatusException} — Spring resuelve este
+   * handler primero por ser el tipo más específico (no importa el orden de
+   * declaración de los métodos).
+   */
+  @ExceptionHandler(PhoneInUseException.class)
+  public ResponseEntity<Map<String, Object>> handlePhoneInUse(PhoneInUseException exception) {
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "phone-in-use"));
+  }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
   public ResponseEntity<Map<String, Object>> handleValidation(

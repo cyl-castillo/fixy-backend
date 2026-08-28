@@ -9,6 +9,11 @@ public record BusinessUpdateRequest(
     String primaryZone,
     BusinessStatus status,
     Long providerId,
-    String address
+    String address,
+    Double latitude,
+    Double longitude,
+    // Fase 1 de la ficha (V24) — ver BusinessResponse.
+    String description,
+    String categories
 ) {
 }

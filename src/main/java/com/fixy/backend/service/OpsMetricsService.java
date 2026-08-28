@@ -4,8 +4,10 @@ import com.fixy.backend.dto.OpsDailyMetricsResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
+import com.fixy.backend.model.SmokeTraffic;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -33,20 +35,41 @@ public class OpsMetricsService {
   private static final Set<LeadStatus> FILLED_STATUSES =
       Set.of(LeadStatus.ASSIGNED, LeadStatus.IN_PROGRESS, LeadStatus.COMPLETED);
 
+  /** Mismos "abiertos sin proveedor aceptado" que ProviderOpportunityService.OPEN_STATUSES —
+   * ASSIGNED en adelante ya implica que alguien aceptó, así que no es backlog. */
+  private static final Set<LeadStatus> STALLED_CANDIDATE_STATUSES =
+      Set.of(LeadStatus.NEW, LeadStatus.IN_REVIEW, LeadStatus.PROVIDER_CONTACTED);
+  private static final long STALLED_THRESHOLD_HOURS = 48;
+
   private static final String EVENT_PROVIDER_CONTACTED = "PROVIDER_CONTACTED";
   private static final String EVENT_PROVIDER_ACCEPTED = "PROVIDER_ACCEPTED";
   private static final String EVENT_PROVIDER_REJECTED = "PROVIDER_REJECTED";
 
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
+  private final Clock clock;
 
-  public OpsMetricsService(LeadRepository leadRepository, LeadEventRepository leadEventRepository) {
+  public OpsMetricsService(LeadRepository leadRepository, LeadEventRepository leadEventRepository, Clock clock) {
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
+    this.clock = clock;
   }
 
   public OpsDailyMetricsResponse dailyMetrics(OffsetDateTime from, OffsetDateTime to) {
-    List<Lead> leadsInRange = leadRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to);
+    // Tráfico [smoke] fuera desde acá: hallazgo 2026-08-17 (lead #200, cierre
+    // de $1 con comisión condonada "Prueba" contando como cierre real en fill
+    // rate y repeat rate). Se filtra ANTES de cualquier cálculo para que
+    // totalLeadsCreated, leadsByStatus, fill rate, tiempo de respuesta y
+    // repeat rate queden todos consistentes entre sí.
+    //
+    // Nota sobre WAIVED: NO se excluye por sí sola acá. Un cierre real
+    // (lead no-smoke) con comisión condonada como cortesía comercial sigue
+    // siendo un cierre real — mismo criterio que Provider.completedJobsCount
+    // (ver ProviderSelfService.updateLeadStatus). Solo el tráfico sintético
+    // infla las métricas; una condonación sobre trabajo real no miente.
+    List<Lead> leadsInRange = leadRepository.findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to).stream()
+        .filter(lead -> !isSmoke(lead))
+        .toList();
 
     long totalLeadsCreated = leadsInRange.size();
 
@@ -68,8 +91,36 @@ public class OpsMetricsService {
         responseTimesSeconds.size(),
         repeatRateResult.distinctClientsWithCompleted(),
         repeatRateResult.repeatClients(),
-        repeatRateResult.percentage()
+        repeatRateResult.percentage(),
+        computeStalledLeads48h()
     );
+  }
+
+  private boolean isSmoke(Lead lead) {
+    return SmokeTraffic.marks(lead.getProblem());
+  }
+
+  /**
+   * Backlog ACTUAL (no atado a la ventana from/to pedida): leads abiertos sin
+   * proveedor que haya aceptado, con más de 48h desde su creación, sin
+   * contar smoke. Es "cuántos pedidos reales están colgados ahora mismo",
+   * útil incluso si from/to apunta a una semana vieja — por eso usa su
+   * propio Clock en vez de derivar "ahora" de `to`.
+   */
+  private int computeStalledLeads48h() {
+    OffsetDateTime cutoff = OffsetDateTime.now(clock).minusHours(STALLED_THRESHOLD_HOURS);
+    int count = 0;
+    for (LeadStatus status : STALLED_CANDIDATE_STATUSES) {
+      for (Lead lead : leadRepository.findByStatusOrderByCreatedAtDesc(status)) {
+        if (isSmoke(lead)) {
+          continue;
+        }
+        if (lead.getCreatedAt() != null && lead.getCreatedAt().isBefore(cutoff)) {
+          count++;
+        }
+      }
+    }
+    return count;
   }
 
   /**

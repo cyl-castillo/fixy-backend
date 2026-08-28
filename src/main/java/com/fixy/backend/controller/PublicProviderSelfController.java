@@ -229,7 +229,8 @@ public class PublicProviderSelfController {
       @Valid @RequestBody StatusUpdateRequest request
   ) {
     Provider provider = selfService.authenticate(providerId, token);
-    Lead updated = selfService.updateLeadStatus(provider, leadId, request.status(), request.amountCharged());
+    Lead updated = selfService.updateLeadStatus(provider, leadId, request.status(), request.amountCharged(),
+        request.cancelReason(), request.cancelReasonDetail());
     return ProviderAssignedLeadSummary.fromEntity(updated);
   }
 
@@ -266,7 +267,19 @@ public class PublicProviderSelfController {
     return posted;
   }
 
-  public record StatusUpdateRequest(@NotNull LeadStatus status, BigDecimal amountCharged) {
+  /**
+   * @param cancelReason       OBLIGATORIO (400 si falta/vacío) cuando
+   *                            {@code status == CANCELLED} — el resto de los
+   *                            status lo ignoran. Contrato con el frontend:
+   *                            "sin_disponibilidad" | "zona" | "precio" | "otro".
+   * @param cancelReasonDetail campo libre opcional, máx 300 caracteres.
+   */
+  public record StatusUpdateRequest(
+      @NotNull LeadStatus status,
+      BigDecimal amountCharged,
+      String cancelReason,
+      String cancelReasonDetail
+  ) {
   }
 
   public record ScheduleProposalRequest(@NotNull String proposal) {

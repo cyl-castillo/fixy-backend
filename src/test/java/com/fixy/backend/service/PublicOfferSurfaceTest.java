@@ -36,6 +36,7 @@ class PublicOfferSurfaceTest {
   @Autowired private MockMvc mockMvc;
   @Autowired private OfferRepository offerRepository;
   @Autowired private BusinessRepository businessRepository;
+  @Autowired private BusinessSlugService businessSlugService;
 
   private Business persistBusiness(String name, String whatsapp) {
     Business business = new Business();
@@ -232,6 +233,7 @@ class PublicOfferSurfaceTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id").value(active.getId().intValue()))
         .andExpect(jsonPath("$.businessName").value("Comercio Detalle Test"))
+        .andExpect(jsonPath("$.businessId").value(business.getId().intValue()))
         .andExpect(jsonPath("$.sourceMessageRaw").doesNotExist())
         .andExpect(jsonPath("$.whatsappNumber").doesNotExist());
   }
@@ -316,7 +318,7 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
-  void viewYClickSonPublicosYSumanElContadorVisibleEnElDtoAdmin() throws Exception {
+  void viewClickYLikeSonPublicosYSumanElContadorVisibleEnElDtoAdmin() throws Exception {
     Business business = persistBusiness("Comercio Metrica Test", "098444007");
     Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
 
@@ -324,19 +326,55 @@ class PublicOfferSurfaceTest {
     mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
     mockMvc.perform(post("/api/public/offers/{id}/view", offer.getId())).andExpect(status().isNoContent());
     mockMvc.perform(post("/api/public/offers/{id}/click", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
 
     mockMvc.perform(get("/api/offers/{id}", offer.getId())
             .with(org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors
                 .httpBasic("test-ops", "test-pass")))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.viewCount").value(2))
-        .andExpect(jsonPath("$.clickCount").value(1));
+        .andExpect(jsonPath("$.clickCount").value(1))
+        .andExpect(jsonPath("$.likeCount").value(3));
   }
 
   @Test
-  void viewYClickDeUnaOfertaInexistenteDevuelven404SinRomperNada() throws Exception {
+  void viewClickYLikeDeUnaOfertaInexistenteDevuelven404SinRomperNada() throws Exception {
     mockMvc.perform(post("/api/public/offers/{id}/view", 999999)).andExpect(status().isNotFound());
     mockMvc.perform(post("/api/public/offers/{id}/click", 999999)).andExpect(status().isNotFound());
+    mockMvc.perform(post("/api/public/offers/{id}/like", 999999)).andExpect(status().isNotFound());
+  }
+
+  // --- likeCount / inquiryCount en el DTO público (fase 3) ---
+
+  @Test
+  void likeCountEInquiryCountApareceEnElDetallePublicoComoIntCrudoSinGate() throws Exception {
+    Business business = persistBusiness("Comercio Like Detalle Test", "098444020");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.likeCount").value(1))
+        .andExpect(jsonPath("$.inquiryCount").value(0));
+  }
+
+  @Test
+  void likeCountEInquiryCountApareceEnElListadoPublico() throws Exception {
+    Business business = persistBusiness("Comercio Like Listado Test", "098444021");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+    mockMvc.perform(post("/api/public/offers/{id}/like", offer.getId())).andExpect(status().isNoContent());
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> likeCounts = com.jayway.jsonpath.JsonPath.read(
+        res.getResponse().getContentAsString(), "$[?(@.id == " + offer.getId() + ")].likeCount");
+    assertThat(likeCounts).containsExactly(2);
   }
 
   @Test
@@ -363,6 +401,32 @@ class PublicOfferSurfaceTest {
   }
 
   @Test
+  void businessLatitudeYLongitudeSeExponenCuandoElComercioLasCargo() throws Exception {
+    Business business = persistBusiness("Comercio Con Coordenadas Test", "098444022");
+    business.setLatitude(-34.789);
+    business.setLongitude(-55.987);
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessLatitude").value(-34.789))
+        .andExpect(jsonPath("$.businessLongitude").value(-55.987));
+  }
+
+  @Test
+  void businessLatitudeYLongitudeAusentesQuedanNullEnElDtoPublico() throws Exception {
+    Business business = persistBusiness("Comercio Sin Coordenadas Test", "098444023");
+    // latitude/longitude quedan null — default, no se setean.
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessLatitude").doesNotExist())
+        .andExpect(jsonPath("$.businessLongitude").doesNotExist());
+  }
+
+  @Test
   void viewCountQuedaNullDebajoDelUmbralDeSocialProof() throws Exception {
     Business business = persistBusiness("Comercio Views Bajo Umbral Test", "098444018");
     Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
@@ -374,6 +438,90 @@ class PublicOfferSurfaceTest {
     mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.viewCount").doesNotExist());
+  }
+
+  // --- Ranking de conveniencia (OfferRankingService, fase 1) ---
+
+  @Test
+  void listPublicDevuelveElOrdenDelRankingNoElCronologico() throws Exception {
+    // "Barrio primero": a paridad de vigencia/descuento, una oferta local
+    // (manual/whatsapp_forward) le gana a una scrapeada, aunque la
+    // scrapeada sea más nueva (createdAt más reciente).
+    Business localBusiness = persistBusiness("Comercio Ranking Local Test", "098444030");
+    Business scrapedBusiness = persistBusiness("Comercio Ranking Scraped Test", "scraped:comercio-ranking-scraped-test");
+
+    // validUntil lejos de cualquier ventana de urgencia, para aislar la señal de origen.
+    OffsetDateTime validUntil = OffsetDateTime.now().plusDays(10);
+
+    Offer scraped = persistOffer(scrapedBusiness, OfferStatus.ACTIVE, "otro", "Solymar", validUntil);
+    scraped.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+    offerRepository.save(scraped);
+
+    Offer local = persistOffer(localBusiness, OfferStatus.ACTIVE, "otro", "Solymar", validUntil);
+    local.setOrigin(Offer.ORIGIN_MANUAL);
+    offerRepository.save(local);
+
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
+
+    int localIndex = ids.indexOf(local.getId().intValue());
+    int scrapedIndex = ids.indexOf(scraped.getId().intValue());
+    assertThat(localIndex).isGreaterThanOrEqualTo(0);
+    assertThat(scrapedIndex).isGreaterThanOrEqualTo(0);
+    assertThat(localIndex).isLessThan(scrapedIndex);
+  }
+
+  @Test
+  void listPublicPrioriazaUnaOfertaPorVencerSobreUnaScrapedSinUrgencia() throws Exception {
+    Business urgenteBusiness = persistBusiness("Comercio Ranking Urgente Test", "scraped:comercio-ranking-urgente-test");
+    Offer urgente = persistOffer(urgenteBusiness, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusHours(10));
+    urgente.setOrigin(Offer.ORIGIN_SCRAPED_SOURCE);
+    urgente.setDiscountText(null);
+    offerRepository.save(urgente);
+
+    Business lejanaBusiness = persistBusiness("Comercio Ranking Lejana Test", "098444031");
+    Offer lejana = persistOffer(lejanaBusiness, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(10));
+    lejana.setOrigin(Offer.ORIGIN_MANUAL);
+    lejana.setDiscountText(null);
+    offerRepository.save(lejana);
+
+    // Urgencia (+30) le gana a Barrio primero (+25) sola — el orden total combina ambas señales.
+    MvcResult res = mockMvc.perform(get("/api/public/offers").param("zone", "Solymar"))
+        .andExpect(status().isOk())
+        .andReturn();
+    List<Integer> ids = com.jayway.jsonpath.JsonPath.read(res.getResponse().getContentAsString(), "$[*].id");
+
+    assertThat(ids.indexOf(urgente.getId().intValue()))
+        .isLessThan(ids.indexOf(lejana.getId().intValue()));
+  }
+
+  // --- businessSlug (Fase 3, gap analysis 2026-08-25 §8) ---
+
+  @Test
+  void businessSlugSeExponeCuandoElComercioYaLoTiene() throws Exception {
+    Business business = persistBusiness("Comercio Con Slug Oferta Test", "098444024");
+    String slug = businessSlugService.ensureSlug(business);
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessSlug").value(slug));
+  }
+
+  @Test
+  void businessSlugQuedaNullSinDispararEnsureSlugCuandoElComercioTodaviaNoLoTiene() throws Exception {
+    Business business = persistBusiness("Comercio Sin Slug Oferta Test", "098444025");
+    Offer offer = persistOffer(business, OfferStatus.ACTIVE, "otro", "Solymar", OffsetDateTime.now().plusDays(5));
+
+    mockMvc.perform(get("/api/public/offers/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.businessSlug").doesNotExist());
+
+    // El GET público NUNCA debe generar un slug como efecto secundario.
+    Business reloaded = businessRepository.findById(business.getId()).orElseThrow();
+    assertThat(reloaded.getSlug()).isNull();
   }
 
   @Test

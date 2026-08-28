@@ -71,6 +71,17 @@ public class PublicOfferController {
   }
 
   /**
+   * "Me sirve" del frontend (fase 3, señal de interacción del ranking — ver
+   * OfferRankingService). Mismo patrón que /view y /click: fire-and-forget,
+   * sin idempotencia ni rate-limit, 404 solo si la oferta no existe.
+   */
+  @PostMapping("/{id}/like")
+  @ResponseStatus(HttpStatus.NO_CONTENT)
+  public void like(@PathVariable Long id) {
+    offerService.registerLike(id);
+  }
+
+  /**
    * Ruta comercio del CTA (FIXY_OFERTAS_CTA_DESIGN.md §4.3): mini-form de
    * consulta, rate-limitado + honeypot (ver OfferInquiryService). Responde
    * siempre {@code {"ok": true}}, incluso en el caso honeypot — nunca

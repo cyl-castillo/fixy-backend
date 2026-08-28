@@ -1,6 +1,8 @@
 package com.fixy.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
@@ -11,6 +13,7 @@ import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.TelegramNotifyService;
+import com.jayway.jsonpath.JsonPath;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -23,8 +26,12 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * Puente de avisos de oportunidad por Telegram (parche interino hasta
@@ -43,6 +50,7 @@ import org.springframework.test.context.TestPropertySource;
  * MercadoPagoServiceTest verifica la URL real de notificación.
  */
 @SpringBootTest
+@AutoConfigureMockMvc
 @TestPropertySource(properties = {
     "fixy.telegram.bot-token=test-bot-token",
     "fixy.telegram.chat-id=123456789",
@@ -62,6 +70,9 @@ class TelegramNotifyServiceTest {
 
   @Autowired
   private TelegramNotifyService telegramNotifyService;
+
+  @Autowired
+  private MockMvc mockMvc;
 
   @Autowired
   private LeadRepository leadRepository;
@@ -377,6 +388,129 @@ class TelegramNotifyServiceTest {
     assertThat(body).doesNotContain("Deco Ya");
 
     providerRepository.delete(aprobado);
+  }
+
+  /** Mejora 2026-08-19: motivo obligatorio + Telegram al cancelar. */
+  @Test
+  void providerCancelled_sendsNotificationWithReasonAndDetail() {
+    Lead lead = persistLead("plomeria", "Solymar", "Se me tapó el desagüe de la cocina");
+    Provider provider = persistProvider("Juan Plomero", "099888777");
+
+    telegramNotifyService.notifyProviderCancelled(lead, provider, "precio", "pidió mucho más que la tarifa");
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("Juan Plomero");
+    assertThat(body).contains("canceló el lead #" + lead.getId());
+    assertThat(body).contains("plomería en Solymar");
+    assertThat(body).contains("tema de precio");
+    assertThat(body).contains("pidió mucho más que la tarifa");
+  }
+
+  @Test
+  void providerCancelledOnSmokeLead_doesNotNotify() throws InterruptedException {
+    Lead lead = persistLead("plomeria", "Solymar", "[smoke] prueba de cancelación");
+    Provider provider = persistProvider("Juan Plomero", "099888777");
+
+    telegramNotifyService.notifyProviderCancelled(lead, provider, "otro", null);
+
+    assertNoMessageForLead(lead.getId(), "lead [smoke] no debe generar aviso de cancelación");
+  }
+
+  /**
+   * Choque con el frontend real (2026-08-19): integración completa
+   * controller → ProviderSelfService → Telegram. Cancelar un lead YA
+   * ACEPTADO (status previo ASSIGNED) SÍ avisa a Carlos.
+   */
+  @Test
+  void cancellingAlreadyAcceptedLead_notifiesTelegram() throws Exception {
+    Lead lead = persistLead("plomeria", "Solymar", "Se me tapó el desagüe de la cocina");
+    Provider provider = persistProvider("Juan Plomero Comprometido", "099888001");
+    provider.setAccessToken("tok-committed-" + System.nanoTime());
+    provider = providerRepository.save(provider);
+    lead.setAssignedProviderId(provider.getId());
+    lead.setAssignedProvider(provider.getName());
+    lead.setStatus(LeadStatus.ASSIGNED);
+    leadRepository.save(lead);
+
+    mockMvc.perform(post("/api/public/providers/{pid}/leads/{lid}/status", provider.getId(), lead.getId())
+            .param("token", provider.getAccessToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"CANCELLED\",\"cancelReason\":\"precio\"}"))
+        .andExpect(status().isOk());
+
+    String body = awaitMessageForLead(lead.getId());
+    assertThat(body).contains("canceló el lead #" + lead.getId());
+  }
+
+  /**
+   * El botón "No me sirve" del momento accept-decide (lead auto-matcheado,
+   * status previo PROVIDER_CONTACTED) pega al MISMO endpoint sin
+   * cancelReason — 2xx, se libera igual, pero NO debe avisar a Carlos (pasa
+   * todo el tiempo, sería spam).
+   */
+  @Test
+  void decliningBeforeAccepting_doesNotNotifyTelegram() throws Exception {
+    Lead lead = persistLead("plomeria", "Solymar", "Necesito un plomero urgente");
+    Provider provider = persistProvider("Juan Plomero Decline", "099888002");
+    provider.setAccessToken("tok-decline-" + System.nanoTime());
+    provider = providerRepository.save(provider);
+    lead.setAssignedProviderId(provider.getId());
+    lead.setAssignedProvider(provider.getName());
+    lead.setStatus(LeadStatus.PROVIDER_CONTACTED);
+    leadRepository.save(lead);
+
+    mockMvc.perform(post("/api/public/providers/{pid}/leads/{lid}/status", provider.getId(), lead.getId())
+            .param("token", provider.getAccessToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content("{\"status\":\"CANCELLED\"}"))
+        .andExpect(status().isOk());
+
+    Lead released = leadRepository.findById(lead.getId()).orElseThrow();
+    assertThat(released.getStatus()).isEqualTo(LeadStatus.NEW);
+    assertThat(released.getAssignedProviderId()).isNull();
+
+    assertNoMessageForLead(lead.getId(), "declinar antes de aceptar no debe avisar a Telegram");
+  }
+
+  /**
+   * El digest de proveedores esperando aprobación (mejora diaria 2026-08-19,
+   * {@code PendingProviderApprovalScheduler}). Lo que se verifica acá es
+   * justamente lo que hace útil al aviso: el COSTO en pedidos abiertos al
+   * lado del nombre, y las dos salidas (activar / rechazar).
+   */
+  @Test
+  void pendingProviderApprovals_sendsDigestWithDemandCostAndAdminLink() {
+    Provider pending = persistProviderWithCategory(
+        "Mandadero Esperando Digest", "099555111", "mandados", ProviderStatus.NEW);
+
+    telegramNotifyService.notifyPendingProviderApprovals(
+        List.of(new TelegramNotifyService.PendingApproval(pending, 13, 11)), 10);
+
+    String body = awaitMessageContaining("Mandadero Esperando Digest");
+    assertThat(body).contains("1 proveedor espera aprobación");
+    assertThat(body).contains("#" + pending.getId() + " Mandadero Esperando Digest");
+    assertThat(body).contains("(mandados en Solymar)");
+    assertThat(body).contains("espera hace 13 días");
+    assertThat(body).contains("11 pedidos abiertos que podría tomar");
+    assertThat(body).contains("https://www.fixy.com.uy/admin");
+    assertThat(body).contains("marcalo rechazado");
+  }
+
+  /** Igual que {@link #awaitMessageForLead} pero buscando un texto propio del test. */
+  private String awaitMessageContaining(String needle) {
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+    try {
+      while (System.nanoTime() < deadline) {
+        String body = receivedBodies.poll(200, TimeUnit.MILLISECONDS);
+        if (body != null && body.contains(needle)) {
+          return body;
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException(e);
+    }
+    throw new AssertionError("Telegram debería haber recibido un POST con \"" + needle + "\"");
   }
 
   private Provider persistProviderWithCategory(String name, String phone, String categories,

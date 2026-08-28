@@ -30,6 +30,12 @@ import java.util.Map;
  *                                    COMPLETED lo marca el proveedor desde su panel sin
  *                                    confirmación del cliente; cuando exista el loop de cierre
  *                                    (P0-2) la fuente pasa a ser el COMPLETED confirmado.
+ * @param stalledLeads48h             CONTRATO con el frontend, nombre exacto: leads abiertos (ni
+ *                                    COMPLETED ni CANCELLED) sin proveedor que haya aceptado
+ *                                    (NEW/IN_REVIEW/PROVIDER_CONTACTED) con más de 48h desde su
+ *                                    creación, excluyendo tráfico smoke. Snapshot del momento de
+ *                                    la consulta — no está atado a la ventana from/to (es backlog
+ *                                    actual, no histórico del rango pedido).
  */
 public record OpsDailyMetricsResponse(
     OffsetDateTime from,
@@ -41,6 +47,7 @@ public record OpsDailyMetricsResponse(
     long leadsConsideredForResponseTime,
     long distinctClientsWithCompleted,
     long repeatClients,
-    double repeatRateAutodeclaredPercentage
+    double repeatRateAutodeclaredPercentage,
+    int stalledLeads48h
 ) {
 }

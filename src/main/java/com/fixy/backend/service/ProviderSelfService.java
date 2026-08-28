@@ -59,6 +59,31 @@ public class ProviderSelfService {
    */
   public static final String PROVIDER_RELEASED_EVENT_TYPE = "PROVIDER_RELEASED";
 
+  /**
+   * El proveedor contactado nunca respondió (ni aceptó ni rechazó) tras el
+   * umbral de {@code MatchingAutoReleaseScheduler} — a diferencia de
+   * {@link #PROVIDER_RELEASED_EVENT_TYPE} esto NO es un rechazo activo, así
+   * que no registra {@link ProviderLeadDecline}: el pozo queda abierto y el
+   * mismo proveedor puede volver a verlo (quizás estaba ocupado).
+   */
+  public static final String AUTO_RELEASED_EVENT_TYPE = "AUTO_RELEASED";
+
+  /**
+   * Discriminador de "cancelReason obligatorio" (choque con el frontend real,
+   * 2026-08-19): el botón "No me sirve" del momento accept-decide (lead
+   * auto-matcheado en PROVIDER_CONTACTED, todavía sin aceptar) pega al MISMO
+   * endpoint con {@code status:CANCELLED} y sin motivo — es de bajo
+   * compromiso, pasa todo el tiempo, mismo criterio que declinar desde la
+   * bandeja ({@link ProviderOpportunityService#decline}), que tampoco pide
+   * motivo. El diagnóstico de negocio apuntaba solo a cancelar un trabajo YA
+   * comprometido, así que el motivo (y el aviso a Telegram) solo se exigen
+   * cuando el status ANTERIOR a este CANCELLED es uno de estos — el
+   * proveedor ya había aceptado (ASSIGNED/IN_PROGRESS) o incluso completado
+   * (corrección administrativa sobre un trabajo real).
+   */
+  private static final Set<LeadStatus> COMMITTED_STATUSES_BEFORE_CANCEL =
+      Set.of(LeadStatus.ASSIGNED, LeadStatus.IN_PROGRESS, LeadStatus.COMPLETED);
+
   /** Anti-spam: como máximo un aviso "voy en camino" por hora por lead. */
   private static final Duration ON_THE_WAY_COOLDOWN = Duration.ofHours(1);
 
@@ -72,6 +97,10 @@ public class ProviderSelfService {
   private final LeadMessageService leadMessageService;
   private final PushNotificationService pushNotificationService;
   private final ProviderCatalogService providerCatalogService;
+  // @Lazy: TelegramNotifyService ya depende de ProviderSelfService (@Lazy del
+  // otro lado, ver su constructor) para armar el link de panel — sin @Lazy
+  // acá también se reintroduce el ciclo de beans en la creación.
+  private final TelegramNotifyService telegramNotifyService;
   private final boolean paymentsEnabled;
 
   public ProviderSelfService(
@@ -85,6 +114,7 @@ public class ProviderSelfService {
       LeadMessageService leadMessageService,
       PushNotificationService pushNotificationService,
       ProviderCatalogService providerCatalogService,
+      @org.springframework.context.annotation.Lazy TelegramNotifyService telegramNotifyService,
       @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
   ) {
     this.providerRepository = providerRepository;
@@ -97,6 +127,7 @@ public class ProviderSelfService {
     this.leadMessageService = leadMessageService;
     this.pushNotificationService = pushNotificationService;
     this.providerCatalogService = providerCatalogService;
+    this.telegramNotifyService = telegramNotifyService;
     this.paymentsEnabled = paymentsEnabled;
   }
 
@@ -153,6 +184,32 @@ public class ProviderSelfService {
    *                       siempre (rollback seguro sin credenciales de MP).
    */
   public Lead updateLeadStatus(Provider provider, Long leadId, LeadStatus newStatus, BigDecimal amountCharged) {
+    return updateLeadStatus(provider, leadId, newStatus, amountCharged, null, null);
+  }
+
+  /**
+   * @param cancelReason       OBLIGATORIO (400 si falta o está vacío) SOLO
+   *                            cuando {@code newStatus == CANCELLED} Y el
+   *                            lead ya estaba en un status "comprometido"
+   *                            (ver {@link #COMMITTED_STATUSES_BEFORE_CANCEL}) —
+   *                            declinar un lead auto-matcheado ANTES de
+   *                            aceptarlo (status previo PROVIDER_CONTACTED)
+   *                            pega a este mismo endpoint y sigue sin exigir
+   *                            motivo, igual que declinar desde la bandeja.
+   *                            Si viene igual (aun sin ser obligatorio) se
+   *                            persiste gratis. Valores esperados del
+   *                            frontend: sin_disponibilidad | zona | precio |
+   *                            otro (se persiste tal cual llega, sin validar
+   *                            contra esa lista — el timeline es el registro
+   *                            crudo).
+   * @param cancelReasonDetail campo libre opcional, máx 300 caracteres (400
+   *                            si se pasa, sin importar si el motivo era
+   *                            obligatorio o no).
+   */
+  public Lead updateLeadStatus(
+      Provider provider, Long leadId, LeadStatus newStatus, BigDecimal amountCharged,
+      String cancelReason, String cancelReasonDetail
+  ) {
     if (!PROVIDER_TRANSITIONS.contains(newStatus)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "status not allowed for provider self-service");
@@ -164,6 +221,21 @@ public class ProviderSelfService {
     }
     Lead lead = requireAssignedLead(provider, leadId);
     LeadStatus before = lead.getStatus();
+    if (newStatus == LeadStatus.CANCELLED) {
+      // Discriminador: antes de aceptar (PROVIDER_CONTACTED) es un decline de
+      // bajo compromiso — pasa todo el tiempo, no exige motivo. Ya aceptado
+      // (ASSIGNED/IN_PROGRESS) o incluso completado (corrección
+      // administrativa) sí lo exige: ahí sí hay una promesa que se rompe.
+      if (COMMITTED_STATUSES_BEFORE_CANCEL.contains(before) && (cancelReason == null || cancelReason.isBlank())) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+            "cancelReason es obligatorio para cancelar un trabajo ya aceptado "
+                + "(sin_disponibilidad|zona|precio|otro)");
+      }
+      if (cancelReasonDetail != null && cancelReasonDetail.length() > 300) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+            "cancelReasonDetail no puede superar los 300 caracteres");
+      }
+    }
     if (before != newStatus) {
       lead.setStatus(newStatus);
       provider.setLastRespondedAt(OffsetDateTime.now());
@@ -190,7 +262,16 @@ public class ProviderSelfService {
           }
         }
         case CANCELLED -> provider.setRejectedJobsCount(safeInc(provider.getRejectedJobsCount()));
-        case COMPLETED -> provider.setCompletedJobsCount(safeInc(provider.getCompletedJobsCount()));
+        case COMPLETED -> {
+          // Métricas honestas (hallazgo 2026-08-17, lead #200): solo el
+          // tráfico [smoke] no cuenta acá. Un cierre REAL con comisión
+          // condonada (WAIVED, cortesía comercial) sigue siendo un trabajo
+          // real — no se excluye por WAIVED, mismo criterio documentado en
+          // OpsMetricsService.dailyMetrics.
+          if (!com.fixy.backend.model.SmokeTraffic.marks(lead.getProblem())) {
+            provider.setCompletedJobsCount(safeInc(provider.getCompletedJobsCount()));
+          }
+        }
         default -> { /* no counter */ }
       }
       // Que un proveedor no pueda NO mata el pedido del cliente: se libera y
@@ -199,7 +280,7 @@ public class ProviderSelfService {
       // rechazo — resucitar ahí le buscaría proveedor a un trabajo hecho (y
       // con payments ON la comisión ya existe).
       if (newStatus == LeadStatus.CANCELLED && before != LeadStatus.COMPLETED) {
-        releaseAfterProviderCancel(lead, provider);
+        releaseAfterProviderCancel(lead, provider, before, cancelReason, cancelReasonDetail);
       }
       leadRepository.save(lead);
       providerRepository.save(provider);
@@ -275,7 +356,23 @@ public class ProviderSelfService {
         .toList();
   }
 
-  private void releaseAfterProviderCancel(Lead lead, Provider provider) {
+  /**
+   * @param before              status del lead ANTES de este CANCELLED — el
+   *                            discriminador de "ya comprometido"
+   *                            ({@link #COMMITTED_STATUSES_BEFORE_CANCEL}).
+   *                            Determina si el motivo era obligatorio y, más
+   *                            importante acá, si esto es noticia para
+   *                            Telegram (un decline pre-aceptación NO lo es:
+   *                            pasa todo el tiempo y sería spam).
+   * @param cancelReason        obligatorio si {@code before} es un status
+   *                            comprometido (ya validado por
+   *                            {@link #updateLeadStatus}); puede venir null
+   *                            en un decline pre-aceptación.
+   * @param cancelReasonDetail  opcional, ya validado <=300 chars.
+   */
+  private void releaseAfterProviderCancel(
+      Lead lead, Provider provider, LeadStatus before, String cancelReason, String cancelReasonDetail
+  ) {
     if (lead.getId() != null && provider.getId() != null
         && !declineRepository.existsByLeadIdAndProviderId(lead.getId(), provider.getId())) {
       ProviderLeadDecline decline = new ProviderLeadDecline();
@@ -284,13 +381,21 @@ public class ProviderSelfService {
       declineRepository.save(decline);
     }
 
+    boolean wasCommitted = COMMITTED_STATUSES_BEFORE_CANCEL.contains(before);
     String providerName = hasText(provider.getName()) ? provider.getName() : "El proveedor";
-    lead.setAssignedProviderId(null);
-    lead.setAssignedProvider(null);
-    lead.setStatus(LeadStatus.NEW);
+    clearAssignment(lead);
 
+    // Motivo + detalle en el evento existente (sin tabla nueva): el timeline
+    // es el registro crudo, sin traducir el código de motivo. cancelReason
+    // puede venir null en un decline pre-aceptación (no era obligatorio) —
+    // si vino igual, se persiste gratis.
+    String verb = wasCommitted ? "canceló" : "declinó";
+    String reasonSuffix = hasText(cancelReason)
+        ? " [motivo: %s%s]".formatted(cancelReason,
+            hasText(cancelReasonDetail) ? " — \"%s\"".formatted(cancelReasonDetail.trim()) : "")
+        : "";
     timelineService.appendEvent(lead, PROVIDER_RELEASED_EVENT_TYPE, "system",
-        "%s canceló: el pedido vuelve a búsqueda de proveedor".formatted(providerName));
+        "%s %s%s: el pedido vuelve a búsqueda de proveedor".formatted(providerName, verb, reasonSuffix));
 
     String message = ("%s al final no va a poder tomar tu pedido. Ya estoy buscando a otra persona "
         + "y te aviso por acá apenas tenga novedades.").formatted(providerName);
@@ -300,6 +405,51 @@ public class ProviderSelfService {
     } catch (Exception ex) {
       // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
     }
+    // Telegram solo para cancelaciones de trabajo YA comprometido: un
+    // decline pre-aceptación no es noticia (pasa todo el tiempo) y sería
+    // spam para Carlos.
+    if (wasCommitted) {
+      try {
+        telegramNotifyService.notifyProviderCancelled(lead, provider, cancelReason, cancelReasonDetail);
+      } catch (Exception ex) {
+        // best-effort: un aviso a ops que falla no debe romper la cancelación
+      }
+    }
+  }
+
+  private void clearAssignment(Lead lead) {
+    lead.setAssignedProviderId(null);
+    lead.setAssignedProvider(null);
+    lead.setStatus(LeadStatus.NEW);
+  }
+
+  /**
+   * Auto-liberación (mejora "nunca más camino muerto" v2, 2026-08-19): el
+   * proveedor contactado no aceptó NI rechazó tras el umbral de
+   * {@code MatchingAutoReleaseScheduler}. A diferencia de
+   * {@link #releaseAfterProviderCancel} esto NO es un rechazo activo — no
+   * registra {@link ProviderLeadDecline} a propósito, así que el mismo
+   * proveedor puede volver a ver este lead en su bandeja (quizás estaba
+   * ocupado; el pozo es abierto).
+   */
+  public Lead releaseAfterTimeout(Lead lead, Provider unresponsiveProvider) {
+    String providerName = hasText(unresponsiveProvider.getName())
+        ? unresponsiveProvider.getName() : "El proveedor contactado";
+    clearAssignment(lead);
+
+    timelineService.appendEvent(lead, AUTO_RELEASED_EVENT_TYPE, "system",
+        "%s (id %d) no respondió a tiempo: el pedido vuelve a búsqueda abierta"
+            .formatted(providerName, unresponsiveProvider.getId()));
+
+    String message = "Seguimos buscando quién pueda tomar tu pedido — apenas confirme un "
+        + "proveedor, te aviso por acá.";
+    leadMessageService.postFromAgent(lead.getId(), message);
+    try {
+      pushNotificationService.notifyLeadHasNews(lead.getId(), "Seguimos con tu pedido", message);
+    } catch (Exception ex) {
+      // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
+    }
+    return leadRepository.save(lead);
   }
 
   /**

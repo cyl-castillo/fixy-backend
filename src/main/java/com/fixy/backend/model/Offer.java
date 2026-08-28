@@ -93,6 +93,13 @@ public class Offer {
   @Column(nullable = false)
   private int clickCount;
 
+  /** "Me sirve" del cliente (fase 3, señal de interacción del ranking — ver
+   * OfferRankingService): POST público /like suma uno, sin idempotencia ni
+   * rate-limit, mismo criterio que viewCount/clickCount. A diferencia de
+   * esos dos, SÍ se expone en el DTO público (OfferPublicResponse). */
+  @Column(nullable = false)
+  private int likeCount;
+
   @Column(nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
@@ -155,6 +162,10 @@ public class Offer {
   public void setViewCount(int viewCount) { this.viewCount = viewCount; }
   public int getClickCount() { return clickCount; }
   public void setClickCount(int clickCount) { this.clickCount = clickCount; }
+  public int getLikeCount() { return likeCount; }
+  public void setLikeCount(int likeCount) { this.likeCount = likeCount; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
+  /** Setter de test/fixture — mismo patrón que AppUser/LeadPhoto/UserLead: @PrePersist sigue mandando en persistencia real. */
+  public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
 }

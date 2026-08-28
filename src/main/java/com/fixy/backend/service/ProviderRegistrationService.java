@@ -30,15 +30,18 @@ public class ProviderRegistrationService {
   private final GoogleIdTokenVerifierService verifier;
   private final ProviderRepository providerRepository;
   private final TelegramNotifyService telegramNotifyService;
+  private final PublicLeadAbuseProtectionService abuseProtectionService;
 
   public ProviderRegistrationService(
       GoogleIdTokenVerifierService verifier,
       ProviderRepository providerRepository,
-      TelegramNotifyService telegramNotifyService
+      TelegramNotifyService telegramNotifyService,
+      PublicLeadAbuseProtectionService abuseProtectionService
   ) {
     this.verifier = verifier;
     this.providerRepository = providerRepository;
     this.telegramNotifyService = telegramNotifyService;
+    this.abuseProtectionService = abuseProtectionService;
   }
 
   public Provider register(
@@ -47,8 +50,14 @@ public class ProviderRegistrationService {
       String phone,
       List<String> categories,
       String primaryZone,
-      String coverageZones
+      String coverageZones,
+      String clientIp
   ) {
+    // Rate limit (Fase 1+2 "puerta única de registro", 2026-08-27): este
+    // endpoint no tenía ningún freno de abuso hasta ahora — se agrega acá,
+    // primero, antes de gastar una verificación contra Google.
+    abuseProtectionService.validateProviderRegistration(clientIp);
+
     GoogleIdTokenVerifierService.GoogleIdentity identity = verifier.verify(requireText(credential, "credential"))
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "credential de Google inválido"));
 

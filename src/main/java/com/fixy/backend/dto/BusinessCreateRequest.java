@@ -8,6 +8,10 @@ public record BusinessCreateRequest(
     @NotBlank(message = "category is required") String category,
     String primaryZone,
     Long providerId,
-    String address
+    String address,
+    Double latitude,
+    Double longitude,
+    String description,
+    String categories
 ) {
 }

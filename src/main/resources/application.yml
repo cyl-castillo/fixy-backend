@@ -97,10 +97,44 @@ fixy:
       enabled: ${FIXY_OFFERS_EXPIRATION_ENABLED:true}
       scheduler-fixed-delay-ms: ${FIXY_OFFERS_EXPIRATION_SCHEDULER_FIXED_DELAY_MS:3600000}
     social-proof-min-views: ${FIXY_OFFERS_SOCIAL_PROOF_MIN_VIEWS:10}
+    digest:
+      auto:
+        enabled: ${FIXY_OFFERS_DIGEST_AUTO_ENABLED:true}
+        day-of-week: ${FIXY_OFFERS_DIGEST_AUTO_DAY_OF_WEEK:THURSDAY}
+        hour: ${FIXY_OFFERS_DIGEST_AUTO_HOUR:18}
+        scheduler-fixed-delay-ms: ${FIXY_OFFERS_DIGEST_AUTO_SCHEDULER_FIXED_DELAY_MS:3600000}
+    saved-reminder:
+      enabled: ${FIXY_OFFERS_SAVED_REMINDER_ENABLED:true}
+      scheduler-fixed-delay-ms: ${FIXY_OFFERS_SAVED_REMINDER_SCHEDULER_FIXED_DELAY_MS:3600000}
+    merchant-reminder:
+      enabled: ${FIXY_OFFERS_MERCHANT_REMINDER_ENABLED:true}
+      scheduler-fixed-delay-ms: ${FIXY_OFFERS_MERCHANT_REMINDER_SCHEDULER_FIXED_DELAY_MS:3600000}
+  business-inquiries:
+    expiry:
+      enabled: ${FIXY_BUSINESS_INQUIRIES_EXPIRY_ENABLED:true}
+      scheduler-fixed-delay-ms: ${FIXY_BUSINESS_INQUIRIES_EXPIRY_SCHEDULER_FIXED_DELAY_MS:3600000}
   abuse:
     offer-inquiry:
       max-requests-per-window: ${FIXY_ABUSE_OFFER_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_OFFER_INQUIRY_WINDOW_SECONDS:600}
+    business-inquiry:
+      max-requests-per-window: ${FIXY_ABUSE_BUSINESS_INQUIRY_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_BUSINESS_INQUIRY_WINDOW_SECONDS:600}
+    offer-submission:
+      max-requests-per-window: ${FIXY_ABUSE_OFFER_SUBMISSION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_OFFER_SUBMISSION_WINDOW_SECONDS:600}
+    push-subscription:
+      max-requests-per-window: ${FIXY_ABUSE_PUSH_SUBSCRIPTION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_PUSH_SUBSCRIPTION_WINDOW_SECONDS:600}
+    merchant-panel:
+      max-requests-per-window: ${FIXY_ABUSE_MERCHANT_PANEL_MAX_REQUESTS_PER_WINDOW:20}
+      window-seconds: ${FIXY_ABUSE_MERCHANT_PANEL_WINDOW_SECONDS:60}
+    provider-registration:
+      max-requests-per-window: ${FIXY_ABUSE_PROVIDER_REGISTRATION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_PROVIDER_REGISTRATION_WINDOW_SECONDS:600}
+    business-registration:
+      max-requests-per-window: ${FIXY_ABUSE_BUSINESS_REGISTRATION_MAX_REQUESTS_PER_WINDOW:5}
+      window-seconds: ${FIXY_ABUSE_BUSINESS_REGISTRATION_WINDOW_SECONDS:600}
   auth:
     google-client-id: ${GOOGLE_CLIENT_ID:}
     session-secret: ${AUTH_SESSION_SECRET:}

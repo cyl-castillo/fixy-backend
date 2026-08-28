@@ -71,7 +71,13 @@ class OfferOgControllerTest {
         .andReturn();
 
     String body = res.getResponse().getContentAsString();
-    assertThat(body).contains("<meta property=\"og:title\" content=\"20% en tortas\" />");
+    // og:title = título + descuento (contrato de OfferOgHtmlService.buildTitle):
+    // el beneficio tiene que verse en lo que WhatsApp muestra más grande.
+    // HtmlUtils.htmlEscape entity-codifica el separador "·" — se compara
+    // contra la misma función, mismo criterio que la aserción de og:description.
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("20% en tortas · 20% off") + "\" />");
     assertThat(body).contains(
         "<meta property=\"og:image\" content=\"https://api.fixy.com.uy/uploads/offer-1/foto.jpg\" />");
     assertThat(body).contains(
@@ -96,6 +102,42 @@ class OfferOgControllerTest {
     String body = res.getResponse().getContentAsString();
     assertThat(body).contains(
         "<meta property=\"og:image\" content=\"https://api.fixy.com.uy/images/og-default.png\" />");
+  }
+
+  @Test
+  void ofertaSinDescuentoUsaSoloElTituloEnOgTitle() throws Exception {
+    Business business = persistBusiness("Comercio Sin Descuento OG Test", "098555007");
+    Offer offer = persistOffer(business, "Envío gratis en el local");
+    offer.setDiscountText(null);
+    offerRepository.save(offer);
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("Envío gratis en el local") + "\" />");
+  }
+
+  @Test
+  void tituloQueYaContieneElDescuentoNoLoRepiteEnOgTitle() throws Exception {
+    Business business = persistBusiness("Comercio Dedup OG Test", "098555008");
+    Offer offer = persistOffer(business, "2x1 en muzzarella");
+    offer.setDiscountText("2x1");
+    offerRepository.save(offer);
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    // "2x1 en muzzarella · 2x1" sería redundante — el contrato de buildTitle
+    // omite el descuento cuando el título ya lo contiene (case-insensitive).
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<meta property=\"og:title\" content=\""
+            + HtmlUtils.htmlEscape("2x1 en muzzarella") + "\" />");
   }
 
   @Test
@@ -177,8 +219,107 @@ class OfferOgControllerTest {
   }
 
   @Test
+  void ofertaActivaReescribeElCanonicalALaUrlDeLaOferta() throws Exception {
+    Business business = persistBusiness("Comercio Canonical OG Test", "098555009");
+    Offer offer = persistOffer(business, "15% en pintura");
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<link rel=\"canonical\" href=\"https://www.fixy.com.uy/oferta/" + offer.getId() + "\" />");
+    assertThat(body).doesNotContain("<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />");
+  }
+
+  @Test
+  void ofertaInexistenteMantieneElCanonicalGenericoDeLaHome() throws Exception {
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", 999999))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains("<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />");
+  }
+
+  @Test
   void esPublicoSinCredencialesDeAuth() throws Exception {
     mockMvc.perform(get("/og/oferta/{id}", 999999))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  void ofertaActivaIncluyeJsonLdDeOfferConElComercioAnidado() throws Exception {
+    Business business = persistBusiness("Comercio JsonLd OG Test", "098555010");
+    business.setAddress("Av. Giannattasio km 21");
+    businessRepository.save(business);
+    Offer offer = persistOffer(business, "25% en ferretería");
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains("<script type=\"application/ld+json\">");
+    assertThat(body).contains("\"@type\":\"Offer\"");
+    assertThat(body).contains("\"name\":\"25% en ferretería · 20% off\"");
+    assertThat(body).contains("\"url\":\"https://www.fixy.com.uy/oferta/" + offer.getId() + "\"");
+    assertThat(body).contains("\"validThrough\"");
+    assertThat(body).contains("\"@type\":\"LocalBusiness\"");
+    assertThat(body).contains("\"name\":\"Comercio JsonLd OG Test\"");
+    assertThat(body).contains("\"address\":\"Av. Giannattasio km 21\"");
+    assertThat(body).contains("\"areaServed\":\"Solymar\"");
+  }
+
+  @Test
+  void ofertaActivaInyectaResumenLegibleSinJsDentroDelRoot() throws Exception {
+    Business business = persistBusiness("Comercio Resumen OG Test", "098555011");
+    Offer offer = persistOffer(business, "30% en pinturas");
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    // Los lectores de asistentes de IA (Gemini verificado 2026-08-26) solo
+    // extraen texto visible del body: con el root vacío reportan "requiere
+    // JavaScript". El resumen va DENTRO del root para que React lo reemplace
+    // al montar y el humano con JS nunca lo vea.
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains(
+        "<div id=\"root\"><main><h1>" + HtmlUtils.htmlEscape("30% en pinturas · 20% off") + "</h1>");
+    assertThat(body).contains(
+        "<p>" + HtmlUtils.htmlEscape("20% off · Comercio Resumen OG Test · Solymar") + "</p>");
+    assertThat(body).contains("Oferta válida hasta el ");
+    assertThat(body).contains(
+        "<a href=\"https://www.fixy.com.uy/oferta/" + offer.getId() + "\">Ver esta oferta en Fixy</a>");
+  }
+
+  @Test
+  void ofertaInexistenteMantieneElRootVacioSinResumenNiJsonLd() throws Exception {
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", 999999))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).contains("<div id=\"root\"></div>");
+    assertThat(body).doesNotContain("application/ld+json");
+    assertThat(body).doesNotContain("Ver esta oferta en Fixy");
+  }
+
+  @Test
+  void jsonLdEscapaLosCaracteresQuePodrianCerrarElScriptTag() throws Exception {
+    Business business = persistBusiness("Comercio Breakout OG Test", "098555012");
+    Offer offer = persistOffer(business, "cierre </script> malicioso");
+
+    MvcResult res = mockMvc.perform(get("/og/oferta/{id}", offer.getId()))
+        .andExpect(status().isOk())
+        .andReturn();
+
+    // Un "</script>" literal dentro del JSON cerraría el tag ld+json y lo
+    // que siga se ejecutaría como HTML/JS — el "<" viaja como \u003c.
+    String body = res.getResponse().getContentAsString();
+    assertThat(body).doesNotContain("</script> malicioso");
+    assertThat(body).contains("\\u003c/script> malicioso");
   }
 }

@@ -33,6 +33,7 @@ public class SecurityConfig {
             .requestMatchers("/api/webhooks/**").permitAll()
             .requestMatchers("/uploads/**").permitAll()
             .requestMatchers("/og/**").permitAll()
+            .requestMatchers("/sitemap.xml").permitAll()
             .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**", "/api/ops/**",
                 "/api/businesses/**", "/api/offers/**").authenticated()
             .anyRequest().permitAll());
@@ -71,7 +72,9 @@ public class SecurityConfig {
         "http://127.0.0.1:8080",
         "http://localhost:8080"
     ));
-    configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "OPTIONS"));
+    // PUT/DELETE: horarios y catálogo de la ficha del comercio (Fase 1) los
+    // usan desde el admin; sin ellos el preflight devuelve 403 en navegador.
+    configuration.setAllowedMethods(List.of("GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"));
     configuration.setAllowedHeaders(List.of("*"));
     configuration.setAllowCredentials(false);
 

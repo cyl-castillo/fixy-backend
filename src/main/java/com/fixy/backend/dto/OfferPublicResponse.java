@@ -36,6 +36,48 @@ import java.time.OffsetDateTime;
  * (comercio real sin vínculo a Provider — CTA "Consultar", mini-form),
  * {@code "none"} (comercio scrapeado de una fuente pública, sin
  * interlocutor real — sin CTA de contacto).
+ *
+ * <p>{@code createdAt} se agregó de forma aditiva para el motor de ranking
+ * de conveniencia ({@code OfferRankingService}, fase 1): el orden de la
+ * lista ya no es cronológico, así que el cliente necesita esta fecha si
+ * quiere mostrar "publicada hace X" sin depender del orden del array.
+ *
+ * <p>{@code likeCount} e {@code inquiryCount} se agregaron de forma aditiva
+ * en fase 3 (interacción real del barrio como señal de ranking, ver
+ * {@code OfferRankingService}). A diferencia de {@code viewCount} viajan
+ * siempre como {@code int} crudo, sin el gate de social proof — no hay
+ * política equivalente definida para "me sirve" ni consultas todavía, se
+ * agrega si hace falta más adelante.
+ *
+ * <p>{@code businessLatitude}/{@code businessLongitude} se agregaron de
+ * forma aditiva para el mapa del barrio (fase 3 del roadmap de ofertas):
+ * mismo criterio de privacidad que {@code businessAddress} (dato físico
+ * público del comercio, no del vecino) — {@code null} si el comercio no
+ * cargó coordenadas (V21, nullable).
+ *
+ * <p>{@code analysis} se agregó de forma aditiva en fase 3 (análisis
+ * determinista "¿esta oferta conviene?", ver {@code OfferAnalysisService} y
+ * {@code OfferAnalysis}): siempre presente como objeto, sin migración de DB
+ * — todo se computa en lectura a partir de columnas ya existentes.
+ *
+ * <p>{@code businessId} se agregó de forma aditiva en Fase 2 (motor de
+ * respuesta sobre el catálogo, gap analysis 2026-08-25 §2): el frontend lo
+ * necesita para dirigir la consulta "¿lo tienen?" ({@code POST
+ * /api/public/businesses/{businessId}/inquiries}) al comercio correcto —
+ * a diferencia de {@code whatsappNumber} no es un dato sensible (mismo
+ * criterio que {@code businessAddress}). Siempre no-nulo en la práctica
+ * (este DTO nunca se construye si el {@code Business} referenciado no
+ * existe, ver {@code OfferService.toPublicResponse}), pero el campo viaja
+ * nullable por si ese invariante cambia — patrón defensivo, no confiar en
+ * que siempre esté.
+ *
+ * <p>{@code businessSlug} se agregó de forma aditiva en Fase 3 (página
+ * pública del comercio, gap analysis 2026-08-25 §8): el frontend lo
+ * necesita para linkear "ver ficha del comercio" desde la tarjeta de
+ * oferta. {@code null} si el comercio todavía no tiene slug asignado — este
+ * GET nunca dispara {@code BusinessSlugService.ensureSlug} (una lectura
+ * pública no puede tener el efecto secundario de decidir una URL
+ * permanente).
  */
 public record OfferPublicResponse(
     Long id,
@@ -51,6 +93,14 @@ public record OfferPublicResponse(
     String sourceName,
     String businessAddress,
     Integer viewCount,
-    String ctaType
+    String ctaType,
+    OffsetDateTime createdAt,
+    int likeCount,
+    int inquiryCount,
+    Double businessLatitude,
+    Double businessLongitude,
+    OfferAnalysis analysis,
+    Long businessId,
+    String businessSlug
 ) {
 }

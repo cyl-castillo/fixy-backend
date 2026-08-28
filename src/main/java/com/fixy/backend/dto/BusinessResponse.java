@@ -12,7 +12,21 @@ public record BusinessResponse(
     BusinessStatus status,
     Long providerId,
     String address,
+    Double latitude,
+    Double longitude,
     OffsetDateTime createdAt,
-    OffsetDateTime updatedAt
+    OffsetDateTime updatedAt,
+    // Fase 5 (panel self-service del comercio): null hasta que ops pide el
+    // link por primera vez (POST /api/businesses/{id}/panel-link) — ver
+    // BusinessService.ensurePanelLink.
+    String panelToken,
+    // Fase 1 de la ficha (V24): descripción libre y multi-rubro CSV
+    // (patrón Provider.categories) — aditivos sobre `category` (singular).
+    String description,
+    String categories,
+    // Fase 3 (V26): slug de la página pública /comercio/{slug} — null hasta
+    // que se crea el comercio o ops pide el link público (ver
+    // BusinessSlugService.ensureSlug), igual criterio que panelToken.
+    String slug
 ) {
 }

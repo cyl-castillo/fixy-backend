@@ -30,9 +30,13 @@ import org.springframework.stereotype.Service;
  * {@value #RECENCY_DAYS} días por suscripción ({@code
  * PushSubscription.lastOffersDigestAt}).
  *
- * <p>Solo suscripciones de CLIENTE ({@code leadId != null}) — las de
- * proveedor no participan de este loop, el digest es de adquisición/
- * retención de cliente (Loop 1 del roadmap), no un canal operativo.
+ * <p>Suscripciones de CLIENTE Y VISITANTE ({@code providerId == null} —
+ * Fase Push-2, antes solo {@code leadId != null}) — las de proveedor NUNCA
+ * participan de este loop, el digest es de adquisición/retención de cliente
+ * (Loop 1 del roadmap), no un canal operativo. Ampliado a visitantes porque
+ * el enganche (Fase Push-2) deja que cualquiera se suscriba desde la PWA sin
+ * haber hecho un pedido todavía — dejarlos afuera del digest los condenaba a
+ * suscribirse y nunca recibir nada hasta convertir en lead.
  */
 @Service
 public class OfferDigestService {
@@ -43,7 +47,11 @@ public class OfferDigestService {
   static final int RECENCY_DAYS = 7;
   private static final String NO_ZONE_LABEL = "sin zona";
   private static final int DIGEST_OFFER_TITLES = 3;
-  private static final String DIGEST_URL = "/ofertas";
+  // Marca de atribución (2026-08-25): el frontend registra "digest-open"
+  // cuando llega con ?d=1 — la métrica que decide si el digest se automatiza
+  // (FIXY_OFERTAS_PUSH_Y_MAPA §3.5). Sin la marca, push y orgánico eran
+  // indistinguibles.
+  private static final String DIGEST_URL = "/ofertas?d=1";
 
   private final PushSubscriptionRepository pushSubscriptionRepository;
   private final OfferService offerService;
@@ -69,14 +77,14 @@ public class OfferDigestService {
    * por suscripción dentro de una zona).
    */
   public OfferDigestPreviewResponse preview() {
-    List<PushSubscription> clientSubs = pushSubscriptionRepository.findByLeadIdIsNotNull();
+    List<PushSubscription> digestSubs = pushSubscriptionRepository.findByProviderIdIsNull();
     OffsetDateTime recentCutoff = OffsetDateTime.now(clock).minusDays(RECENCY_DAYS);
 
     List<OfferDigestZonePreview> zones = new ArrayList<>();
     int totalToSend = 0;
 
     for (CoverageZone zone : CoverageZone.values()) {
-      List<PushSubscription> subsInZone = clientSubs.stream()
+      List<PushSubscription> subsInZone = digestSubs.stream()
           .filter(sub -> zone.label().equals(sub.getZone()))
           .toList();
       if (subsInZone.isEmpty()) {
@@ -92,13 +100,13 @@ public class OfferDigestService {
       }
     }
 
-    List<PushSubscription> withoutZone = clientSubs.stream().filter(sub -> sub.getZone() == null).toList();
+    List<PushSubscription> withoutZone = digestSubs.stream().filter(sub -> sub.getZone() == null).toList();
     if (!withoutZone.isEmpty()) {
       zones.add(new OfferDigestZonePreview(NO_ZONE_LABEL, withoutZone.size(), 0, false,
           "sin zona asociada a la suscripción, no se le puede armar el digest"));
     }
 
-    return new OfferDigestPreviewResponse(zones, clientSubs.size(), totalToSend);
+    return new OfferDigestPreviewResponse(zones, digestSubs.size(), totalToSend);
   }
 
   private String digestReason(int activeOffers, boolean willSend) {
@@ -125,7 +133,7 @@ public class OfferDigestService {
    * navegador.
    */
   public OfferDigestSendResponse send() {
-    List<PushSubscription> clientSubs = pushSubscriptionRepository.findByLeadIdIsNotNull();
+    List<PushSubscription> digestSubs = pushSubscriptionRepository.findByProviderIdIsNull();
     OffsetDateTime now = OffsetDateTime.now(clock);
     OffsetDateTime recentCutoff = now.minusDays(RECENCY_DAYS);
 
@@ -134,7 +142,7 @@ public class OfferDigestService {
     int skippedFewOffers = 0;
     int skippedNoZone = 0;
 
-    for (PushSubscription sub : clientSubs) {
+    for (PushSubscription sub : digestSubs) {
       String zone = sub.getZone();
       if (zone == null) {
         skippedNoZone++;
@@ -164,7 +172,12 @@ public class OfferDigestService {
         .limit(DIGEST_OFFER_TITLES)
         .map(OfferPublicResponse::title)
         .collect(Collectors.joining(" · "));
-    pushNotificationService.notifyLeadHasNews(sub.getLeadId(), title, body, DIGEST_URL);
+    // notifySubscription (no notifyLeadHasNews): esta fila puede ser de un
+    // visitante sin leadId (Fase Push-2), y de todos modos es más correcto
+    // acá — el loop ya itera por SUSCRIPCIÓN, no por lead; usar
+    // notifyLeadHasNews mandaría a TODOS los dispositivos del lead en cada
+    // vuelta si tiene más de una fila, duplicando el envío.
+    pushNotificationService.notifySubscription(sub, title, body, DIGEST_URL);
     sub.setLastOffersDigestAt(now);
     pushSubscriptionRepository.save(sub);
   }

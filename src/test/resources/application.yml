@@ -33,6 +33,12 @@ fixy:
     enabled: false
   reengagement:
     enabled: false
+  matching:
+    auto-release:
+      enabled: false
+  providers:
+    pending-approval:
+      enabled: false
   security:
     username: test-ops
     password: test-pass
@@ -45,6 +51,24 @@ fixy:
     max-requests-per-window: 200
     window-seconds: 60
     offer-inquiry:
+      max-requests-per-window: 200
+      window-seconds: 60
+    offer-submission:
+      max-requests-per-window: 200
+      window-seconds: 60
+    push-subscription:
+      max-requests-per-window: 200
+      window-seconds: 60
+    merchant-panel:
+      max-requests-per-window: 200
+      window-seconds: 60
+    business-inquiry:
+      max-requests-per-window: 200
+      window-seconds: 60
+    provider-registration:
+      max-requests-per-window: 200
+      window-seconds: 60
+    business-registration:
       max-requests-per-window: 200
       window-seconds: 60
   chat:
@@ -65,6 +89,17 @@ fixy:
     scheduler-fixed-delay-ms: 3600000
   offers:
     expiration:
+      enabled: false
+      scheduler-fixed-delay-ms: 3600000
+    digest:
+      auto:
+        enabled: false
+    saved-reminder:
+      enabled: false
+    merchant-reminder:
+      enabled: false
+  business-inquiries:
+    expiry:
       enabled: false
       scheduler-fixed-delay-ms: 3600000
   auth:
