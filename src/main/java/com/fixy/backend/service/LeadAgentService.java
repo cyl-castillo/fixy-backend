@@ -385,7 +385,7 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
       } catch (Exception fallbackEx) {
         log.error("heuristic fallback also failed for lead {}: {}", leadId, fallbackEx.getMessage());
-        safePost(leadId, "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?");
+        safePost(leadId, ASK_WHAT_HAPPENED);
       }
     } finally {
       // El turno intentó cubrir esta tanda (con LLM, heurística o el enlatado
@@ -560,7 +560,91 @@ public class LeadAgentService {
       }
       reply = waiting;
     }
+    // El guard de arriba solo cubre leads YA clasificados (readyForMatching o
+    // con proveedor en línea). Un pedido que el clasificador NO entiende no
+    // tiene categoría ni zona, así que nunca entraba — y el fallback le
+    // repetía la misma pregunta genérica hasta que la persona se iba.
+    // Bucle real, reportado dos veces por el canal (28 y 29/08) y visible en
+    // los leads #261, #262 y #263 de prod: "necesito un carpintero",
+    // "servicio de limpieza" y "un flete para una mudanza" — tres pedidos
+    // legítimos que quedaron con problem "(pendiente)" e invisibles en el
+    // board. En prod el LLM devolvió "sin respuesta utilizable" en los seis
+    // turnos, así que la salida tiene que ser determinista: no depende de que
+    // el 8B entienda nada.
+    if (ASK_WHAT_HAPPENED.equals(reply) && isStuckRepeatingItself(leadId, reply)) {
+      escalateUnclassifiedRequest(leadId, refreshed);
+      return;
+    }
     leadMessageService.postFromAgent(leadId, reply);
+  }
+
+  /**
+   * Pregunta genérica de arranque. Constante porque el guard de
+   * respondWithHeuristicFallback la compara por identidad: es la ÚNICA
+   * respuesta del fallback que no reconoce nada de lo que el vecino dijo, y
+   * por lo tanto la única que repetida deja la conversación sin salida.
+   */
+  static final String ASK_WHAT_HAPPENED =
+      "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
+
+  /** Largo seguro para Lead.problem (columna VARCHAR(255) por defecto). */
+  private static final int PROBLEM_MAX_LENGTH = 240;
+
+  /**
+   * El pedido no se pudo clasificar y ya se preguntó una vez. En lugar de
+   * repetir la pregunta, se hace lo que haría una persona: se guarda lo que
+   * el vecino DIJO como el problema del lead (deja de ser "(pendiente)" e
+   * invisible en el board) y se pasa a alguien del equipo.
+   *
+   * El problema se escribe ANTES de escalar a propósito: isSmokeLead lee
+   * lead.getProblem(), y con "(pendiente)" un lead de prueba de chat pasaba
+   * el guard y disparaba Telegram. Copiar el texto del cliente (con la marca
+   * [smoke] si la mencionó) lo cierra.
+   */
+  private void escalateUnclassifiedRequest(Long leadId, Lead lead) {
+    String said = customerWordsForProblem(leadId);
+    if (said != null && (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem()))) {
+      lead.setProblem(customerMentionedSmoke(leadId) ? "[smoke] " + said : said);
+      leadRepository.save(lead);
+    }
+    if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
+      log.info("pedido sin clasificar ya escalado en lead {}: silencio", leadId);
+      return;
+    }
+    // "despacha", no "escaló": dispatchEscalation todavía puede descartarlo
+    // por [smoke]. El log no debe afirmar más de lo que sabe.
+    log.info("pedido sin clasificar en lead {} tras dos intentos: se corta el bucle y se despacha escalamiento", leadId);
+    dispatchEscalation(leadId, new AgentAction("escalate",
+        "el clasificador no entendió el pedido en dos turnos",
+        said == null ? "sin texto del cliente" : said));
+  }
+
+  /**
+   * Lo que el cliente escribió, en sus palabras, para usarlo como problema del
+   * lead. Se juntan sus mensajes (no solo el último: en los tres casos de prod
+   * el oficio venía en el primero — "necesito un carpintero" — y el detalle en
+   * el segundo — "arreglar un sillón"), sin duplicados y recortado a la
+   * columna.
+   */
+  private String customerWordsForProblem(Long leadId) {
+    try {
+      java.util.LinkedHashSet<String> said = new java.util.LinkedHashSet<>();
+      for (LeadMessage m : leadMessageService.recentForAgent(leadId, HISTORY_LIMIT)) {
+        if ("customer".equals(m.getSender()) && m.getText() != null && !m.getText().isBlank()) {
+          said.add(m.getText().trim());
+        }
+      }
+      if (said.isEmpty()) {
+        return null;
+      }
+      String joined = String.join(" · ", said);
+      return joined.length() > PROBLEM_MAX_LENGTH
+          ? joined.substring(0, PROBLEM_MAX_LENGTH - 1).trim() + "…"
+          : joined;
+    } catch (Exception ex) {
+      log.warn("customerWordsForProblem failed lead {}: {}", leadId, ex.getMessage());
+      return null;
+    }
   }
 
   /**
@@ -1206,7 +1290,9 @@ public class LeadAgentService {
 
     if (!hasCategory && !hasZone) {
       // Mensaje vacío/ambiguo ("hola", "??"): no hay nada que reconocer, repregunta honesta.
-      return "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
+      // Se pregunta UNA sola vez: ver ASK_WHAT_HAPPENED y el guard de
+      // respondWithHeuristicFallback que la convierte en escalamiento.
+      return ASK_WHAT_HAPPENED;
     }
 
     // Categoría que Fixy AÚN no cubre (simulación de clientes 2026-08-06,
