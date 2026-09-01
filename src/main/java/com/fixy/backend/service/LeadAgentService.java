@@ -2288,6 +2288,21 @@ public class LeadAgentService {
     if (lead == null) {
       return;
     }
+    if (lead.getDetectedCategory() != null) {
+      // Tap tardío sobre una fila del menú viejo (WhatsApp guarda el
+      // historial: los botones interactivos siguen tocables después de que
+      // la conversación avanzó). El lead activo ya tiene categoría fijada —
+      // probablemente con un proveedor ya contactado — así que NO la
+      // pisamos (bug real, reportado en la revisión del PR: un cliente con
+      // un pedido de aires ya en PROVIDER_CONTACTED que tocaba "Plomería"
+      // en el menú viejo corrompía el lead en curso). Avisamos en vez de
+      // mutar; un pedido nuevo se abre por texto libre, no reabriendo el
+      // menú sobre un lead que ya tiene rumbo.
+      leadMessageService.postFromAgent(leadId,
+          "Ya tengo tu pedido de %s en curso. Si querés hacer un pedido nuevo de otro tipo, contame directo qué necesitás."
+              .formatted(humanCategory(lead.getDetectedCategory())));
+      return;
+    }
     var category = com.fixy.backend.model.ServiceCategory.fromId(categoryId).orElse(null);
     if (category == null) {
       safePost(leadId, fallbackChatFirstGreeting());

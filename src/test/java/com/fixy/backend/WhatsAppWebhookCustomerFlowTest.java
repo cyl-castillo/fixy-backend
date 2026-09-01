@@ -150,6 +150,38 @@ class WhatsAppWebhookCustomerFlowTest {
   }
 
   @Test
+  void lateMenuTapDoesNotOverwriteCategoryOfLeadAlreadyInProgress() throws Exception {
+    // Bug reportado en la revision del PR: WhatsApp guarda el historial, asi
+    // que las filas del menu de apertura siguen tocables despues de que la
+    // conversacion avanzo. Un tap tardio sobre una fila vieja NO debe pisar
+    // la categoria de un lead que ya tiene rumbo (potencialmente con un
+    // proveedor ya contactado).
+    when(whatsappService.isEnabled()).thenReturn(false);
+
+    String from = "59899777006";
+    postInboundListReplyMessage(from, "wamid.customer6a", "plomeria", "Plomería");
+    Lead lead = awaitLeadFor(from);
+    Awaitility.await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(100))
+        .untilAsserted(() -> {
+          Lead updated = leadRepository.findById(lead.getId()).orElseThrow();
+          assertThat(updated.getDetectedCategory()).isEqualTo("plomeria");
+        });
+
+    // Tap tardio sobre otra fila (menu viejo) para el mismo lead activo.
+    postInboundListReplyMessage(from, "wamid.customer6b", "aires_acondicionados", "Aire acondicionado");
+
+    Awaitility.await().atMost(Duration.ofSeconds(5)).pollInterval(Duration.ofMillis(100))
+        .untilAsserted(() -> {
+          List<LeadMessage> messages = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId());
+          assertThat(messages).extracting(LeadMessage::getText)
+              .anyMatch(t -> t.contains("Ya tengo tu pedido"));
+        });
+
+    Lead afterSecondTap = leadRepository.findById(lead.getId()).orElseThrow();
+    assertThat(afterSecondTap.getDetectedCategory()).isEqualTo("plomeria");
+  }
+
+  @Test
   void otherRowSelectionCreatesLeadWithoutFakingProblemText() throws Exception {
     when(whatsappService.isEnabled()).thenReturn(false);
 
