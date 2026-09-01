@@ -397,8 +397,24 @@ public class ProviderSelfService {
     timelineService.appendEvent(lead, PROVIDER_RELEASED_EVENT_TYPE, "system",
         "%s %s%s: el pedido vuelve a búsqueda de proveedor".formatted(providerName, verb, reasonSuffix));
 
-    String message = ("%s al final no va a poder tomar tu pedido. Ya estoy buscando a otra persona "
-        + "y te aviso por acá apenas tenga novedades.").formatted(providerName);
+    // ¿Queda alguien más que pueda tomarlo? El decline ya se guardó arriba,
+    // así que findMatchesForLead excluye a quien acaba de rechazar: la
+    // respuesta es exactamente "quién más hay", no "quién había".
+    boolean hasAlternative = hasAlternativeProvider(lead);
+
+    // Prometer "ya estoy buscando a otra persona" cuando NO hay otra persona
+    // es la promesa vacía que mata el pedido en silencio (embudo 2026-09-01:
+    // #255 y #256 de pastelería los rechazó la única pastelera el 27/08, #260
+    // de aires el único técnico el 28/08 — los tres siguen NEW, sin un solo
+    // mensaje desde entonces, porque retryAutoMatch calla a propósito cuando
+    // no hay match). Si no hay nadie, se dice la verdad y se avisa al equipo.
+    String message = hasAlternative
+        ? ("%s al final no va a poder tomar tu pedido. Ya estoy buscando a otra persona "
+            + "y te aviso por acá apenas tenga novedades.").formatted(providerName)
+        : ("%s al final no va a poder tomar tu pedido, y por ahora no tengo a nadie más "
+            + "libre para %s en %s. Ya avisé al equipo para conseguirte a alguien y te "
+            + "aviso por acá apenas lo tenga.")
+            .formatted(providerName, humanCategory(lead), safeZone(lead));
     leadMessageService.postFromAgent(lead.getId(), message);
     try {
       pushNotificationService.notifyLeadHasNews(lead.getId(), "Novedades de tu pedido", message);
@@ -415,6 +431,44 @@ public class ProviderSelfService {
         // best-effort: un aviso a ops que falla no debe romper la cancelación
       }
     }
+    // Demanda sin oferta SÍ es noticia, incluso en un decline pre-aceptación:
+    // es el único momento en que se sabe que el pedido se quedó sin nadie, y
+    // es accionable (aprobar a quien está pendiente, o salir a captar). El
+    // guard anti-smoke vive dentro de notifyDemandWithoutSupply.
+    if (!hasAlternative) {
+      try {
+        telegramNotifyService.notifyDemandWithoutSupply(lead);
+      } catch (Exception ex) {
+        // best-effort: un aviso a ops que falla no debe romper la cancelación
+      }
+    }
+  }
+
+  /**
+   * ¿Hay algún otro proveedor que todavía pueda tomar este pedido? Se llama
+   * DESPUÉS de registrar el decline, así que quien acaba de rechazar ya está
+   * excluido. Ante cualquier fallo devuelve {@code true}: el costo de un
+   * falso "hay alguien" es un mensaje optimista de más; el de un falso "no
+   * hay nadie" es un aviso equivocado a Carlos.
+   */
+  private boolean hasAlternativeProvider(Lead lead) {
+    try {
+      return !providerCatalogService
+          .findMatchesForLead(lead.getId(), lead.getDetectedCategory(), lead.getLocation())
+          .isEmpty();
+    } catch (Exception ex) {
+      return true;
+    }
+  }
+
+  private String humanCategory(Lead lead) {
+    String category = lead.getDetectedCategory();
+    return hasText(category) ? category.replace('_', ' ') : "lo que pediste";
+  }
+
+  private String safeZone(Lead lead) {
+    String zone = lead.getLocation();
+    return hasText(zone) ? zone : "tu zona";
   }
 
   private void clearAssignment(Lead lead) {
