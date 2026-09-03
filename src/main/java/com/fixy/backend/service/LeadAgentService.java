@@ -592,7 +592,68 @@ public class LeadAgentService {
       escalateUnclassifiedRequest(leadId, refreshed);
       return;
     }
+    // Zona NO RECONOCIDA ≠ zona ausente (guardia diaria 2026-09-02, lead #265).
+    // El vecino pidió mantenimiento de aire, dijo "vivo en montevideo", Fixy le
+    // preguntó la zona, contestó "pocitos" — y recibió la MISMA frase carácter
+    // por carácter, porque "Pocitos" no está en CoverageZone: fromLabel da
+    // vacío, la zona no se guarda, y el builder del ack reconstruye idéntica
+    // la pregunta que el vecino ya contestó. Se fue. Repreguntar lo mismo no
+    // se arregla callándose (silencio es peor): se le dice la verdad de hasta
+    // dónde llega Fixy, que es lo que haría una persona.
+    boolean zoneStillMissing = refreshed.getLocation() == null || refreshed.getLocation().isBlank()
+        || "sin definir".equalsIgnoreCase(refreshed.getLocation());
+    if (zoneStillMissing && asksForZone(reply) && isStuckRepeatingItself(leadId, reply)) {
+      answerWithRealCoverage(leadId, refreshed);
+      return;
+    }
     leadMessageService.postFromAgent(leadId, reply);
+  }
+
+  /**
+   * La pregunta de zona ya se hizo y el vecino la contestó con algo que Fixy
+   * no reconoce. En vez de repetirla, se le dice hasta dónde llega Fixy y se
+   * le deja la puerta abierta por si su barrio sí está y lo escribió de otra
+   * forma. Lo que contestó queda en notes (misma captura determinista
+   * pregunta→respuesta del lead #131), así ops ve la demanda real fuera de
+   * cobertura en lugar de un pedido sin zona.
+   *
+   * <p>Si la cobertura ya se avisó, silencio — mismo criterio que el guard de
+   * espera de arriba: una persona no repite dos veces lo mismo.
+   *
+   * <p>No se escribe la zona en {@code lead.location} a propósito: eso movería
+   * el pedido dentro del matching (readyForMatching, blockingFields), y este
+   * fix es de conversación. La zona sin cobertura la sigue decidiendo ops.
+   */
+  private void answerWithRealCoverage(Long leadId, Lead lead) {
+    String reply = realCoverageReply(lead);
+    if (isStuckRepeatingItself(leadId, reply)) {
+      log.info("cobertura real ya avisada en lead {}: silencio", leadId);
+      return;
+    }
+    recordShortAnswerToLastQuestion(leadId, lead);
+    log.info("zona no reconocida en lead {}: se corta la repregunta y se dice la cobertura real", leadId);
+    leadMessageService.postFromAgent(leadId, reply);
+  }
+
+  /**
+   * Hasta dónde llega Fixy, en una frase. Se arma desde
+   * {@link com.fixy.backend.model.CoverageZone} (fuente única) y no a mano:
+   * una zona nueva no puede dejar este mensaje mintiéndole al vecino, que es
+   * exactamente el bug que motivó el enum.
+   */
+  private String realCoverageReply(Lead lead) {
+    List<String> labels = com.fixy.backend.model.CoverageZone.LABELS;
+    String areas = labels.size() < 2
+        ? String.join(", ", labels)
+        : labels.get(0) + " (" + String.join(", ", labels.subList(1, labels.size())) + ")";
+    boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
+        && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
+    String pedido = hasCategory
+        ? "tu pedido de " + humanCategory(lead.getDetectedCategory())
+        : "tu pedido";
+    return "Perdón, esa zona todavía no la cubrimos. Por ahora Fixy llega a " + areas
+        + ". Si estás en alguno de esos barrios decime cuál y sigo con " + pedido
+        + "; si no, te lo dejo anotado igual y te aviso apenas lleguemos a tu zona.";
   }
 
   /**
