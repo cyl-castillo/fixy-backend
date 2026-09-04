@@ -657,6 +657,35 @@ public class LeadAgentService {
   }
 
   /**
+   * Qué consigue Fixy HOY, en una frase. Es lo que recibe el vecino cuyo
+   * pedido no se entendió, en lugar de la promesa que Fixy no puede cumplir
+   * ("en breve te contactan": 26 de los 27 pedidos abiertos no tienen
+   * teléfono, y ningún humano contestó nunca uno de estos chats).
+   *
+   * <p>Dato que lo motiva (guardia diaria 2026-09-03): los cuatro pedidos
+   * chat-first anteriores al #265 —carpintero para un sillón, limpiar un
+   * parrillero, un flete para una mudanza, armar un ropero— murieron acá.
+   * Ninguno es ambiguo para una persona; los cuatro son oficios que Fixy no
+   * tiene. Al vecino no se le decía ni que no lo cubrimos ni qué sí, así que
+   * no podía corregirse ("ah, pero también tengo el aire roto") y se iba.
+   *
+   * <p>No afirma "ese servicio no lo cubrimos": por acá también cae el que
+   * escribió "hola" dos veces, y ahí sería mentira. Dice lo único que es
+   * cierto en los dos casos —no se entendió— y muestra la carta. La lista
+   * sale de {@link ServiceCategory#MVP_LABELS}, fuente única, para que sumar
+   * una categoría no deje este mensaje desactualizado.
+   */
+  static String whatFixyCoversReply() {
+    List<String> labels = com.fixy.backend.model.ServiceCategory.MVP_LABELS;
+    String servicios = labels.size() < 2
+        ? String.join(", ", labels)
+        : String.join(", ", labels.subList(0, labels.size() - 1)) + " y " + labels.get(labels.size() - 1);
+    return "Perdón, no te terminé de entender. Te cuento qué consigo hoy: " + servicios
+        + ". Si lo tuyo es alguno de esos decime cuál y sigo con tu pedido; si es otra cosa, "
+        + "ya lo anoté y se lo pasé al equipo — así decidimos qué servicio sumar.";
+  }
+
+  /**
    * Pregunta genérica de arranque. Constante porque el guard de
    * respondWithHeuristicFallback la compara por identidad: es la ÚNICA
    * respuesta del fallback que no reconoce nada de lo que el vecino dijo, y
@@ -694,7 +723,8 @@ public class LeadAgentService {
     log.info("pedido sin clasificar en lead {} tras dos intentos: se corta el bucle y se despacha escalamiento", leadId);
     dispatchEscalation(leadId, new AgentAction("escalate",
         "el clasificador no entendió el pedido en dos turnos",
-        said == null ? "sin texto del cliente" : said));
+        said == null ? "sin texto del cliente" : said),
+        whatFixyCoversReply());
   }
 
   /**
@@ -1103,6 +1133,11 @@ public class LeadAgentService {
    * teléfono sigue vacío. Siempre opcional para el cliente ("seguimos por
    * acá") — la promesa del modelo es cero fricción, no un formulario.
    */
+  /** Handoff a una persona: sigue siendo cierto cuando el escalamiento lo
+   *  pide el propio agente sobre un pedido que sí se entendió. */
+  static final String ESCALATION_HANDOFF =
+      "Te paso con una persona de Fixy para resolver esto mejor, en breve te contactan.";
+
   static final String CONTACT_PHONE_ASK =
       "Por último: ¿me dejás un WhatsApp para avisarte apenas el proveedor confirme? "
           + "Si preferís, seguimos solo por acá.";
@@ -1962,6 +1997,17 @@ public class LeadAgentService {
    * Package-private: testeado directo, mismo patrón que buildContext.
    */
   void dispatchEscalation(Long leadId, AgentAction action) {
+    dispatchEscalation(leadId, action, ESCALATION_HANDOFF);
+  }
+
+  /**
+   * Igual que {@link #dispatchEscalation(Long, AgentAction)} pero eligiendo
+   * qué lee el vecino. El aviso a ops (timeline + Telegram) es idéntico en
+   * los dos casos: lo que cambia es la promesa que se hace del lado del
+   * cliente, y hay caminos —el pedido que no se entendió— donde prometer un
+   * contacto humano es prometer lo que no se puede cumplir.
+   */
+  void dispatchEscalation(Long leadId, AgentAction action, String customerMessage) {
     try {
       Lead lead = leadRepository.findById(leadId).orElse(null);
       if (lead == null) return;
@@ -1969,8 +2015,7 @@ public class LeadAgentService {
       if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
         return;
       }
-      leadMessageService.postFromAgent(leadId,
-          "Te paso con una persona de Fixy para resolver esto mejor, en breve te contactan.");
+      leadMessageService.postFromAgent(leadId, customerMessage);
       leadTimelineService.appendEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE, "system",
           "Escalado a humano: " + safe(action.reason(), "no especificado"));
       telegramNotifyService.notifyEscalation(lead, action.reason(), action.summary());

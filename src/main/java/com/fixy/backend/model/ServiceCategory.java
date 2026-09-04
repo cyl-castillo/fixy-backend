@@ -193,6 +193,17 @@ public enum ServiceCategory {
       .map(ServiceCategory::id)
       .toList();
 
+  /**
+   * Nombres en español de las categorías MVP, para decirle al vecino qué
+   * consigue Fixy HOY. Deriva del enum a propósito (mismo criterio que
+   * {@link CoverageZone#LABELS}): sumar una categoría no puede dejar el
+   * mensaje mintiéndole a la gente, que es el bug que motivó este enum.
+   */
+  public static final List<String> MVP_LABELS = Arrays.stream(values())
+      .filter(ServiceCategory::isMvp)
+      .map(ServiceCategory::label)
+      .toList();
+
   /** Todos los IDs conocidos, incluyendo "otro" — para el enum del JSON schema del clasificador. */
   public static final List<String> ALL_IDS_INCLUDING_OTRO = Arrays.stream(values())
       .map(ServiceCategory::id)

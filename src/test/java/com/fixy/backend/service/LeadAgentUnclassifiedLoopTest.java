@@ -91,7 +91,16 @@ class LeadAgentUnclassifiedLoopTest {
     String second = lastAgentText(leadId);
     assertThat(second).as("no se repite la misma pregunta")
         .isNotEqualTo(LeadAgentService.ASK_WHAT_HAPPENED);
-    assertThat(second).as("se pasa a una persona").contains("Te paso con una persona de Fixy");
+    // 2026-09-03: ya no se promete un contacto humano que no puede ocurrir
+    // (el vecino no dejó teléfono y nadie contestó nunca uno de estos chats).
+    // Se dice lo único cierto —no se entendió— y se muestra qué sí consigue
+    // Fixy, para que pueda corregirse en vez de irse.
+    assertThat(second).as("no promete un contacto que no va a pasar")
+        .doesNotContain("en breve te contactan");
+    assertThat(second).as("dice qué consigue Fixy hoy")
+        .contains("qué consigo hoy")
+        .contains("aire acondicionado")
+        .contains("pastelería");
 
     // El pedido deja de ser invisible: queda escrito con las palabras del vecino.
     Lead saved = leadRepository.findById(leadId).orElseThrow();
