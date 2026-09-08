@@ -171,7 +171,15 @@ public class PushNotificationService {
    * un pedido reusa el mismo endpoint del navegador).
    *
    * <p>{@code zone} se valida contra {@link CoverageZone}: si no es una que
-   * Fixy reconoce, queda en null — igual que {@link #resolveLeadZone}.
+   * Fixy reconoce, queda en null — igual que {@link #resolveLeadZone}. Pero
+   * en una fila que YA tiene zona conocida no se pisa con null: la PWA
+   * re-sincroniza la suscripción en cada arranque y el visitante que nunca
+   * tocó un filtro re-postea {@code zone} vacío, así que un
+   * {@code setZone(null)} incondicional borraba la zona que el dispositivo
+   * ya había elegido y lo dejaba fuera del digest para siempre
+   * ({@code skippedNoZone=6} de 19 en el digest del 04/09). Mismo criterio
+   * que {@code businessId} más abajo. Cambiar de barrio sí pisa: para eso la
+   * zona nueva tiene que resolver contra {@link CoverageZone}.
    * Validación de abuso ({@code savedOfferIds} y rate limit por IP) antes de
    * tocar la base, mismo orden que el resto de las rutas públicas.
    *
@@ -205,7 +213,9 @@ public class PushNotificationService {
     subscription.setEndpoint(endpoint);
     subscription.setP256dh(p256dh);
     subscription.setAuth(auth);
-    subscription.setZone(zone);
+    if (zone != null) {
+      subscription.setZone(zone);
+    }
     subscription.setSavedOfferIds(SavedOfferIdsCodec.format(savedOfferIds));
     if (merchantToken != null && !merchantToken.isBlank()) {
       businessRepository.findByPanelToken(merchantToken.trim())

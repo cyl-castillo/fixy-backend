@@ -182,4 +182,52 @@ class PublicPushSubscriptionEndpointTest {
             .content(malformed))
         .andExpect(status().isBadRequest());
   }
+
+  @Test
+  void resyncSinZona_noPisaLaZonaQueYaConocia() throws Exception {
+    // Caso real (mejora diaria 08/09): el digest del jueves 04/09 salió
+    // sent=8 skippedNoZone=6 — 8 de 19 suscripciones sin zona, excluidas del
+    // digest para siempre. La PWA re-sincroniza la suscripción en cada
+    // arranque y el visitante que nunca tocó un filtro re-postea zone vacío:
+    // el upsert pisaba con null la zona que el dispositivo ya había elegido.
+    String endpoint = "https://push-test.example/resync-sin-zona";
+    PushSubscription existing = new PushSubscription();
+    existing.setEndpoint(endpoint);
+    existing.setP256dh("old-p256dh");
+    existing.setAuth("old-auth");
+    existing.setZone("Solymar");
+    pushSubscriptionRepository.save(existing);
+
+    String sinZona = """
+        {"endpoint": "%s", "keys": {"p256dh": "dummy-p256dh", "auth": "dummy-auth"}, "savedOfferIds": []}
+        """.formatted(endpoint);
+
+    mockMvc.perform(post("/api/public/push-subscriptions")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(sinZona))
+        .andExpect(status().isOk());
+
+    PushSubscription reloaded = pushSubscriptionRepository.findByEndpoint(endpoint).orElseThrow();
+    assertThat(reloaded.getZone()).as("el re-sync sin zona no debe borrar la zona conocida").isEqualTo("Solymar");
+    assertThat(reloaded.getP256dh()).as("el resto del upsert sigue actualizando").isEqualTo("dummy-p256dh");
+  }
+
+  @Test
+  void zonaNoReconocida_noPisaLaZonaQueYaConocia() throws Exception {
+    String endpoint = "https://push-test.example/resync-zona-no-reconocida";
+    PushSubscription existing = new PushSubscription();
+    existing.setEndpoint(endpoint);
+    existing.setP256dh("old-p256dh");
+    existing.setAuth("old-auth");
+    existing.setZone("Solymar");
+    pushSubscriptionRepository.save(existing);
+
+    mockMvc.perform(post("/api/public/push-subscriptions")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(body(endpoint, "Pocitos", "[]")))
+        .andExpect(status().isOk());
+
+    PushSubscription reloaded = pushSubscriptionRepository.findByEndpoint(endpoint).orElseThrow();
+    assertThat(reloaded.getZone()).as("una zona que Fixy no reconoce no borra la que sí").isEqualTo("Solymar");
+  }
 }
