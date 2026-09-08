@@ -724,7 +724,7 @@ public class LeadAgentService {
     dispatchEscalation(leadId, new AgentAction("escalate",
         "el clasificador no entendió el pedido en dos turnos",
         said == null ? "sin texto del cliente" : said),
-        whatFixyCoversReply());
+        withUncoveredServicePhoneAsk(lead, whatFixyCoversReply()));
   }
 
   /**
@@ -1142,6 +1142,20 @@ public class LeadAgentService {
       "Por último: ¿me dejás un WhatsApp para avisarte apenas el proveedor confirme? "
           + "Si preferís, seguimos solo por acá.";
 
+  /**
+   * El mismo pedido de WhatsApp, pero para el vecino cuyo oficio Fixy NO
+   * tiene. No puede reusar {@link #CONTACT_PHONE_ASK}: ese promete avisar
+   * "apenas el proveedor confirme" y acá no hay proveedor ninguno — sería la
+   * cuarta versión de la promesa vacía que ya se pagó en 15b3992, c338bcb y
+   * e26bf43. Dice la razón real por la que lo pide.
+   *
+   * <p>Contiene "WhatsApp" a propósito: así {@link #asksForContactPhone} lo
+   * reconoce y {@link #contactPhoneAlreadyAsked} evita que se vuelva a pedir
+   * si el vecino después corrige su pedido a una categoría que sí existe.
+   */
+  static final String UNCOVERED_SERVICE_PHONE_ASK =
+      "¿Me dejás un WhatsApp? Si sumamos ese servicio te aviso yo — si no, no tengo cómo volver a encontrarte.";
+
   public static boolean shouldAskContactPhone(
       boolean categoryKnown, boolean zoneKnown, String currentPhone,
       boolean phoneArrivedThisTurn, String reply) {
@@ -1231,6 +1245,29 @@ public class LeadAgentService {
    * (sin teléfono en el lead y sin haberlo pedido antes). Para los mensajes
    * de matching, que ya implican categoría+zona resueltas.
    */
+  /**
+   * Anexa el pedido de WhatsApp al cierre del pedido que Fixy no pudo
+   * clasificar (mejora diaria 2026-09-08). Ese mensaje es lo ÚLTIMO que ese
+   * vecino va a leer —el pedido es de un solo turno: escribe una vez y no
+   * vuelve— y hasta hoy salía sin pedirle nada: {@link #shouldAskContactPhone}
+   * exige categoría Y zona conocidas, y en este camino no hay ninguna de las
+   * dos. Resultado en prod: los cuatro pedidos de oficios que Fixy no tiene
+   * (#261 sillón, #262 parrillero, #263 flete, #264 ropero) quedaron sin
+   * teléfono, o sea irrecuperables el día que Fixy sume ese servicio.
+   *
+   * <p>El teléfono que el vecino conteste SÍ se captura sin cambios extra:
+   * respondWithHeuristicFallback extrae phoneMentionedIn de los mensajes
+   * pendientes antes de llegar al escalamiento, y el escalamiento es
+   * idempotente (no se le vuelve a escribir).
+   */
+  private String withUncoveredServicePhoneAsk(Lead lead, String message) {
+    boolean phoneMissing = lead.getPhone() == null || lead.getPhone().isBlank();
+    if (phoneMissing && !contactPhoneAlreadyAsked(lead.getId())) {
+      return message + " " + UNCOVERED_SERVICE_PHONE_ASK;
+    }
+    return message;
+  }
+
   private String withContactPhoneAsk(Lead lead, String message) {
     boolean phoneMissing = lead.getPhone() == null || lead.getPhone().isBlank();
     if (phoneMissing && !asksForContactPhone(message) && !contactPhoneAlreadyAsked(lead.getId())) {

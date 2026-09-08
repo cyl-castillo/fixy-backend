@@ -117,6 +117,89 @@ class LeadAgentUnknownServiceHonestyTest {
     }
   }
 
+  /**
+   * Mejora diaria 2026-09-08. Dato: los cuatro pedidos de oficios que Fixy no
+   * tiene (#261 sillón, #262 parrillero, #263 flete, #264 ropero) terminaron
+   * sin teléfono — 0 de 4 — porque el pedido de WhatsApp exige categoría Y
+   * zona conocidas y en este camino no hay ninguna de las dos. Como el pedido
+   * es de un solo turno, ese mensaje es la última chance de quedar con una
+   * forma de volver a encontrarlo el día que Fixy sume el servicio.
+   */
+  @Test
+  void unknownService_asksForAWhatsApp_soTheNeighbourIsNotLostForever() throws Exception {
+    Lead lead = newChatLead("flete");
+    Long leadId = lead.getId();
+    String token = lead.getAccessToken();
+
+    leadMessageService.postFromCustomer(leadId, token, "necesito un flete");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+    leadMessageService.postFromCustomer(leadId, token, "un flete para una mudanza");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+
+    String reply = lastAgentText(leadId);
+    assertThat(reply).as("se le pide una forma de volver a encontrarlo")
+        .contains("WhatsApp");
+    assertThat(reply).as("y se le dice para qué, sin inventar un proveedor")
+        .contains("Si sumamos ese servicio te aviso yo");
+    assertThat(reply).as("no se promete que un proveedor vaya a confirmar: no hay ninguno")
+        .doesNotContain("apenas el proveedor confirme");
+    assertThat(reply).as("sigue sin prometer el llamado humano que no ocurre")
+        .doesNotContain("en breve te contactan");
+  }
+
+  /** Si ya dejó el teléfono no se le pide de nuevo: molesta más repreguntar. */
+  @Test
+  void unknownService_doesNotAskForPhone_whenTheLeadAlreadyHasOne() throws Exception {
+    Lead lead = newChatLead("con-telefono");
+    lead.setPhone("099111222");
+    leadRepository.save(lead);
+    Long leadId = lead.getId();
+    String token = lead.getAccessToken();
+
+    leadMessageService.postFromCustomer(leadId, token, "necesito un tapicero");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+    leadMessageService.postFromCustomer(leadId, token, "arreglar un sillón");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+
+    String reply = lastAgentText(leadId);
+    assertThat(reply).as("se admite que no se entendió igual")
+        .contains("no te terminé de entender");
+    assertThat(reply).as("pero no se le pide el WhatsApp que ya dejó")
+        .doesNotContain(LeadAgentService.UNCOVERED_SERVICE_PHONE_ASK);
+  }
+
+  /**
+   * El pedido sirve de algo: el número que el vecino conteste DESPUÉS del
+   * cierre queda guardado en el lead (lo extrae el fallback antes de llegar
+   * al escalamiento, que ya es idempotente y no le vuelve a escribir).
+   */
+  @Test
+  void unknownService_phoneAnsweredAfterTheAsk_isStoredOnTheLead() throws Exception {
+    Lead lead = newChatLead("responde-tel");
+    Long leadId = lead.getId();
+    String token = lead.getAccessToken();
+
+    leadMessageService.postFromCustomer(leadId, token, "necesito un carpintero");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+    leadMessageService.postFromCustomer(leadId, token, "arreglar un sillón");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+    assertThat(lastAgentText(leadId)).contains("WhatsApp");
+
+    leadMessageService.postFromCustomer(leadId, token, "099123456");
+    leadAgentService.respondToCustomerAsync(leadId);
+    Thread.sleep(1500);
+
+    Lead saved = leadRepository.findById(leadId).orElseThrow();
+    assertThat(saved.getPhone()).as("el vecino deja de ser irrecuperable")
+        .isEqualTo("099123456");
+  }
+
   private String lastAgentText(Long leadId) {
     List<LeadMessage> all = messageRepository.findByLeadIdOrderByCreatedAtAsc(leadId);
     for (int i = all.size() - 1; i >= 0; i--) {
