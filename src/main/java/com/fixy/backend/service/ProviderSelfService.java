@@ -497,7 +497,10 @@ public class ProviderSelfService {
 
     String message = "Seguimos buscando quién pueda tomar tu pedido — apenas confirme un "
         + "proveedor, te aviso por acá.";
-    leadMessageService.postFromAgent(lead.getId(), message);
+    // Repetición deliberada: el texto es el mismo pero el hecho es nuevo (se
+    // cayó OTRO proveedor por timeout), y el push sale igual — el chat no
+    // puede quedar sin la línea que explica ese push.
+    leadMessageService.postFromAgentAllowingRepeat(lead.getId(), message);
     try {
       pushNotificationService.notifyLeadHasNews(lead.getId(), "Seguimos con tu pedido", message);
     } catch (Exception ex) {

@@ -111,7 +111,10 @@ public class LeadVoiceNoteService {
     // sobre un texto que no existe.
     LeadMessageResponse saved =
         messageService.postVoiceNoteFromCustomer(leadId, token, FALLBACK_TEXT, audioUrl);
-    messageService.postFromAgent(leadId, RETRY_REPLY);
+    // Repetición deliberada: si la SEGUNDA nota de voz tampoco se entiende,
+    // el vecino tiene que enterarse igual — quedarse mudo ahí sería el bug
+    // opuesto al del loro (ver postFromAgentAllowingRepeat).
+    messageService.postFromAgentAllowingRepeat(leadId, RETRY_REPLY);
     return saved;
   }
 

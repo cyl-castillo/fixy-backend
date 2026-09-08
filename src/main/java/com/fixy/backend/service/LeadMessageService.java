@@ -171,15 +171,62 @@ public class LeadMessageService {
    * sendText duplicaría el mensaje en WhatsApp.
    */
   public LeadMessageResponse postFromAgent(Long leadId, String rawText, boolean relayToWhatsApp) {
+    return postFromAgent(leadId, rawText, relayToWhatsApp, false);
+  }
+
+  /**
+   * Variante para las repeticiones DELIBERADAS: el mismo texto vuelve a tener
+   * sentido porque hubo un hecho nuevo que lo justifica. Hoy son dos:
+   * la segunda nota de voz ilegible seguida (el vecino necesita saber que esa
+   * tampoco se entendió, ver LeadVoiceNoteService) y el aviso de que seguimos
+   * buscando cuando se cae OTRO proveedor por timeout (ProviderSelfService).
+   * Repetir ahí no es lorear: es contar algo que acaba de pasar.
+   */
+  public LeadMessageResponse postFromAgentAllowingRepeat(Long leadId, String rawText) {
+    return postFromAgent(leadId, rawText, true, true);
+  }
+
+  /**
+   * Guard anti-loro. La versión original comparaba contra el último mensaje
+   * del CHAT, así que solo cortaba dos mensajes seguidos del agente (lead
+   * #109). El bucle que de verdad mata conversaciones es otro y pasa por el
+   * medio de ese guard: <b>pregunto X → el vecino contesta → repregunto X
+   * idéntico</b>, porque en el medio está el mensaje del cliente.
+   *
+   * <p>Caso real: lead #265 (01/09), el único pedido de esas 24 h.
+   * <pre>
+   * fixy     Anotado: problema de aire acondicionado. ¿En qué zona estás?
+   * cliente  pocitos
+   * fixy     Anotado: problema de aire acondicionado. ¿En qué zona estás?
+   * </pre>
+   * Contestó y recibió la misma frase carácter por carácter. Se fue.
+   * {@code c338bcb} arregló ESE camino (zona no reconocida → se dice la
+   * cobertura real); la clase general seguía destapada para cualquier otro
+   * dato que el vecino conteste y el sistema no sepa parsear — la urgencia y
+   * la dirección exacta del mismo builder del ack, entre otros (BUG B de las
+   * guardias del 02 y 03/09).
+   *
+   * <p>Por eso el guard mira ahora el último mensaje DEL AGENTE, salteando lo
+   * que hayan dicho el cliente o el proveedor en el medio. Las repeticiones
+   * que sí son legítimas no se resuelven aflojando el guard sino declarándose
+   * en el call-site ({@link #postFromAgentAllowingRepeat}): callarse cuando
+   * hay algo nuevo que decir sería el bug opuesto.
+   */
+  private LeadMessageResponse postFromAgent(
+      Long leadId, String rawText, boolean relayToWhatsApp, boolean allowRepeat) {
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
     String text = sanitize(rawText);
-    // Guard anti-loro: si el último mensaje del chat ya es este mismo texto
-    // del agente, no lo repetimos (en el lead #109 el agente posteó dos veces
-    // seguidas el mismo enlatado arriba de una charla cliente↔proveedor).
-    LeadMessage last = messageRepository.findFirstByLeadIdOrderByIdDesc(leadId).orElse(null);
-    if (last != null && "fixy".equals(last.getSender()) && text.equals(last.getText())) {
-      return LeadMessageResponse.fromEntity(last);
+    LeadMessage lastFromAgent =
+        messageRepository.findFirstByLeadIdAndSenderOrderByIdDesc(leadId, "fixy").orElse(null);
+    if (!allowRepeat && lastFromAgent != null && text.equals(lastFromAgent.getText())) {
+      // No se persiste, pero tampoco desaparece sin rastro: el intento queda
+      // en el timeline para que la guardia vea qué camino se quedó atascado
+      // repitiéndose (que es como se encontró este bug).
+      timelineService.appendEvent(lead, "AGENT_REPEAT_SUPPRESSED", "system",
+          "No se repitió lo último que ya había dicho Fixy: "
+              + (text.length() > 60 ? text.substring(0, 60) + "…" : text));
+      return LeadMessageResponse.fromEntity(lastFromAgent);
     }
     LeadMessage saved = persist(lead.getId(), "fixy", text);
     timelineService.appendEvent(lead, "MESSAGE_FROM_FIXY", "agent",

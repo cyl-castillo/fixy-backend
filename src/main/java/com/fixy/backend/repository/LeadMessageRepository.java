@@ -12,4 +12,11 @@ public interface LeadMessageRepository extends JpaRepository<LeadMessage, Long> 
   List<LeadMessage> findByLeadIdAndIdGreaterThanOrderByCreatedAtAsc(Long leadId, Long sinceId);
 
   Optional<LeadMessage> findFirstByLeadIdOrderByIdDesc(Long leadId);
+
+  /** Último mensaje de un remitente concreto, salteando lo que hayan dicho
+   * los demás en el medio. Lo usa el guard anti-loro de
+   * {@link com.fixy.backend.service.LeadMessageService#postFromAgent}: lo que
+   * importa no es quién habló último en el chat, sino qué fue lo último que
+   * dijo el AGENTE. */
+  Optional<LeadMessage> findFirstByLeadIdAndSenderOrderByIdDesc(Long leadId, String sender);
 }
