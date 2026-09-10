@@ -36,6 +36,14 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
  *
  * Montaje idéntico al de {@link LeadAgentUnknownZoneLoopTest}: agente
  * encendido y LLM sin credenciales, que es exactamente lo que tuvo prod.
+ *
+ * <p><b>Actualizado el 2026-09-10 (BUG C).</b> El arreglo del BUG B cortó la
+ * repetición callándose, y la guardia del 08/09 encontró el reverso en este
+ * mismo lead: el vecino contestó la dirección y no recibió nada. La deuda se
+ * pagó en {@code heuristicFallbackReply} —sin categoría no se pide la
+ * dirección, se pregunta lo único que destraba el pedido— así que este test ya
+ * no exige silencio: exige que no se repita Y que se conteste. Ver
+ * {@link LeadAgentAnsweredButSilentTest}.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
@@ -78,9 +86,6 @@ class LeadAgentAnsweredQuestionLoopTest {
     Thread.sleep(1500);
     List<String> afterFirstTurn = agentTexts(leadId);
     assertThat(afterFirstTurn).as("el primer turno sí contesta").isNotEmpty();
-    assertThat(afterFirstTurn.get(afterFirstTurn.size() - 1))
-        .as("y lo que pregunta es la dirección, el dato que falta")
-        .contains("dirección exacta");
 
     // El vecino CONTESTA. Acá estaba el bucle: sin LLM la dirección nunca se
     // extrae, el builder del ack rehace la misma frase carácter por carácter,
@@ -90,9 +95,19 @@ class LeadAgentAnsweredQuestionLoopTest {
     leadAgentService.respondToCustomerAsync(leadId);
     Thread.sleep(1500);
 
-    assertThat(agentTexts(leadId))
+    List<String> afterSecondTurn = agentTexts(leadId);
+    assertThat(afterSecondTurn.get(afterSecondTurn.size() - 1))
         .as("la pregunta que el vecino acaba de contestar no se le repite")
-        .isEqualTo(afterFirstTurn);
+        .isNotEqualTo(afterFirstTurn.get(afterFirstTurn.size() - 1));
+
+    // Hasta el 09/09 esta aserción era isEqualTo(afterFirstTurn): o sea, que
+    // el vecino no recibiera NADA. Callarse era todo lo que este guard sabía
+    // hacer, y la guardia del 08/09 lo levantó como BUG C mirando este mismo
+    // lead #268 en prod: "El vecino quedó hablando solo. Peor que repetir: es
+    // silencio." No se repite Y se contesta — las dos cosas.
+    assertThat(afterSecondTurn)
+        .as("y tampoco se lo deja hablando solo (BUG C, guardia del 08/09)")
+        .hasSizeGreaterThan(afterFirstTurn.size());
   }
 
   /** El vecino insiste tres veces: el agente no puede volverse un loro. */

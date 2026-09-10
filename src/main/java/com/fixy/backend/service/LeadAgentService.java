@@ -588,7 +588,12 @@ public class LeadAgentService {
     // board. En prod el LLM devolvió "sin respuesta utilizable" en los seis
     // turnos, así que la salida tiene que ser determinista: no depende de que
     // el 8B entienda nada.
-    if (ASK_WHAT_HAPPENED.equals(reply) && isStuckRepeatingItself(leadId, reply)) {
+    //
+    // Desde el BUG C (lead #268, guardia del 08/09) el reconocimiento vale
+    // también con la zona adelante ("Anotado: tu pedido en Solymar. Contame
+    // un poco más: ..."): ese pedido tenía zona pero no categoría, así que
+    // nunca era ASK_WHAT_HAPPENED exacto y se escapaba del escalamiento.
+    if (isAskWhatHappened(reply) && isStuckRepeatingItself(leadId, reply)) {
       escalateUnclassifiedRequest(leadId, refreshed);
       return;
     }
@@ -1430,8 +1435,11 @@ public class LeadAgentService {
    * Construye la respuesta del fallback determinista según lo que el lead
    * tiene confirmado tras la heurística. Reconoce categoría/zona si están, y
    * pide solo el dato que falta — nunca repregunta genérico si ya hay info.
+   *
+   * <p>Package-private (no private): permite testear el builder con un lead
+   * armado a mano, sin LLM ni turno async — mismo patrón que buildContext.
    */
-  private String heuristicFallbackReply(Lead lead) {
+  String heuristicFallbackReply(Lead lead) {
     boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
         && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
     boolean hasZone = lead.getLocation() != null && !lead.getLocation().isBlank()
@@ -1491,7 +1499,26 @@ public class LeadAgentService {
       ack.append("tu pedido en ").append(lead.getLocation()).append(". ");
     }
 
-    if (!hasZone) {
+    if (!hasCategory) {
+      // Sin categoría no hay nada que coordinar, y ni la urgencia ni la
+      // dirección exacta destraban el pedido: computeBlockingFields solo mira
+      // CATEGORÍA y ZONA. Preguntar por la dirección acá abre un bucle mudo —
+      // el vecino contesta, su respuesta no cambia ningún campo del lead, el
+      // builder reconstruye la MISMA frase y el guard anti-loro la suprime.
+      // Resultado: silencio, que es peor que repetir.
+      //
+      // Caso real: lead #268 (08/09). "Anotado: tu pedido en Solymar. ¿Me
+      // pasás la dirección exacta para coordinar?" → el vecino contestó
+      // "Av. Giannattasio km 20, casa 3" (13:40:18) → el turno se procesó
+      // (13:40:26, fallback heurístico) y NO se persistió ninguna respuesta:
+      // quedó hablando solo (BUG C de la guardia del 08/09).
+      //
+      // Lo que falta se pregunta explícito, y como termina en
+      // ASK_WHAT_HAPPENED el guard de respondWithHeuristicFallback lo
+      // reconoce: si esto también se repite, escala con el mensaje honesto de
+      // qué cubre Fixy + el pedido de WhatsApp, en vez de callarse.
+      ack.append(ASK_WHAT_HAPPENED);
+    } else if (!hasZone) {
       ack.append("¿En qué zona estás?");
     } else if (!hasUrgency) {
       ack.append("¿Es urgente o puede esperar unos días?");
@@ -1499,6 +1526,17 @@ public class LeadAgentService {
       ack.append("¿Me pasás la dirección exacta para coordinar?");
     }
     return ack.toString();
+  }
+
+  /**
+   * true si la respuesta es la repregunta genérica, sola o precedida por el
+   * ack de la zona ya conocida. El guard de {@code respondWithHeuristicFallback}
+   * la comparaba por identidad contra {@link #ASK_WHAT_HAPPENED}, así que el
+   * pedido sin categoría PERO con zona (lead #268) no entraba al escalamiento
+   * y terminaba en silencio.
+   */
+  static boolean isAskWhatHappened(String reply) {
+    return reply != null && reply.endsWith(ASK_WHAT_HAPPENED);
   }
 
   /** Acción opcional que el LLM puede pedir en el turno (Salto 2 del cerebro
