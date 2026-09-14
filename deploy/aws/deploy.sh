@@ -45,7 +45,7 @@ echo "==> deploy fixy-backend (ts=$ts) host=$SSH_HOST service=$SERVICE"
 
 if [ "$SKIP_BUILD" != "1" ]; then
   echo "==> build (mvn package, skipping tests)"
-  mvn -q -o package -DskipTests
+  mvn -q -o clean package -DskipTests
 fi
 
 if [ ! -f "$local_jar" ]; then
