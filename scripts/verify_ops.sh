@@ -18,12 +18,15 @@ if [[ "$PUBLIC_CODE" != "200" ]]; then
 fi
 say "[fixy] OK: /api/health publico"
 
-OPS_HTML_CODE="$(curl -sS -o /tmp/fixy-ops.html -w '%{http_code}' --max-time 5 "${BASE_URL}/ops.html" || true)"
-if [[ "$OPS_HTML_CODE" != "401" ]]; then
-  say "[fixy] FAIL: /ops.html deberia pedir auth y devolvio HTTP ${OPS_HTML_CODE:-000}"
+# ops.html se retiro (Refundacion fase 1, contrato §7): la UI operativa
+# ahora es el admin del frontend, no una pagina servida por el backend.
+# Verificamos en su lugar que un endpoint admin real siga protegido.
+SERVICES_CODE="$(curl -sS -o /tmp/fixy-services.json -w '%{http_code}' --max-time 5 "${BASE_URL}/api/services" || true)"
+if [[ "$SERVICES_CODE" != "401" ]]; then
+  say "[fixy] FAIL: /api/services deberia pedir auth y devolvio HTTP ${SERVICES_CODE:-000}"
   exit 1
 fi
-say "[fixy] OK: /ops.html protegido"
+say "[fixy] OK: /api/services protegido"
 
 LEADS_CODE="$(curl -sS -o /tmp/fixy-leads.json -w '%{http_code}' --max-time 5 "${BASE_URL}/api/leads" || true)"
 if [[ "$LEADS_CODE" != "401" ]]; then

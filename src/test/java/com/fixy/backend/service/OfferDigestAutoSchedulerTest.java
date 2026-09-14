@@ -42,7 +42,7 @@ class OfferDigestAutoSchedulerTest {
   @Autowired private OfferRepository offerRepository;
 
   private OfferDigestAutoScheduler scheduler(TelegramNotifyService telegram, Clock clock, boolean enabled) {
-    return new OfferDigestAutoScheduler(offerDigestService, telegram, enabled, "THURSDAY", 18, clock);
+    return new OfferDigestAutoScheduler(offerDigestService, telegram, enabled, true, "THURSDAY", 18, clock);
   }
 
   private Clock clockAt(int year, int month, int day, int hour) {

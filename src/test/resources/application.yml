@@ -39,6 +39,13 @@ fixy:
   providers:
     pending-approval:
       enabled: false
+  # Refundación fase 1 (contrato §7): ProviderSeedConfig ahora es opt-in en
+  # todos lados (default false, "nunca más en prod"). La suite entera venía
+  # dependiendo de estos 6 proveedores hardcodeados quedando seedeados en
+  # cada contexto de test (DB única por contexto, ver arriba) — se prende
+  # acá explícitamente para no reescribir cada test que matchea contra ellos.
+  seed:
+    providers: true
   security:
     username: test-ops
     password: test-pass
@@ -60,6 +67,9 @@ fixy:
       max-requests-per-window: 200
       window-seconds: 60
     merchant-panel:
+      max-requests-per-window: 200
+      window-seconds: 60
+    mcp:
       max-requests-per-window: 200
       window-seconds: 60
     business-inquiry:
@@ -88,6 +98,13 @@ fixy:
     overdue-days: 7
     scheduler-fixed-delay-ms: 3600000
   offers:
+    # Refundación fase 1 (contrato §6): default global false ("congelar
+    # ofertas y comercios"), pero la suite existente (OfferInquiryTest,
+    # PublicOfferSubmission*, BusinessInquiry*, schedulers de ofertas, etc.)
+    # se escribió asumiendo ofertas funcionando — se prende acá para no
+    # reescribir cada test; los tests NUEVOS del freeze (§6) lo apagan
+    # puntualmente con @TestPropertySource.
+    enabled: true
     expiration:
       enabled: false
       scheduler-fixed-delay-ms: 3600000

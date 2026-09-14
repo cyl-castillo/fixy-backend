@@ -27,15 +27,19 @@ public class SecurityConfig {
         .cors(Customizer.withDefaults())
         .httpBasic(Customizer.withDefaults())
         .authorizeHttpRequests(auth -> auth
-            .requestMatchers("/", "/index.html", "/styles.css", "/script.js", "/ops.css").permitAll()
+            // "/" es JSON simple desde RootController (contrato §7 — la UI
+            // estática legacy se retiró, ver static/README o el propio
+            // contrato). Sin matcher propio: cae en anyRequest().permitAll()
+            // de abajo, igual que /api/health.
             .requestMatchers("/api/health", "/api/health/**", "/api/intake").permitAll()
             .requestMatchers("/api/public/**").permitAll()
+            .requestMatchers("/.well-known/**").permitAll()
             .requestMatchers("/api/webhooks/**").permitAll()
             .requestMatchers("/uploads/**").permitAll()
             .requestMatchers("/og/**").permitAll()
             .requestMatchers("/sitemap.xml").permitAll()
-            .requestMatchers("/ops.html", "/api/leads/**", "/api/providers/**", "/api/ops/**",
-                "/api/businesses/**", "/api/offers/**").authenticated()
+            .requestMatchers("/api/leads/**", "/api/providers/**", "/api/ops/**",
+                "/api/businesses/**", "/api/offers/**", "/api/services/**").authenticated()
             .anyRequest().permitAll());
 
     return http.build();

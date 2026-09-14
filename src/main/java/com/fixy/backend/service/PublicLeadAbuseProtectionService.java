@@ -86,6 +86,15 @@ public class PublicLeadAbuseProtectionService {
   private final Duration merchantPanelWindow;
   private final Map<String, Deque<Instant>> requestsByMerchantPanelIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia para el servidor MCP (Refundación fase 1, contrato §8):
+   * un asistente de IA puede llamar varias tools en una sola interacción
+   * (initialize + tools/list + uno o más tools/call), así que el tope es
+   * más generoso que el de un formulario humano — mismo criterio que
+   * merchant-panel. */
+  private final int mcpMaxRequestsPerWindow;
+  private final Duration mcpWindow;
+  private final Map<String, Deque<Instant>> requestsByMcpIp = new ConcurrentHashMap<>();
+
   /** Ventana propia para la consulta pública al catálogo de la ficha (Fase
    * 2): mismo criterio que offer-inquiry (§6 del CTA original) — un vecino
    * preguntándole a un comercio no debería competir por cupo con las demás
@@ -130,6 +139,8 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.push-subscription.window-seconds:600}") long pushSubscriptionWindowSeconds,
       @Value("${fixy.abuse.merchant-panel.max-requests-per-window:20}") int merchantPanelMaxRequestsPerWindow,
       @Value("${fixy.abuse.merchant-panel.window-seconds:60}") long merchantPanelWindowSeconds,
+      @Value("${fixy.abuse.mcp.max-requests-per-window:30}") int mcpMaxRequestsPerWindow,
+      @Value("${fixy.abuse.mcp.window-seconds:60}") long mcpWindowSeconds,
       @Value("${fixy.abuse.business-inquiry.max-requests-per-window:5}") int businessInquiryMaxRequestsPerWindow,
       @Value("${fixy.abuse.business-inquiry.window-seconds:600}") long businessInquiryWindowSeconds,
       @Value("${fixy.abuse.public-business-page.max-requests-per-window:60}") int publicBusinessPageMaxRequestsPerWindow,
@@ -149,6 +160,8 @@ public class PublicLeadAbuseProtectionService {
     this.pushSubscriptionWindow = Duration.ofSeconds(pushSubscriptionWindowSeconds);
     this.merchantPanelMaxRequestsPerWindow = merchantPanelMaxRequestsPerWindow;
     this.merchantPanelWindow = Duration.ofSeconds(merchantPanelWindowSeconds);
+    this.mcpMaxRequestsPerWindow = mcpMaxRequestsPerWindow;
+    this.mcpWindow = Duration.ofSeconds(mcpWindowSeconds);
     this.businessInquiryMaxRequestsPerWindow = businessInquiryMaxRequestsPerWindow;
     this.businessInquiryWindow = Duration.ofSeconds(businessInquiryWindowSeconds);
     this.publicBusinessPageMaxRequestsPerWindow = publicBusinessPageMaxRequestsPerWindow;
@@ -279,6 +292,12 @@ public class PublicLeadAbuseProtectionService {
    */
   public void validateMerchantPanel(String clientIp) {
     enforceRateLimit(requestsByMerchantPanelIp, normalizeIp(clientIp), merchantPanelMaxRequestsPerWindow, merchantPanelWindow);
+  }
+
+  /** Servidor MCP (contrato §8): rate limit por IP, sin validación de
+   * contenido — el body es JSON-RPC, lo valida el propio controller/servicio. */
+  public void validateMcp(String clientIp) {
+    enforceRateLimit(requestsByMcpIp, normalizeIp(clientIp), mcpMaxRequestsPerWindow, mcpWindow);
   }
 
   /**

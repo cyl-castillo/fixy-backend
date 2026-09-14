@@ -1,6 +1,7 @@
 package com.fixy.backend.repository;
 
 import com.fixy.backend.model.LeadMessage;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,6 +9,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface LeadMessageRepository extends JpaRepository<LeadMessage, Long> {
 
   List<LeadMessage> findByLeadIdOrderByCreatedAtAsc(Long leadId);
+
+  /** Mensajes de varios leads a la vez (evita N+1) — usado por
+   * OpsMetricsService para distinguir pedidos reales de chats vacíos. */
+  List<LeadMessage> findByLeadIdInAndSender(Collection<Long> leadIds, String sender);
 
   List<LeadMessage> findByLeadIdAndIdGreaterThanOrderByCreatedAtAsc(Long leadId, Long sinceId);
 

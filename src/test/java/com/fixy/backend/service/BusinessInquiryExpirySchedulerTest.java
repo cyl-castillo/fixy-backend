@@ -43,7 +43,7 @@ class BusinessInquiryExpirySchedulerTest {
 
   private BusinessInquiryExpiryScheduler scheduler(Clock clock) {
     return new BusinessInquiryExpiryScheduler(
-        businessInquiryRepository, businessRepository, businessTimelineService, telegramNotifyService, true, clock);
+        businessInquiryRepository, businessRepository, businessTimelineService, telegramNotifyService, true, true, clock);
   }
 
   /** Reloj corrido hacia adelante: los createdAt recién escritos no se pueden retro-datar. */

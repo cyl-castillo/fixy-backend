@@ -4,11 +4,11 @@ Backend inicial de Fixy en `Spring Boot` para correr la landing y un agente de i
 
 ## Qué incluye
 
-- Landing estática servida desde `src/main/resources/static`
 - `POST /api/intake` para clasificar mensajes de clientes o proveedores
 - Flujo público conversacional para clientes en `POST /api/public/leads`
+- Pedido estructurado con precio cerrado en `POST /api/public/orders` (Refundación fase 1)
 - Registro público de proveedores en `POST /api/public/providers`
-- Panel operativo protegido con Basic Auth en `/ops.html`
+- API admin protegida con Basic Auth (`/api/leads/**`, `/api/providers/**`, `/api/offers/**`, `/api/services/**`, `/api/ops/**`, `/api/businesses/**`) — la UI operativa vive en `fixy-app` (frontend), no en este repo. `/` responde JSON simple (`{"service":"fixy-backend","status":"ok"}`), sin landing estática.
 - Fallback heurístico para operar sin IA externa
 - Integración opcional con OpenAI vía `Responses API`
 - `GET /api/health` para chequeo simple

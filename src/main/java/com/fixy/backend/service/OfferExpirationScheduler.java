@@ -27,16 +27,26 @@ public class OfferExpirationScheduler {
 
   private final OfferRepository offerRepository;
   private final boolean enabled;
+  private final boolean offersEnabled;
   private final Clock clock;
 
   public OfferExpirationScheduler(
       OfferRepository offerRepository,
       @Value("${fixy.offers.expiration.enabled:true}") boolean enabled,
+      // Congelamiento global de ofertas (Refundación fase 1, contrato §6):
+      // default false — distinto del flag de arriba, que es el kill-switch
+      // propio de ESTE scheduler. Log una sola vez al arrancar, no en cada
+      // ciclo (evitar ruido en logs mientras dure el freeze).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled,
       Clock clock
   ) {
     this.offerRepository = offerRepository;
     this.enabled = enabled;
+    this.offersEnabled = offersEnabled;
     this.clock = clock;
+    if (!offersEnabled) {
+      log.info("ofertas congeladas (fixy.offers.enabled=false): {} no procesa", getClass().getSimpleName());
+    }
   }
 
   @Scheduled(fixedDelayString = "${fixy.offers.expiration.scheduler-fixed-delay-ms:3600000}")
@@ -52,6 +62,9 @@ public class OfferExpirationScheduler {
 
   /** Un ciclo del job, invocable directamente desde tests. Devuelve cuántas ofertas expiraron. */
   public int processOnce() {
+    if (!offersEnabled) {
+      return 0;
+    }
     OffsetDateTime now = OffsetDateTime.now(clock);
     List<Offer> candidates = offerRepository.findByStatusAndValidUntilBefore(OfferStatus.ACTIVE, now);
     for (Offer offer : candidates) {

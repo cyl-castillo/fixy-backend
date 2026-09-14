@@ -8,6 +8,7 @@ import com.fixy.backend.service.OfferService;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Superficie pública de lectura de Ofertas (roadmap Historia 3.3 / Loop 2,
@@ -31,10 +33,17 @@ public class PublicOfferController {
 
   private final OfferService offerService;
   private final OfferInquiryService offerInquiryService;
+  private final boolean offersEnabled;
 
-  public PublicOfferController(OfferService offerService, OfferInquiryService offerInquiryService) {
+  public PublicOfferController(
+      OfferService offerService,
+      OfferInquiryService offerInquiryService,
+      // Congelamiento de ofertas (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled
+  ) {
     this.offerService = offerService;
     this.offerInquiryService = offerInquiryService;
+    this.offersEnabled = offersEnabled;
   }
 
   @GetMapping
@@ -45,9 +54,11 @@ public class PublicOfferController {
     return offerService.listPublic(zone, category);
   }
 
+  /** Congelado (contrato §6): {@code count=0} para que el frontend oculte
+   * el tab sin necesitar un flag propio, aunque haya ofertas vigentes en DB. */
   @GetMapping("/count")
   public OfferPublicCountResponse count() {
-    return new OfferPublicCountResponse(offerService.countPublic());
+    return new OfferPublicCountResponse(offersEnabled ? offerService.countPublic() : 0);
   }
 
   /** Detalle público: 200 solo si ACTIVE y vigente, 404 en cualquier otro caso. */
@@ -94,6 +105,9 @@ public class PublicOfferController {
       @RequestBody OfferInquiryCreateRequest request,
       HttpServletRequest httpRequest
   ) {
+    if (!offersEnabled) {
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Las ofertas están pausadas por ahora.");
+    }
     offerInquiryService.create(id, request, httpRequest.getRemoteAddr());
     return Map.of("ok", true);
   }

@@ -64,6 +64,7 @@ public class MerchantOfferExpiryScheduler {
   private final PushNotificationService pushNotificationService;
   private final TelegramNotifyService telegramNotifyService;
   private final boolean enabled;
+  private final boolean offersEnabled;
   private final Clock clock;
 
   public MerchantOfferExpiryScheduler(
@@ -73,6 +74,8 @@ public class MerchantOfferExpiryScheduler {
       PushNotificationService pushNotificationService,
       TelegramNotifyService telegramNotifyService,
       @Value("${fixy.offers.merchant-reminder.enabled:true}") boolean enabled,
+      // Congelamiento global de ofertas (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled,
       Clock clock
   ) {
     this.offerRepository = offerRepository;
@@ -81,7 +84,11 @@ public class MerchantOfferExpiryScheduler {
     this.pushNotificationService = pushNotificationService;
     this.telegramNotifyService = telegramNotifyService;
     this.enabled = enabled;
+    this.offersEnabled = offersEnabled;
     this.clock = clock;
+    if (!offersEnabled) {
+      log.info("ofertas congeladas (fixy.offers.enabled=false): {} no procesa", getClass().getSimpleName());
+    }
   }
 
   @Scheduled(fixedDelayString = "${fixy.offers.merchant-reminder.scheduler-fixed-delay-ms:3600000}")
@@ -97,6 +104,9 @@ public class MerchantOfferExpiryScheduler {
 
   /** Un ciclo del job, invocable directamente desde tests. Devuelve cuántos push se enviaron (el digest a ops no cuenta acá). */
   public int processOnce() {
+    if (!offersEnabled) {
+      return 0;
+    }
     OffsetDateTime now = OffsetDateTime.now(clock);
     OffsetDateTime windowEnd = now.plusHours(WINDOW_HOURS);
     OffsetDateTime throttleCutoff = now.minusDays(THROTTLE_DAYS);

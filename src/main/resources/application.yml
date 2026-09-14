@@ -39,6 +39,12 @@ spring:
       max-request-size: 10MB
 
 fixy:
+  seed:
+    # Refundación fase 1 (contrato §7): "nunca más en prod" — los 6
+    # proveedores ficticios de ProviderSeedConfig salieron reales en prod.
+    # Default false en todos lados; dev local lo prende a mano si necesita
+    # datos de prueba.
+    providers: ${FIXY_SEED_PROVIDERS:false}
   uploads:
     dir: ${FIXY_UPLOADS_DIR:./data/uploads}
     url-prefix: ${FIXY_UPLOADS_URL_PREFIX:/uploads}
@@ -92,7 +98,20 @@ fixy:
     enabled: ${FIXY_COLLECTIONS_ENABLED:true}
     overdue-days: ${FIXY_COLLECTIONS_OVERDUE_DAYS:7}
     scheduler-fixed-delay-ms: ${FIXY_COLLECTIONS_SCHEDULER_FIXED_DELAY_MS:3600000}
+  orders:
+    # Refundación fase 1 (contrato §1): categorías con precio cerrado
+    # habilitadas para pedir en el catálogo público y la puerta de pedido
+    # estructurado. Las demás categorías siguen existiendo en datos, en el
+    # agente conversacional (texto libre) y en el admin — esto NO las oculta,
+    # solo las saca de esta puerta nueva.
+    active-categories: ${FIXY_ORDERS_ACTIVE_CATEGORIES:aires_acondicionados,plomeria,barometrica}
   offers:
+    # Refundación fase 1 (contrato §6): congela ofertas y comercios —
+    # default false. Con false, los 5 schedulers de esta sección no procesan
+    # y las altas/consultas públicas (offer-submissions, inquiries de oferta
+    # y de comercio) responden 503; /count vuelve {count:0}. GETs de lectura
+    # siguen funcionando. Admin intacto.
+    enabled: ${FIXY_OFFERS_ENABLED:false}
     expiration:
       enabled: ${FIXY_OFFERS_EXPIRATION_ENABLED:true}
       scheduler-fixed-delay-ms: ${FIXY_OFFERS_EXPIRATION_SCHEDULER_FIXED_DELAY_MS:3600000}
@@ -129,6 +148,9 @@ fixy:
     merchant-panel:
       max-requests-per-window: ${FIXY_ABUSE_MERCHANT_PANEL_MAX_REQUESTS_PER_WINDOW:20}
       window-seconds: ${FIXY_ABUSE_MERCHANT_PANEL_WINDOW_SECONDS:60}
+    mcp:
+      max-requests-per-window: ${FIXY_ABUSE_MCP_MAX_REQUESTS_PER_WINDOW:30}
+      window-seconds: ${FIXY_ABUSE_MCP_WINDOW_SECONDS:60}
     provider-registration:
       max-requests-per-window: ${FIXY_ABUSE_PROVIDER_REGISTRATION_MAX_REQUESTS_PER_WINDOW:5}
       window-seconds: ${FIXY_ABUSE_PROVIDER_REGISTRATION_WINDOW_SECONDS:600}
@@ -145,3 +167,7 @@ fixy:
     vapid-public-key: ${FIXY_PUSH_VAPID_PUBLIC_KEY:}
     vapid-private-key: ${FIXY_PUSH_VAPID_PRIVATE_KEY:}
     subject: ${FIXY_PUSH_SUBJECT:mailto:soporte@fixy.com.uy}
+  contact:
+    # Número público de WhatsApp de Fixy (mismo que /sumate y el resto del
+    # sitio) — usado por /.well-known/fixy-agent.json (contrato §8).
+    whatsapp: ${FIXY_CONTACT_WHATSAPP:59893551242}

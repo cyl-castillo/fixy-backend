@@ -43,6 +43,7 @@ public class OfferDigestAutoScheduler {
   private final OfferDigestService offerDigestService;
   private final TelegramNotifyService telegramNotifyService;
   private final boolean enabled;
+  private final boolean offersEnabled;
   private final DayOfWeek dayOfWeek;
   private final int hour;
   private final Clock clock;
@@ -51,6 +52,8 @@ public class OfferDigestAutoScheduler {
       OfferDigestService offerDigestService,
       TelegramNotifyService telegramNotifyService,
       @Value("${fixy.offers.digest.auto.enabled:true}") boolean enabled,
+      // Congelamiento global de ofertas (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled,
       @Value("${fixy.offers.digest.auto.day-of-week:THURSDAY}") String dayOfWeek,
       @Value("${fixy.offers.digest.auto.hour:18}") int hour,
       Clock clock
@@ -58,9 +61,13 @@ public class OfferDigestAutoScheduler {
     this.offerDigestService = offerDigestService;
     this.telegramNotifyService = telegramNotifyService;
     this.enabled = enabled;
+    this.offersEnabled = offersEnabled;
     this.dayOfWeek = DayOfWeek.valueOf(dayOfWeek.trim().toUpperCase(Locale.ROOT));
     this.hour = hour;
     this.clock = clock;
+    if (!offersEnabled) {
+      log.info("ofertas congeladas (fixy.offers.enabled=false): {} no procesa", getClass().getSimpleName());
+    }
   }
 
   @Scheduled(fixedDelayString = "${fixy.offers.digest.auto.scheduler-fixed-delay-ms:3600000}")
@@ -82,6 +89,9 @@ public class OfferDigestAutoScheduler {
    * (best-effort) solo cuando efectivamente mandó algo.
    */
   public OfferDigestSendResponse processOnce() {
+    if (!offersEnabled) {
+      return null;
+    }
     ZonedDateTime now = OffsetDateTime.now(clock).atZoneSameInstant(ZONE);
     if (now.getDayOfWeek() != dayOfWeek || now.getHour() != hour) {
       return null;

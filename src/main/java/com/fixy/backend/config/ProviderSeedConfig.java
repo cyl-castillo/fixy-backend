@@ -5,17 +5,30 @@ import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderVerificationStatus;
 import com.fixy.backend.repository.ProviderRepository;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Seed de proveedores ficticios para desarrollo local. Refundación de Fixy,
+ * fase 1 (contrato §7): "nunca más en prod" — los 6 proveedores hardcodeados
+ * acá salieron reales en prod y hubo que pedirle a Carlos un DELETE manual
+ * (ver {@code deploy/aws/} para el comando preparado). Por eso ahora corre
+ * SOLO con {@code fixy.seed.providers=true} explícito, default false en
+ * todos lados — dev local tiene que prenderlo a mano, y prod nunca lo
+ * setea.
+ */
 @Configuration
 public class ProviderSeedConfig {
 
   @Bean
-  CommandLineRunner seedProviders(ProviderRepository providerRepository) {
+  CommandLineRunner seedProviders(
+      ProviderRepository providerRepository,
+      @Value("${fixy.seed.providers:false}") boolean seedEnabled
+  ) {
     return args -> {
-      if (providerRepository.count() > 0) {
+      if (!seedEnabled || providerRepository.count() > 0) {
         return;
       }
 

@@ -36,6 +36,15 @@ import java.util.Map;
  *                                    creación, excluyendo tráfico smoke. Snapshot del momento de
  *                                    la consulta — no está atado a la ventana from/to (es backlog
  *                                    actual, no histórico del rango pedido).
+ * @param realRequests                Refundación fase 1 (contrato §5): leads del rango con
+ *                                    categoría detectada Y (al menos un mensaje del cliente O
+ *                                    channel = web-order), excluyendo smoke — "pedido real", no
+ *                                    un chat que nunca arrancó.
+ * @param structuredOrders            leads del rango con {@code serviceCode} no nulo (vinieron
+ *                                    del pedido estructurado, no del chat conversacional).
+ * @param completedJobs               leads del rango con status COMPLETED.
+ * @param emptyChats                  leads del rango sin ningún mensaje del cliente — cuánto
+ *                                    ruido elimina el pedido estructurado frente al chat libre.
  */
 public record OpsDailyMetricsResponse(
     OffsetDateTime from,
@@ -48,6 +57,10 @@ public record OpsDailyMetricsResponse(
     long distinctClientsWithCompleted,
     long repeatClients,
     double repeatRateAutodeclaredPercentage,
-    int stalledLeads48h
+    int stalledLeads48h,
+    long realRequests,
+    long structuredOrders,
+    long completedJobs,
+    long emptyChats
 ) {
 }

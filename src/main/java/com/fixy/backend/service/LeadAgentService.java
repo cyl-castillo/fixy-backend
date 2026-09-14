@@ -66,6 +66,7 @@ public class LeadAgentService {
   private final AgentService agentService;
   private final TelegramNotifyService telegramNotifyService;
   private final PushNotificationService pushNotificationService;
+  private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -80,6 +81,7 @@ public class LeadAgentService {
       AgentService agentService,
       TelegramNotifyService telegramNotifyService,
       PushNotificationService pushNotificationService,
+      com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -100,6 +102,7 @@ public class LeadAgentService {
     this.agentService = agentService;
     this.telegramNotifyService = telegramNotifyService;
     this.pushNotificationService = pushNotificationService;
+    this.serviceCatalogItemRepository = serviceCatalogItemRepository;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
@@ -1913,6 +1916,17 @@ public class LeadAgentService {
    * con el link wa.me que va en la timeline.
    */
   private void tryAutoMatch(Lead lead) {
+    matchNow(lead);
+  }
+
+  /**
+   * Igual que {@link #tryAutoMatch}, pero público y con el resultado
+   * (contactó o no) — entrada usada por el pedido estructurado (Refundación
+   * fase 1, contrato §3.4: "dispara el matching inmediatamente", misma ruta
+   * que el intake conversacional) para poder devolver {@code matchStatus}
+   * en la respuesta del endpoint sin duplicar la lógica de acá.
+   */
+  public boolean matchNow(Lead lead) {
     try {
       List<ProviderCatalogItem> matches = providerCatalogService.findMatchesForLead(
           lead.getId(), lead.getDetectedCategory(), lead.getLocation());
@@ -1926,11 +1940,13 @@ public class LeadAgentService {
                 .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
         shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
-        return;
+        return false;
       }
-      contactTopMatch(lead, matches, false);
+      contactTopMatch(lead, matches, MatchContext.INITIAL);
+      return true;
     } catch (Exception ex) {
-      log.warn("tryAutoMatch failed for lead {}: {}", lead.getId(), ex.getMessage());
+      log.warn("matchNow failed for lead {}: {}", lead.getId(), ex.getMessage());
+      return false;
     }
   }
 
@@ -1969,7 +1985,7 @@ public class LeadAgentService {
         // listo. Repetirlo en cada ciclo del scheduler sería spam.
         return false;
       }
-      contactTopMatch(lead, matches, true);
+      contactTopMatch(lead, matches, MatchContext.SCHEDULED_RETRY);
       return true;
     } catch (Exception ex) {
       log.warn("retryAutoMatch failed for lead {}: {}", leadId, ex.getMessage());
@@ -1978,14 +1994,64 @@ public class LeadAgentService {
   }
 
   /**
+   * Re-oferta en el acto tras un NO del proveedor contactado (Refundación
+   * fase 1, contrato §4 — cierra el TODO histórico de
+   * {@code WhatsAppWebhookController.rejectLead}). El caller ya registró el
+   * decline ANTES de llamar acá (mismo criterio que
+   * {@code ProviderSelfService.releaseAfterProviderCancel}), así que
+   * {@code findMatchesForLead} excluye al que acaba de rechazar. Público
+   * porque el webhook vive en otro paquete. A diferencia de
+   * {@link #retryAutoMatch}, acá el cliente NO recibió todavía ningún aviso
+   * de "no hay más proveedores" — si no hay siguiente, hay que decirlo
+   * ahora, no callar.
+   */
+  public boolean reofferAfterDecline(Long leadId) {
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null) {
+        return false;
+      }
+      List<ProviderCatalogItem> matches = providerCatalogService.findMatchesForLead(
+          leadId, lead.getDetectedCategory(), lead.getLocation());
+      if (matches == null || matches.isEmpty()) {
+        leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
+            "El primer técnico no pudo tomar tu pedido y por ahora no tengo otro libre en %s para %s. Te aviso por acá apenas alguien lo levante."
+                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
+        shareRecoveryLink(lead);
+        safeTelegramNotifyDemandWithoutSupply(lead);
+        return false;
+      }
+      contactTopMatch(lead, matches, MatchContext.DECLINE_REOFFER);
+      return true;
+    } catch (Exception ex) {
+      log.warn("reofferAfterDecline failed for lead {}: {}", leadId, ex.getMessage());
+      return false;
+    }
+  }
+
+  /**
+   * Distingue por qué se está contactando a un proveedor — solo cambia el
+   * copy que ve el cliente/la timeline, la lógica de contacto es idéntica
+   * (ver {@link #contactTopMatch}).
+   */
+  private enum MatchContext {
+    /** Matching del momento: el lead recién quedó listo (chat u orden). */
+    INITIAL,
+    /** Reintento diferido del scheduler de huérfanos ({@link #retryAutoMatch}). */
+    SCHEDULED_RETRY,
+    /** Re-oferta inmediata tras un NO del proveedor anterior ({@link #reofferAfterDecline}). */
+    DECLINE_REOFFER
+  }
+
+  /**
    * Contacta al mejor proveedor de la lista: push, asignación, timeline,
    * aviso al cliente y template de WhatsApp. Compartido por el matching del
-   * momento ({@link #tryAutoMatch}) y por el reintento diferido
-   * ({@link #retryAutoMatch}) — {@code retry} solo cambia el texto, para que
-   * el cliente entienda que esto es la promesa cumplida y no un mensaje
-   * suelto meses después.
+   * momento ({@link #matchNow}), el reintento diferido ({@link
+   * #retryAutoMatch}) y la re-oferta tras rechazo ({@link
+   * #reofferAfterDecline}) — {@code context} solo cambia el texto, para que
+   * el cliente entienda qué está pasando en cada caso.
    */
-  private void contactTopMatch(Lead lead, List<ProviderCatalogItem> matches, boolean retry) {
+  private void contactTopMatch(Lead lead, List<ProviderCatalogItem> matches, MatchContext context) {
     safeTelegramNotifyOpportunity(lead, matches);
     ProviderCatalogItem top = matches.get(0);
     com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
@@ -2010,20 +2076,25 @@ public class LeadAgentService {
     lead.setStatus(com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED);
     leadRepository.save(lead);
     leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
-        retry
-            ? "Reintento de matching: contactando a %s (el pedido esperaba sin proveedor)".formatted(top.name())
-            : "Contactando a %s via WhatsApp".formatted(top.name()));
+        switch (context) {
+          case SCHEDULED_RETRY -> "Reintento de matching: contactando a %s (el pedido esperaba sin proveedor)".formatted(top.name());
+          case DECLINE_REOFFER -> "Re-oferta tras rechazo: contactando a %s via WhatsApp".formatted(top.name());
+          case INITIAL -> "Contactando a %s via WhatsApp".formatted(top.name());
+        });
 
     // Aviso conversacional al cliente: contactando, NO "conseguido" — todavía
     // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
     // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
     // que le mintieron.
     leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
-        retry
-            ? "¡Buenas noticias! Apareció un proveedor para tu pedido: estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-                .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())
-            : "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-                .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation())));
+        switch (context) {
+          case SCHEDULED_RETRY -> "¡Buenas noticias! Apareció un proveedor para tu pedido: estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
+              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+          case DECLINE_REOFFER -> "El primer técnico no pudo; ya estoy contactando a otro: %s para %s en %s. Te aviso por acá apenas confirme."
+              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+          case INITIAL -> "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
+              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+        }));
     shareRecoveryLink(lead);
 
     // Envio del template a WhatsApp del proveedor. Si fixy.whatsapp.* no
@@ -2037,17 +2108,41 @@ public class LeadAgentService {
             to,
             whatsappTemplateName,
             whatsappTemplateLang,
-            List.of(
-                humanCategory(lead.getDetectedCategory()),
-                lead.getLocation() == null ? "" : lead.getLocation(),
-                lead.getUrgency() == null ? "media" : lead.getUrgency()
-            )
+            providerTemplateParams(lead)
         );
         if (!sent) {
           log.warn("autoMatch: WhatsApp template send failed para lead {} provider {}", lead.getId(), top.id());
         }
       }
     }
+  }
+
+  /**
+   * Parámetros {{1}}/{{2}}/{{3}} del template de WhatsApp al proveedor. Para
+   * un pedido estructurado (contrato §4: "incluye servicio, zona, ventana y
+   * precio orientativo") se pisa el {{1}} genérico (categoría) por
+   * "<servicio> ($<precio>)" y el {{3}} de urgencia por la ventana horaria
+   * elegida — el texto fijo del template ya termina en "¿Lo tomás? Respondé
+   * SÍ o NO", así que alcanza con reusar los mismos 3 placeholders sin
+   * necesitar un template nuevo aprobado por Meta. Leads orgánicos (sin
+   * serviceCode) mantienen exactamente el comportamiento de siempre.
+   */
+  private List<String> providerTemplateParams(Lead lead) {
+    String location = lead.getLocation() == null ? "" : lead.getLocation();
+    if (lead.getServiceCode() != null && !lead.getServiceCode().isBlank()) {
+      com.fixy.backend.model.ServiceCatalogItem service =
+          serviceCatalogItemRepository.findByCode(lead.getServiceCode()).orElse(null);
+      if (service != null) {
+        String serviceLabel = "%s ($%d)".formatted(service.getName(), service.getPriceFrom());
+        String windowLabel = com.fixy.backend.model.OrderTimeWindow.labelForId(lead.getTimeWindow());
+        return List.of(serviceLabel, location, windowLabel);
+      }
+    }
+    return List.of(
+        humanCategory(lead.getDetectedCategory()),
+        location,
+        lead.getUrgency() == null ? "media" : lead.getUrgency()
+    );
   }
 
   /** Evento propio del dispatcher: gatea el mensaje al cliente ("te paso con

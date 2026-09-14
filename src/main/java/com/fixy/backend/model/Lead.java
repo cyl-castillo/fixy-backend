@@ -100,6 +100,34 @@ public class Lead {
    * oferta→lead (ver OfferResponse.leadCount). */
   private Long sourceOfferId;
 
+  /** Código de {@code service_catalog.code} cuando el lead viene de un
+   * pedido estructurado (Refundación fase 1, contrato §3). Null para leads
+   * del chat conversacional clásico. */
+  @Column(length = 64)
+  private String serviceCode;
+
+  /** Ventana horaria elegida por el cliente en el pedido estructurado — ver
+   * {@link OrderTimeWindow}. Null si el lead no vino de un pedido
+   * estructurado. */
+  @Column(length = 32)
+  private String timeWindow;
+
+  /** true si el cliente no va a estar en la casa cuando llegue el técnico
+   * (pedido estructurado, contrato §3). Default false — también el valor
+   * correcto para leads orgánicos que no pasan por este flujo. */
+  @Column(nullable = false)
+  private boolean remote;
+
+  /** Nombre de quien abre la puerta cuando {@link #remote} es true. Dos
+   * columnas planas en vez de JSON: portabilidad Postgres/H2 y no hace
+   * falta consultar por este campo (ver V28, "Cambios durante
+   * implementación" al final del contrato). */
+  @Column(length = 200)
+  private String onSiteContactName;
+
+  @Column(length = 60)
+  private String onSiteContactPhone;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -161,4 +189,14 @@ public class Lead {
   public void setClosingAutoConfirmedAt(OffsetDateTime closingAutoConfirmedAt) { this.closingAutoConfirmedAt = closingAutoConfirmedAt; }
   public Long getSourceOfferId() { return sourceOfferId; }
   public void setSourceOfferId(Long sourceOfferId) { this.sourceOfferId = sourceOfferId; }
+  public String getServiceCode() { return serviceCode; }
+  public void setServiceCode(String serviceCode) { this.serviceCode = serviceCode; }
+  public String getTimeWindow() { return timeWindow; }
+  public void setTimeWindow(String timeWindow) { this.timeWindow = timeWindow; }
+  public boolean isRemote() { return remote; }
+  public void setRemote(boolean remote) { this.remote = remote; }
+  public String getOnSiteContactName() { return onSiteContactName; }
+  public void setOnSiteContactName(String onSiteContactName) { this.onSiteContactName = onSiteContactName; }
+  public String getOnSiteContactPhone() { return onSiteContactPhone; }
+  public void setOnSiteContactPhone(String onSiteContactPhone) { this.onSiteContactPhone = onSiteContactPhone; }
 }

@@ -39,6 +39,7 @@ public class BusinessInquiryExpiryScheduler {
   private final BusinessTimelineService businessTimelineService;
   private final TelegramNotifyService telegramNotifyService;
   private final boolean enabled;
+  private final boolean offersEnabled;
   private final Clock clock;
 
   public BusinessInquiryExpiryScheduler(
@@ -47,6 +48,11 @@ public class BusinessInquiryExpiryScheduler {
       BusinessTimelineService businessTimelineService,
       TelegramNotifyService telegramNotifyService,
       @Value("${fixy.business-inquiries.expiry.enabled:true}") boolean enabled,
+      // Congelamiento global de ofertas y comercios (Refundación fase 1,
+      // contrato §6) — sí, el nombre de la property sigue siendo
+      // fixy.offers.enabled aunque acá gatea consultas de COMERCIO: el
+      // contrato lista explícitamente este scheduler entre los 5 a congelar.
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled,
       Clock clock
   ) {
     this.businessInquiryRepository = businessInquiryRepository;
@@ -54,7 +60,11 @@ public class BusinessInquiryExpiryScheduler {
     this.businessTimelineService = businessTimelineService;
     this.telegramNotifyService = telegramNotifyService;
     this.enabled = enabled;
+    this.offersEnabled = offersEnabled;
     this.clock = clock;
+    if (!offersEnabled) {
+      log.info("ofertas congeladas (fixy.offers.enabled=false): {} no procesa", getClass().getSimpleName());
+    }
   }
 
   @Scheduled(fixedDelayString = "${fixy.business-inquiries.expiry.scheduler-fixed-delay-ms:3600000}")
@@ -71,6 +81,9 @@ public class BusinessInquiryExpiryScheduler {
   /** Un ciclo del job, invocable directamente desde tests. Devuelve cuántas consultas se marcaron EXPIRED. */
   @Transactional
   public int processOnce() {
+    if (!offersEnabled) {
+      return 0;
+    }
     OffsetDateTime cutoff = OffsetDateTime.now(clock).minusHours(EXPIRY_HOURS);
     List<BusinessInquiry> stale = businessInquiryRepository
         .findByStatusAndCreatedAtBefore(BusinessInquiryStatus.ESCALATED, cutoff);

@@ -4,12 +4,14 @@ import com.fixy.backend.dto.PublicOfferSubmissionRequest;
 import com.fixy.backend.dto.PublicOfferSubmissionResponse;
 import com.fixy.backend.service.PublicOfferSubmissionService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Alta pública de ofertas (fase 2 del roadmap "ofertas protagonistas"): el
@@ -26,9 +28,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicOfferSubmissionController {
 
   private final PublicOfferSubmissionService publicOfferSubmissionService;
+  private final boolean offersEnabled;
 
-  public PublicOfferSubmissionController(PublicOfferSubmissionService publicOfferSubmissionService) {
+  public PublicOfferSubmissionController(
+      PublicOfferSubmissionService publicOfferSubmissionService,
+      // Congelamiento de ofertas (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled
+  ) {
     this.publicOfferSubmissionService = publicOfferSubmissionService;
+    this.offersEnabled = offersEnabled;
   }
 
   @PostMapping
@@ -37,6 +45,9 @@ public class PublicOfferSubmissionController {
       @RequestBody PublicOfferSubmissionRequest request,
       HttpServletRequest httpRequest
   ) {
+    if (!offersEnabled) {
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Las ofertas están pausadas por ahora.");
+    }
     return publicOfferSubmissionService.create(request, httpRequest.getRemoteAddr());
   }
 }

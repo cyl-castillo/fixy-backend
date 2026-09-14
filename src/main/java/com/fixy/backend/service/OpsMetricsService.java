@@ -6,6 +6,7 @@ import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.SmokeTraffic;
 import com.fixy.backend.repository.LeadEventRepository;
+import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -47,11 +48,16 @@ public class OpsMetricsService {
 
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
+  private final LeadMessageRepository leadMessageRepository;
   private final Clock clock;
 
-  public OpsMetricsService(LeadRepository leadRepository, LeadEventRepository leadEventRepository, Clock clock) {
+  public OpsMetricsService(
+      LeadRepository leadRepository, LeadEventRepository leadEventRepository,
+      LeadMessageRepository leadMessageRepository, Clock clock
+  ) {
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
+    this.leadMessageRepository = leadMessageRepository;
     this.clock = clock;
   }
 
@@ -81,6 +87,28 @@ public class OpsMetricsService {
 
     RepeatRateResult repeatRateResult = computeRepeatRateAutodeclared(leadsInRange);
 
+    // Refundación de Fixy, fase 1 (contrato §5, "métrica pedidos reales"):
+    // cuántos leads son pedido real (no un chat que nunca arrancó) y cuánto
+    // ruido de chats vacíos se está eliminando con el pedido estructurado.
+    Set<Long> leadIdsWithCustomerMessage = leadIdsWithCustomerMessage(leadsInRange);
+
+    long realRequests = leadsInRange.stream()
+        .filter(lead -> hasText(lead.getDetectedCategory()))
+        .filter(lead -> leadIdsWithCustomerMessage.contains(lead.getId()) || "web-order".equals(lead.getChannel()))
+        .count();
+    long structuredOrders = leadsInRange.stream()
+        .filter(lead -> hasText(lead.getServiceCode()))
+        .count();
+    long completedJobs = leadsInRange.stream()
+        .filter(lead -> lead.getStatus() == LeadStatus.COMPLETED)
+        .count();
+    // Un pedido estructurado nace sin mensajes del cliente por diseño (el
+    // formulario ya trajo todo): no es un chat vacío, es un pedido.
+    long emptyChats = leadsInRange.stream()
+        .filter(lead -> lead.getServiceCode() == null)
+        .filter(lead -> !leadIdsWithCustomerMessage.contains(lead.getId()))
+        .count();
+
     return new OpsDailyMetricsResponse(
         from,
         to,
@@ -92,8 +120,29 @@ public class OpsMetricsService {
         repeatRateResult.distinctClientsWithCompleted(),
         repeatRateResult.repeatClients(),
         repeatRateResult.percentage(),
-        computeStalledLeads48h()
+        computeStalledLeads48h(),
+        realRequests,
+        structuredOrders,
+        completedJobs,
+        emptyChats
     );
+  }
+
+  /** Ids de leads (del subconjunto dado) que tienen al menos un mensaje con
+   * sender="customer" — batched para evitar N+1 (mismo patrón que
+   * computeFirstResponseTimesSeconds con LeadEvent). */
+  private Set<Long> leadIdsWithCustomerMessage(List<Lead> leads) {
+    List<Long> ids = leads.stream().map(Lead::getId).toList();
+    if (ids.isEmpty()) {
+      return Set.of();
+    }
+    return leadMessageRepository.findByLeadIdInAndSender(ids, "customer").stream()
+        .map(com.fixy.backend.model.LeadMessage::getLeadId)
+        .collect(Collectors.toSet());
+  }
+
+  private boolean hasText(String value) {
+    return value != null && !value.trim().isBlank();
   }
 
   private boolean isSmoke(Lead lead) {

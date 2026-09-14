@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import com.fixy.backend.service.LeadAgentService;
 import com.fixy.backend.service.LeadAssignmentService;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadTimelineService;
@@ -76,6 +79,8 @@ public class WhatsAppWebhookController {
   private final WhatsAppService whatsappService;
   private final WhatsAppInboundService whatsappInboundService;
   private final LeadAssignmentService leadAssignmentService;
+  private final ProviderLeadDeclineRepository providerLeadDeclineRepository;
+  private final LeadAgentService leadAgentService;
 
   public WhatsAppWebhookController(
       ObjectMapper objectMapper,
@@ -86,6 +91,8 @@ public class WhatsAppWebhookController {
       WhatsAppService whatsappService,
       WhatsAppInboundService whatsappInboundService,
       LeadAssignmentService leadAssignmentService,
+      ProviderLeadDeclineRepository providerLeadDeclineRepository,
+      LeadAgentService leadAgentService,
       @Value("${fixy.whatsapp.webhook-verify-token:}") String verifyToken,
       @Value("${fixy.whatsapp.app-secret:}") String appSecret
   ) {
@@ -97,6 +104,8 @@ public class WhatsAppWebhookController {
     this.whatsappService = whatsappService;
     this.whatsappInboundService = whatsappInboundService;
     this.leadAssignmentService = leadAssignmentService;
+    this.providerLeadDeclineRepository = providerLeadDeclineRepository;
+    this.leadAgentService = leadAgentService;
     this.verifyToken = verifyToken;
     this.appSecret = appSecret;
   }
@@ -300,9 +309,24 @@ public class WhatsAppWebhookController {
     leadRepository.save(lead);
     leadTimelineService.appendEvent(lead, "PROVIDER_REJECTED", "provider",
         provider.getName() + " no puede: " + truncate(originalText, 100));
-    leadMessageService.postFromOps(lead.getId(), "fixy",
-        "El proveedor que contactamos no pudo tomarlo. Estamos buscando otro y te avisamos por acá.");
-    // TODO: trigger tryAutoMatch del siguiente provider disponible (fase 2).
+
+    // Registrar el decline ANTES de re-ofertar (mismo criterio que
+    // ProviderSelfService.releaseAfterProviderCancel): así findMatchesForLead
+    // — que ya excluye declines de ESTE lead — no vuelve a proponer al
+    // mismo proveedor en la re-oferta de abajo ni en un reintento futuro.
+    if (lead.getId() != null && provider.getId() != null
+        && !providerLeadDeclineRepository.existsByLeadIdAndProviderId(lead.getId(), provider.getId())) {
+      ProviderLeadDecline decline = new ProviderLeadDecline();
+      decline.setLeadId(lead.getId());
+      decline.setProviderId(provider.getId());
+      providerLeadDeclineRepository.save(decline);
+    }
+
+    // Re-oferta en el acto al siguiente candidato elegible (Refundación fase
+    // 1, contrato §4 — cierra el TODO de "fase 2"): misma ruta de matching
+    // que el resto del sistema, LeadAgentService ya posta el mensaje al
+    // cliente correcto en cada caso (hay siguiente / no hay nadie más).
+    leadAgentService.reofferAfterDecline(lead.getId());
   }
 
   private String truncate(String text, int max) {

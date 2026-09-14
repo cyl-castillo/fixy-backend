@@ -3,8 +3,8 @@
 ## Estado actual
 
 - Backend local corriendo en `127.0.0.1:8080`
-- UI interna mínima en `/ops.html`
-- Protección básica con HTTP Basic Auth sobre `/ops.html`, `/api/leads/**` y `/api/providers/**`
+- Sin UI propia (Refundación fase 1, contrato §7): `/` responde JSON simple, la UI operativa vive en el admin de `fixy-app`
+- Protección básica con HTTP Basic Auth sobre `/api/leads/**`, `/api/providers/**`, `/api/offers/**`, `/api/services/**`
 - Servicio systemd activo: `fixy-backend.service`
 - Exposición temporal por Cloudflare quick tunnel / futura migración a túnel formal
 
@@ -22,7 +22,7 @@ Se recomienda NO documentar credenciales activas en texto plano dentro del repo.
 
 ### Local
 - `http://127.0.0.1:8080/api/health`
-- `http://127.0.0.1:8080/ops.html`
+- `http://127.0.0.1:8080/` (JSON simple, sin UI propia)
 
 ### Pública temporal
 - Quick tunnel de Cloudflare (puede cambiar o caer)
@@ -103,4 +103,4 @@ sudo cloudflared service install
 `PATCH /api/leads/{id}`
 
 ### UI interna
-`/ops.html`
+Retirada (Refundación fase 1, contrato §7) — la UI operativa vive en el admin de `fixy-app`, este backend solo expone API.

@@ -29,8 +29,25 @@ public record LeadResponse(
     boolean disputed,
     OffsetDateTime disputeResolvedAt,
     String disputeResolutionNote,
-    AssignedProviderSummary assignedProviderSummary
+    AssignedProviderSummary assignedProviderSummary,
+    /** Código del servicio de catálogo (contrato §3) si el lead vino de un
+     * pedido estructurado, null para leads del chat conversacional. */
+    String serviceCode,
+    /** Nombre legible del servicio — null si {@code serviceCode} es null o
+     * ya no existe/está activo en el catálogo. */
+    String serviceName,
+    /** Precio orientativo desde (UYU) del servicio pedido, null si no aplica. */
+    Integer priceFrom,
+    /** Ventana horaria elegida (id de {@code OrderTimeWindow}), null si no aplica. */
+    String timeWindow,
+    boolean remote,
+    /** Quién abre la puerta si {@code remote=true}. Null si no aplica. */
+    OnSiteContact onSiteContact
 ) {
+  /** Contacto que abre la puerta cuando el cliente no va a estar (contrato §3). */
+  public record OnSiteContact(String name, String phone) {
+  }
+
   /**
    * Datos públicos del proveedor asignado a este lead, para que el cliente
    * vea con quién está tratando (contrato acordado con el agente que

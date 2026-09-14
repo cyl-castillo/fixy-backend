@@ -63,6 +63,7 @@ public class SavedOfferReminderScheduler {
   private final OfferRepository offerRepository;
   private final PushNotificationService pushNotificationService;
   private final boolean enabled;
+  private final boolean offersEnabled;
   private final Clock clock;
 
   public SavedOfferReminderScheduler(
@@ -70,13 +71,19 @@ public class SavedOfferReminderScheduler {
       OfferRepository offerRepository,
       PushNotificationService pushNotificationService,
       @Value("${fixy.offers.saved-reminder.enabled:true}") boolean enabled,
+      // Congelamiento global de ofertas (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled,
       Clock clock
   ) {
     this.pushSubscriptionRepository = pushSubscriptionRepository;
     this.offerRepository = offerRepository;
     this.pushNotificationService = pushNotificationService;
     this.enabled = enabled;
+    this.offersEnabled = offersEnabled;
     this.clock = clock;
+    if (!offersEnabled) {
+      log.info("ofertas congeladas (fixy.offers.enabled=false): {} no procesa", getClass().getSimpleName());
+    }
   }
 
   @Scheduled(fixedDelayString = "${fixy.offers.saved-reminder.scheduler-fixed-delay-ms:3600000}")
@@ -92,6 +99,9 @@ public class SavedOfferReminderScheduler {
 
   /** Un ciclo del job, invocable directamente desde tests. Devuelve cuántos recordatorios se enviaron. */
   public int processOnce() {
+    if (!offersEnabled) {
+      return 0;
+    }
     OffsetDateTime now = OffsetDateTime.now(clock);
     OffsetDateTime in24h = now.plusHours(24);
     OffsetDateTime throttleCutoff = now.minusDays(THROTTLE_DAYS);

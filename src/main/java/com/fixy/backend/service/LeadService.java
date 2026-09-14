@@ -49,6 +49,7 @@ public class LeadService {
   private final TelegramNotifyService telegramNotifyService;
   private final PushNotificationService pushNotificationService;
   private final ProviderSelfService providerSelfService;
+  private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
 
   public LeadService(
       LeadRepository leadRepository,
@@ -60,7 +61,8 @@ public class LeadService {
       PushNotificationService pushNotificationService,
       // @Lazy: mismo motivo que en TelegramNotifyService — providerSelfService
       // solo se usa en runtime (ensureAccessToken) y evita ciclo de beans.
-      @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService
+      @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService,
+      com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
@@ -70,6 +72,7 @@ public class LeadService {
     this.telegramNotifyService = telegramNotifyService;
     this.pushNotificationService = pushNotificationService;
     this.providerSelfService = providerSelfService;
+    this.serviceCatalogItemRepository = serviceCatalogItemRepository;
   }
 
   /**
@@ -611,6 +614,22 @@ public class LeadService {
     List<String> missingFields = deserializeMissingFields(lead.getMissingFields());
     List<String> blockingFields = computeBlockingFields(lead);
 
+    String serviceName = null;
+    Integer servicePriceFrom = null;
+    if (hasText(lead.getServiceCode())) {
+      // findByCode (no findByCodeAndActiveTrue): un pedido viejo tiene que
+      // seguir mostrando qué se pidió aunque el servicio se haya desactivado
+      // después — desactivar no debe borrar la ficha de pedidos ya hechos.
+      var service = serviceCatalogItemRepository.findByCode(lead.getServiceCode()).orElse(null);
+      if (service != null) {
+        serviceName = service.getName();
+        servicePriceFrom = service.getPriceFrom();
+      }
+    }
+    LeadResponse.OnSiteContact onSiteContact = hasText(lead.getOnSiteContactName()) || hasText(lead.getOnSiteContactPhone())
+        ? new LeadResponse.OnSiteContact(lead.getOnSiteContactName(), lead.getOnSiteContactPhone())
+        : null;
+
     return new LeadResponse(
         lead.getId(),
         lead.getName(),
@@ -636,7 +655,13 @@ public class LeadService {
         lead.isDisputed(),
         lead.getDisputeResolvedAt(),
         lead.getDisputeResolutionNote(),
-        providerSelfService.summaryForAssignedProvider(lead)
+        providerSelfService.summaryForAssignedProvider(lead),
+        lead.getServiceCode(),
+        serviceName,
+        servicePriceFrom,
+        lead.getTimeWindow(),
+        lead.isRemote(),
+        onSiteContact
     );
   }
 

@@ -46,7 +46,7 @@ class MerchantOfferExpirySchedulerTest {
   private MerchantOfferExpiryScheduler scheduler(Clock clock) {
     return new MerchantOfferExpiryScheduler(
         offerRepository, businessRepository, pushSubscriptionRepository,
-        pushNotificationService, telegramNotifyService, true, clock);
+        pushNotificationService, telegramNotifyService, true, true, clock);
   }
 
   private Business persistBusiness(String tag) {

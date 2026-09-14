@@ -65,15 +65,19 @@ bash scripts/healthcheck.sh
 ## Política actual de acceso
 
 Público:
-- `/`
+- `/` (JSON simple, sin landing estática — se retiró en Refundación fase 1)
 - `/api/health`
 - `/api/intake`
 - `/api/public/**`
+- `/.well-known/fixy-agent.json`
 
 Protegido con HTTP Basic Auth:
-- `/ops.html`
 - `/api/leads/**`
 - `/api/providers/**`
+- `/api/offers/**`
+- `/api/services/**`
+- `/api/businesses/**`
+- `/api/ops/**`
 
 Credenciales:
 - `FIXY_OPS_USERNAME`

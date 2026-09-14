@@ -6,6 +6,7 @@ import com.fixy.backend.dto.BusinessInquiryPushEndpointUpdateRequest;
 import com.fixy.backend.dto.BusinessInquiryVisitorResponse;
 import com.fixy.backend.service.BusinessInquiryService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Motor de respuesta sobre el catálogo de la ficha, con escalado al dueño
@@ -27,9 +29,15 @@ import org.springframework.web.bind.annotation.RestController;
 public class PublicBusinessInquiryController {
 
   private final BusinessInquiryService businessInquiryService;
+  private final boolean offersEnabled;
 
-  public PublicBusinessInquiryController(BusinessInquiryService businessInquiryService) {
+  public PublicBusinessInquiryController(
+      BusinessInquiryService businessInquiryService,
+      // Congelamiento de ofertas y comercios (Refundación fase 1, contrato §6).
+      @Value("${fixy.offers.enabled:false}") boolean offersEnabled
+  ) {
     this.businessInquiryService = businessInquiryService;
+    this.offersEnabled = offersEnabled;
   }
 
   /**
@@ -44,6 +52,9 @@ public class PublicBusinessInquiryController {
       @RequestBody BusinessInquiryCreateRequest request,
       HttpServletRequest httpRequest
   ) {
+    if (!offersEnabled) {
+      throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Las ofertas están pausadas por ahora.");
+    }
     return businessInquiryService.create(businessId, request, httpRequest.getRemoteAddr());
   }
 

@@ -5,8 +5,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.fixy.backend.dto.OpsDailyMetricsResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
+import com.fixy.backend.model.LeadMessage;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.repository.LeadEventRepository;
+import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.service.OpsMetricsService;
 import jakarta.persistence.EntityManager;
@@ -29,6 +31,9 @@ class OpsMetricsServiceTest {
 
   @Autowired
   private LeadEventRepository leadEventRepository;
+
+  @Autowired
+  private LeadMessageRepository leadMessageRepository;
 
   @Autowired
   private EntityManager entityManager;
@@ -201,7 +206,7 @@ class OpsMetricsServiceTest {
     java.time.Clock frozenNow = java.time.Clock.fixed(
         WINDOW_TO.plusDays(30).toInstant(), ZoneOffset.UTC);
     OpsMetricsService serviceWithFrozenClock =
-        new OpsMetricsService(leadRepository, leadEventRepository, frozenNow);
+        new OpsMetricsService(leadRepository, leadEventRepository, leadMessageRepository, frozenNow);
     java.time.OffsetDateTime now = java.time.OffsetDateTime.now(frozenNow);
 
     // Colgado real: NEW, creado hace 49h (>48h) -> cuenta.
@@ -224,5 +229,61 @@ class OpsMetricsServiceTest {
     OpsDailyMetricsResponse metrics = serviceWithFrozenClock.dailyMetrics(WINDOW_FROM, WINDOW_TO);
 
     assertThat(metrics.stalledLeads48h()).isEqualTo(2);
+  }
+
+  private void appendCustomerMessage(Lead lead) {
+    LeadMessage message = new LeadMessage();
+    message.setLeadId(lead.getId());
+    message.setSender("customer");
+    message.setText("hola, necesito ayuda");
+    leadMessageRepository.saveAndFlush(message);
+  }
+
+  @Test
+  void realRequestsStructuredOrdersCompletedJobsAndEmptyChats_refundacionFase1() {
+    OffsetDateTime base = WINDOW_FROM.plusDays(1);
+
+    // Chat orgánico con categoría Y mensaje del cliente -> pedido real, no chat vacío.
+    Lead organicWithMessage = createLead("099777001", LeadStatus.NEW, base);
+    organicWithMessage.setDetectedCategory("plomeria");
+    leadRepository.saveAndFlush(organicWithMessage);
+    appendCustomerMessage(organicWithMessage);
+
+    // Pedido estructurado (channel=web-order) SIN mensaje de cliente -> igual
+    // pedido real (contrato §5: "channel = web-order" cuenta aunque no haya
+    // chat), pero SÍ cuenta como chat vacío (no tiene mensaje "customer").
+    Lead structuredOrder = createLead("099777002", LeadStatus.PROVIDER_CONTACTED, base);
+    structuredOrder.setDetectedCategory("aires_acondicionados");
+    structuredOrder.setChannel("web-order");
+    structuredOrder.setServiceCode("aire_service");
+    leadRepository.saveAndFlush(structuredOrder);
+
+    // Chat que nunca arrancó: sin categoría, sin mensaje -> ni pedido real ni cuenta aparte, SÍ chat vacío.
+    Lead emptyChat = createLead("099777003", LeadStatus.NEW, base);
+    leadRepository.saveAndFlush(emptyChat);
+
+    // Categoría detectada pero SIN mensaje de cliente y channel distinto de
+    // web-order -> NO es pedido real (contrato exige categoría Y (mensaje O web-order)).
+    Lead categorizedNoMessage = createLead("099777004", LeadStatus.NEW, base);
+    categorizedNoMessage.setDetectedCategory("plomeria");
+    leadRepository.saveAndFlush(categorizedNoMessage);
+
+    // Trabajo completado.
+    Lead completed = createLead("099777005", LeadStatus.COMPLETED, base);
+    completed.setDetectedCategory("barometrica");
+    leadRepository.saveAndFlush(completed);
+    appendCustomerMessage(completed);
+
+    OpsDailyMetricsResponse metrics = opsMetricsService.dailyMetrics(WINDOW_FROM, WINDOW_TO);
+
+    // Pedidos reales: organicWithMessage + structuredOrder + completed = 3.
+    assertThat(metrics.realRequests()).isEqualTo(3);
+    // Pedidos estructurados: solo structuredOrder tiene serviceCode.
+    assertThat(metrics.structuredOrders()).isEqualTo(1);
+    // Completados: solo completed.
+    assertThat(metrics.completedJobs()).isEqualTo(1);
+    // Chats vacíos (sin mensaje de cliente): emptyChat + categorizedNoMessage = 2.
+    // El pedido estructurado no cuenta: nace sin mensajes por diseño, es un pedido, no un chat vacío.
+    assertThat(metrics.emptyChats()).isEqualTo(2);
   }
 }

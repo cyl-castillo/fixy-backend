@@ -41,7 +41,7 @@ class SavedOfferReminderSchedulerTest {
 
   private SavedOfferReminderScheduler scheduler(Clock clock) {
     return new SavedOfferReminderScheduler(
-        pushSubscriptionRepository, offerRepository, pushNotificationService, true, clock);
+        pushSubscriptionRepository, offerRepository, pushNotificationService, true, true, clock);
   }
 
   private Business persistBusiness(String whatsapp) {
