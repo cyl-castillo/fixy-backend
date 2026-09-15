@@ -30,7 +30,7 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-    "fixy.payments.enabled=false",
+    "fixy.payments.provider-commission-enabled=false",
     "fixy.closing.enabled=true",
     "fixy.closing.auto-confirm-hours=0"
 })

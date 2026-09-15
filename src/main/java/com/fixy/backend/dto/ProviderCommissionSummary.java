@@ -26,7 +26,12 @@ public record ProviderCommissionSummary(
     int earningsThisMonthCount,
     BigDecimal earningsTotal,
     int earningsTotalCount,
-    java.util.List<PendingCommission> pendingItems
+    java.util.List<PendingCommission> pendingItems,
+    /** Refundación fase 2 (contrato §A.4.7): false desde el arranque de esta
+     * fase (default de {@code fixy.payments.provider-commission-enabled}) —
+     * el panel del técnico usa este flag para mostrar «Vos no pagás nada a
+     * Fixy» en vez de la lista de comisiones cuando no hay filas. */
+    boolean providerCommissionEnabled
 ) {
   /**
    * Comisión pendiente con su link de pago, para que el panel tenga un botón
@@ -49,9 +54,9 @@ public record ProviderCommissionSummary(
   ) {
   }
 
-  public static ProviderCommissionSummary empty() {
+  public static ProviderCommissionSummary empty(boolean providerCommissionEnabled) {
     return new ProviderCommissionSummary(
         BigDecimal.ZERO, 0, BigDecimal.ZERO, 0, "UYU", BigDecimal.ZERO, 0, BigDecimal.ZERO, 0,
-        java.util.List.of());
+        java.util.List.of(), providerCommissionEnabled);
   }
 }

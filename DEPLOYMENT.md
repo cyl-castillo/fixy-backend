@@ -4,6 +4,8 @@
 
 - Backend local corriendo en `127.0.0.1:8080`
 - Sin UI propia (Refundación fase 1, contrato §7): `/` responde JSON simple, la UI operativa vive en el admin de `fixy-app`
+- Refundación fase 2 (2026-09-15): el modelo de cobro pasa de comisión al técnico a cargo de servicio al cliente. `fixy.payments.provider-commission-enabled` (antes `fixy.payments.enabled`) default **false** en prod desde este deploy — deja de crearse `LeadPayment` para trabajos nuevos (lo histórico sigue visible en "Comisiones"). `fixy.orders.service-fee-enabled` default **true** — Mercado Pago le cobra al vecino, no al técnico. Ver `deploy/aws/fixy-backend.env.example` para las variables nuevas y las tres que reemplazan a `fixy.stale-matching.*` / `fixy.matching.auto-release.*` / `fixy.orphan-match-retry.*` (unificadas en `fixy.matching.watchdog.*`, `MatchingWatchdogScheduler`).
+- Migración `V29__customer_payments_remote_care.sql` corre sola contra Postgres (Flyway) — agrega `customer_payments`, `remote_care_plans`, `lead_ratings.verified`, `leads.remote_care_plan_id` y siembra el servicio de catálogo `care_visita` (precio 0, visita preventiva del plan Casa a distancia).
 - Protección básica con HTTP Basic Auth sobre `/api/leads/**`, `/api/providers/**`, `/api/offers/**`, `/api/services/**`
 - Servicio systemd activo: `fixy-backend.service`
 - Exposición temporal por Cloudflare quick tunnel / futura migración a túnel formal

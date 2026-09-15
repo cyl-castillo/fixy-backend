@@ -1,11 +1,14 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.model.CommissionStatus;
+import com.fixy.backend.model.CustomerPayment;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadPayment;
+import com.fixy.backend.repository.CustomerPaymentRepository;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.service.CommissionService;
+import com.fixy.backend.service.CustomerPaymentService;
 import com.fixy.backend.service.LeadTimelineService;
 import com.fixy.backend.service.MercadoPagoService;
 import java.time.OffsetDateTime;
@@ -46,19 +49,25 @@ public class MercadoPagoWebhookController {
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
+  private final CustomerPaymentRepository customerPaymentRepository;
+  private final CustomerPaymentService customerPaymentService;
 
   public MercadoPagoWebhookController(
       MercadoPagoService mercadoPagoService,
       LeadPaymentRepository leadPaymentRepository,
       LeadRepository leadRepository,
       LeadTimelineService timelineService,
-      CommissionService commissionService
+      CommissionService commissionService,
+      CustomerPaymentRepository customerPaymentRepository,
+      CustomerPaymentService customerPaymentService
   ) {
     this.mercadoPagoService = mercadoPagoService;
     this.leadPaymentRepository = leadPaymentRepository;
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
+    this.customerPaymentRepository = customerPaymentRepository;
+    this.customerPaymentService = customerPaymentService;
   }
 
   @PostMapping
@@ -96,6 +105,15 @@ public class MercadoPagoWebhookController {
     MercadoPagoService.PaymentStatusResult payment = result.get();
     if (payment.externalReference() == null || payment.externalReference().isBlank()) {
       log.warn("mercadopago webhook: paymentId={} sin external_reference", paymentId);
+      return;
+    }
+
+    // Refundación fase 2 (contrato §A.4.2): external_reference con prefijo
+    // "customer:" reconcilia contra CustomerPayment (cargo al VECINO); sin
+    // prefijo sigue reconciliando contra LeadPayment (comisión al TÉCNICO,
+    // compatibilidad con preferencias creadas antes de esta fase).
+    if (payment.externalReference().startsWith(CustomerPaymentService.EXTERNAL_REFERENCE_PREFIX)) {
+      processCustomerPaymentNotification(paymentId, payment);
       return;
     }
 
@@ -154,5 +172,42 @@ public class MercadoPagoWebhookController {
     }
 
     log.info("mercadopago webhook: LeadPayment {} marcado PAID (paymentId={})", leadPaymentId, paymentId);
+  }
+
+  /**
+   * Refundación fase 2 (contrato §A.4.2/§A.4.4): rama "customer:{id}" del
+   * webhook — no confía en el status del payload salvo el ya re-consultado
+   * por {@link MercadoPagoService#fetchPayment}, misma idempotencia que la
+   * rama de {@link LeadPayment} ({@link CustomerPaymentService#markPaid}
+   * hace la transición atómica).
+   */
+  private void processCustomerPaymentNotification(String paymentId, MercadoPagoService.PaymentStatusResult payment) {
+    String rawId = payment.externalReference()
+        .substring(CustomerPaymentService.EXTERNAL_REFERENCE_PREFIX.length());
+    Long customerPaymentId;
+    try {
+      customerPaymentId = Long.valueOf(rawId);
+    } catch (NumberFormatException ex) {
+      log.warn("mercadopago webhook: external_reference de cliente invalido '{}' para paymentId={}",
+          payment.externalReference(), paymentId);
+      return;
+    }
+
+    Optional<CustomerPayment> customerPaymentOpt = customerPaymentRepository.findById(customerPaymentId);
+    if (customerPaymentOpt.isEmpty()) {
+      log.warn("mercadopago webhook: CustomerPayment {} no encontrado (paymentId={})", customerPaymentId, paymentId);
+      return;
+    }
+
+    if (!"approved".equals(payment.status())) {
+      log.info("mercadopago webhook: paymentId={} status={} (no approved todavia) para CustomerPayment {}",
+          paymentId, payment.status(), customerPaymentId);
+      return;
+    }
+
+    boolean transitioned = customerPaymentService.markPaid(customerPaymentOpt.get(), paymentId);
+    if (transitioned) {
+      log.info("mercadopago webhook: CustomerPayment {} marcado PAID (paymentId={})", customerPaymentId, paymentId);
+    }
   }
 }

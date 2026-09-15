@@ -50,6 +50,7 @@ public class LeadService {
   private final PushNotificationService pushNotificationService;
   private final ProviderSelfService providerSelfService;
   private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
+  private final com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository;
 
   public LeadService(
       LeadRepository leadRepository,
@@ -62,7 +63,8 @@ public class LeadService {
       // @Lazy: mismo motivo que en TelegramNotifyService — providerSelfService
       // solo se usa en runtime (ensureAccessToken) y evita ciclo de beans.
       @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService,
-      com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository
+      com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository,
+      com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
@@ -73,6 +75,7 @@ public class LeadService {
     this.pushNotificationService = pushNotificationService;
     this.providerSelfService = providerSelfService;
     this.serviceCatalogItemRepository = serviceCatalogItemRepository;
+    this.customerPaymentRepository = customerPaymentRepository;
   }
 
   /**
@@ -630,6 +633,11 @@ public class LeadService {
         ? new LeadResponse.OnSiteContact(lead.getOnSiteContactName(), lead.getOnSiteContactPhone())
         : null;
 
+    LeadResponse.ServiceFee serviceFee = customerPaymentRepository.findByLeadId(lead.getId())
+        .filter(p -> p.getKind() == com.fixy.backend.model.CustomerPaymentKind.SERVICE_FEE)
+        .map(p -> new LeadResponse.ServiceFee(p.getAmount(), p.getStatus(), p.getMpPaymentLink(), p.getGuaranteeUntil()))
+        .orElse(null);
+
     return new LeadResponse(
         lead.getId(),
         lead.getName(),
@@ -661,7 +669,8 @@ public class LeadService {
         servicePriceFrom,
         lead.getTimeWindow(),
         lead.isRemote(),
-        onSiteContact
+        onSiteContact,
+        serviceFee
     );
   }
 

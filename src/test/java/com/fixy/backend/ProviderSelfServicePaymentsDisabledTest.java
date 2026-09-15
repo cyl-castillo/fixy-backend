@@ -17,7 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * Plan de rollback del roadmap (P0-1): con fixy.payments.enabled=false, un
+ * Plan de rollback del roadmap (P0-1): con fixy.payments.provider-commission-enabled=false, un
  * COMPLETED sin amountCharged debe seguir funcionando exactamente igual que
  * antes de esta épica (sin exigir monto, sin crear LeadPayment). Contexto
  * Spring separado (distinta property) para no interferir con el resto de
@@ -25,7 +25,7 @@ import org.springframework.test.web.servlet.MvcResult;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "fixy.payments.enabled=false")
+@TestPropertySource(properties = "fixy.payments.provider-commission-enabled=false")
 class ProviderSelfServicePaymentsDisabledTest {
 
   @Autowired

@@ -42,10 +42,25 @@ public record LeadResponse(
     String timeWindow,
     boolean remote,
     /** Quién abre la puerta si {@code remote=true}. Null si no aplica. */
-    OnSiteContact onSiteContact
+    OnSiteContact onSiteContact,
+    /** Refundación fase 2 (contrato §A.4.7): cargo de servicio al cliente de
+     * este lead, null si el trabajo todavía no fue marcado COMPLETED (o si
+     * el cargo redondeó a 0, ver CustomerPaymentService). */
+    ServiceFee serviceFee
 ) {
   /** Contacto que abre la puerta cuando el cliente no va a estar (contrato §3). */
   public record OnSiteContact(String name, String phone) {
+  }
+
+  /** Refundación fase 2 (contrato §A.4.7): {@code
+   * GET /api/public/leads/{id}?token=} incluye {@code serviceFee:
+   * {amount, status, paymentLink, guaranteeUntil} | null}. */
+  public record ServiceFee(
+      java.math.BigDecimal amount,
+      com.fixy.backend.model.CustomerPaymentStatus status,
+      String paymentLink,
+      OffsetDateTime guaranteeUntil
+  ) {
   }
 
   /**

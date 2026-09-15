@@ -414,6 +414,45 @@ public class TelegramNotifyService {
   }
 
   /**
+   * Refundación fase 2 (contrato §B.3): un dueño pidió el plan Casa a
+   * distancia — sin lead ni evento de timeline (mismo sub-patrón que
+   * {@link #notifyProviderSelfRegistered}, el pedido pasa una sola vez).
+   */
+  public void notifyRemoteCarePlanRequested(com.fixy.backend.model.RemoteCarePlan plan) {
+    if (!enabled) return;
+    try {
+      String text = "🏠 Plan casa a distancia pedido: %s (%s) — %s, %s. Quien abre: %s. Activalo en el admin: Casa a distancia → Activar."
+          .formatted(
+              safe(plan.getOwnerName()),
+              safe(plan.getOwnerPhone()),
+              safe(plan.getPropertyZone()),
+              safe(plan.getPropertyAddress()),
+              safe(plan.getOnSiteName())
+          );
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify remote-care-plan-requested {} failed: {}", plan.getId(), ex.getMessage());
+    }
+  }
+
+  /**
+   * Refundación fase 2 (contrato §B.3): plan activado (por ops) o cuota
+   * mensual generada (por {@code RemoteCareBillingScheduler}) — el link de
+   * pago que reenviar al dueño.
+   */
+  public void notifyRemoteCarePlanCharge(com.fixy.backend.model.RemoteCarePlan plan, String paymentLink) {
+    if (!enabled) return;
+    try {
+      String text = "💳 Casa a distancia — cobro mensual de %s (%s): %s"
+          .formatted(safe(plan.getOwnerName()), safe(plan.getOwnerPhone()),
+              paymentLink != null ? paymentLink : "(sin link, MP apagado)");
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify remote-care-plan-charge {} failed: {}", plan.getId(), ex.getMessage());
+    }
+  }
+
+  /**
    * Consulta de un vecino a un comercio real vía la ruta "comercio" del CTA
    * de ofertas (FIXY_OFERTAS_CTA_DESIGN.md §4.4) — mismo sub-patrón que
    * {@link #notifyProviderSelfRegistered}: sin {@code Lead} ni

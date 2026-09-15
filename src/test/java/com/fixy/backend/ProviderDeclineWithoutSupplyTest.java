@@ -1,7 +1,7 @@
 package com.fixy.backend;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -14,9 +14,15 @@ import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.LeadAgentService;
-import com.fixy.backend.service.OrphanMatchRetryScheduler;
+import com.fixy.backend.service.LeadMessageService;
+import com.fixy.backend.service.LeadTimelineService;
+import com.fixy.backend.service.MatchingWatchdogScheduler;
+import com.fixy.backend.service.ProviderCatalogService;
+import com.fixy.backend.service.ProviderSelfService;
+import com.fixy.backend.service.PushNotificationService;
 import com.fixy.backend.service.TelegramNotifyService;
 import com.jayway.jsonpath.JsonPath;
 import java.time.Clock;
@@ -52,10 +58,9 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-    "fixy.payments.enabled=false",
-    // Los schedulers vivos de otro contexto no deben tocar estos leads.
-    "fixy.orphan-match-retry.enabled=false",
-    "fixy.matching-stale.enabled=false",
+    "fixy.payments.provider-commission-enabled=false",
+    // El watchdog vivo de otro contexto no debe tocar estos leads.
+    "fixy.matching.watchdog.enabled=false",
     "fixy.reengagement.enabled=false"
 })
 class ProviderDeclineWithoutSupplyTest {
@@ -69,13 +74,22 @@ class ProviderDeclineWithoutSupplyTest {
   @Autowired private LeadMessageRepository leadMessageRepository;
   @Autowired private ProviderRepository providerRepository;
   @Autowired private LeadAgentService leadAgentService;
+  @Autowired private ProviderLeadDeclineRepository declineRepository;
+  @Autowired private ProviderCatalogService providerCatalogService;
+  @Autowired private ProviderSelfService providerSelfService;
+  @Autowired private LeadTimelineService timelineService;
+  @Autowired private LeadMessageService leadMessageService;
+  @Autowired private PushNotificationService pushNotificationService;
 
   @MockitoBean private TelegramNotifyService telegramNotifyService;
 
   /** Instancia propia: el scheduler del contexto está apagado a propósito. */
-  private OrphanMatchRetryScheduler scheduler() {
-    return new OrphanMatchRetryScheduler(
-        leadRepository, leadEventRepository, leadAgentService, true, 14, Clock.systemUTC());
+  private MatchingWatchdogScheduler scheduler() {
+    return new MatchingWatchdogScheduler(
+        leadRepository, leadEventRepository, providerRepository, declineRepository,
+        providerCatalogService, providerSelfService, leadAgentService, timelineService,
+        leadMessageService, pushNotificationService, telegramNotifyService,
+        true, 45, 20, 12, 4, 14, 60, Clock.systemUTC());
   }
 
   private Lead makePasteleriaLead(String zone) throws Exception {
@@ -144,7 +158,11 @@ class ProviderDeclineWithoutSupplyTest {
     // La promesa vacía es justamente lo que no puede volver a salir.
     assertThat(message).doesNotContain(PROMESA_DE_BUSQUEDA);
 
-    verify(telegramNotifyService).notifyDemandWithoutSupply(any());
+    // Filtrado por lead (no any()): H2 sin @Transactional comparte estado
+    // entre métodos de esta clase, y con el watchdog el frente de huérfanos
+    // puede alcanzar leads sin alternativa que dejaron OTROS tests — mismo
+    // criterio que MatchingAutoReleaseSchedulerTest con su summary de Telegram.
+    verify(telegramNotifyService).notifyDemandWithoutSupply(argThat(l -> l.getId().equals(lead.getId())));
 
     // El pedido sigue vivo y sin dueño: si mañana se registra alguien, el
     // reintento de huérfanos lo encuentra.
@@ -168,7 +186,7 @@ class ProviderDeclineWithoutSupplyTest {
     String message = lastAgentMessage(lead.getId());
     assertThat(message).contains(PROMESA_DE_BUSQUEDA);
     assertThat(message).doesNotContain(SIN_NADIE_MAS);
-    verify(telegramNotifyService, never()).notifyDemandWithoutSupply(any());
+    verify(telegramNotifyService, never()).notifyDemandWithoutSupply(argThat(l -> l.getId().equals(lead.getId())));
   }
 
   /**
@@ -188,7 +206,7 @@ class ProviderDeclineWithoutSupplyTest {
     Provider contactadaDespues = first.equals(primera.getId()) ? segunda : primera;
 
     declineAsProvider(contactadaPrimero, lead.getId());
-    verify(telegramNotifyService, never()).notifyDemandWithoutSupply(any());
+    verify(telegramNotifyService, never()).notifyDemandWithoutSupply(argThat(l -> l.getId().equals(lead.getId())));
 
     // El reintento se lo ofrece a la otra, que también rechaza.
     scheduler().processOnce();
@@ -197,6 +215,6 @@ class ProviderDeclineWithoutSupplyTest {
     declineAsProvider(contactadaDespues, lead.getId());
 
     assertThat(lastAgentMessage(lead.getId())).contains(SIN_NADIE_MAS);
-    verify(telegramNotifyService).notifyDemandWithoutSupply(any());
+    verify(telegramNotifyService).notifyDemandWithoutSupply(argThat(l -> l.getId().equals(lead.getId())));
   }
 }

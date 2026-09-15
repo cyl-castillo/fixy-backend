@@ -27,6 +27,10 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
    */
   List<Lead> findByPhoneAndChannelOrderByCreatedAtDesc(String phone, String channel);
 
+  /** Refundación fase 2 (contrato §B.3): pedidos originados en un plan Casa
+   * a distancia, para la página del dueño. */
+  List<Lead> findByRemoteCarePlanIdOrderByCreatedAtDesc(Long remoteCarePlanId);
+
   /** H2.4: candidatos a auto-confirmación — completados, sin disputa y sin
    * haber corrido ya el scheduler. El filtro de "sin rating" y de las 72h
    * desde el evento de completado se aplica en el servicio (requiere leer

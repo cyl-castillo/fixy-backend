@@ -29,12 +29,15 @@ fixy:
   # de huérfanos asignaba el lead del test al proveedor antes de que el test
   # mirara la bandeja (rojo local, verde CI: depende del caché de contextos).
   # Los tests que los prueban los instancian a mano con enabled=true.
-  orphan-match-retry:
-    enabled: false
   reengagement:
     enabled: false
   matching:
-    auto-release:
+    # Refundación fase 2 (contrato §C): MatchingWatchdogScheduler reemplaza a
+    # los tres schedulers viejos (stale/auto-release/orphan-retry) — mismo
+    # motivo para apagarlo por default en tests (@Scheduled sin initialDelay
+    # dispara al arrancar CADA contexto). Los tests que lo prueban lo
+    # instancian a mano con enabled=true (ver MatchingWatchdogSchedulerTest).
+    watchdog:
       enabled: false
   providers:
     pending-approval:
@@ -85,10 +88,24 @@ fixy:
     max-messages-per-window: 100
     window-seconds: 60
   payments:
-    enabled: true
+    provider-commission-enabled: true
     commission-percent: 10
     mp-access-token: ""
     mp-webhook-secret: ""
+  orders:
+    # Refundación fase 2: default GLOBAL de test queda en false (al revés
+    # que prod) para no alterar con efectos colaterales nuevos (mensaje
+    # extra, CustomerPayment extra) la suite existente que ya asume el flujo
+    # de comisión clásico (provider-commission-enabled=true arriba). Los
+    # tests nuevos de cargo de servicio lo prenden puntualmente con
+    # @TestPropertySource, mismo patrón que OffersFrozenTest con ofertas.
+    service-fee-enabled: false
+  remote-care:
+    billing:
+      enabled: false
+  customer-payments:
+    reminder:
+      enabled: false
   closing:
     enabled: false
     auto-confirm-hours: 72

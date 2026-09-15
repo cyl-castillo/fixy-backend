@@ -128,6 +128,15 @@ public class PublicLeadAbuseProtectionService {
   private final Duration businessRegistrationWindow;
   private final Map<String, Deque<Instant>> requestsByBusinessRegistrationIp = new ConcurrentHashMap<>();
 
+  /** Ventana propia para el alta pública del plan Casa a distancia
+   * (Refundación fase 2, contrato §B.3): misma familia y mismo criterio que
+   * {@link #providerRegistrationMaxRequestsPerWindow}/{@link
+   * #businessRegistrationMaxRequestsPerWindow} — autoregistro público, no
+   * compite por cupo con las demás familias. */
+  private final int remoteCareRequestMaxRequestsPerWindow;
+  private final Duration remoteCareRequestWindow;
+  private final Map<String, Deque<Instant>> requestsByRemoteCareRequestIp = new ConcurrentHashMap<>();
+
   public PublicLeadAbuseProtectionService(
       @Value("${fixy.abuse.max-requests-per-window:5}") int maxRequestsPerWindow,
       @Value("${fixy.abuse.window-seconds:600}") long windowSeconds,
@@ -148,7 +157,9 @@ public class PublicLeadAbuseProtectionService {
       @Value("${fixy.abuse.provider-registration.max-requests-per-window:5}") int providerRegistrationMaxRequestsPerWindow,
       @Value("${fixy.abuse.provider-registration.window-seconds:600}") long providerRegistrationWindowSeconds,
       @Value("${fixy.abuse.business-registration.max-requests-per-window:5}") int businessRegistrationMaxRequestsPerWindow,
-      @Value("${fixy.abuse.business-registration.window-seconds:600}") long businessRegistrationWindowSeconds
+      @Value("${fixy.abuse.business-registration.window-seconds:600}") long businessRegistrationWindowSeconds,
+      @Value("${fixy.abuse.remote-care-request.max-requests-per-window:5}") int remoteCareRequestMaxRequestsPerWindow,
+      @Value("${fixy.abuse.remote-care-request.window-seconds:600}") long remoteCareRequestWindowSeconds
   ) {
     this.maxRequestsPerWindow = maxRequestsPerWindow;
     this.window = Duration.ofSeconds(windowSeconds);
@@ -170,6 +181,8 @@ public class PublicLeadAbuseProtectionService {
     this.providerRegistrationWindow = Duration.ofSeconds(providerRegistrationWindowSeconds);
     this.businessRegistrationMaxRequestsPerWindow = businessRegistrationMaxRequestsPerWindow;
     this.businessRegistrationWindow = Duration.ofSeconds(businessRegistrationWindowSeconds);
+    this.remoteCareRequestMaxRequestsPerWindow = remoteCareRequestMaxRequestsPerWindow;
+    this.remoteCareRequestWindow = Duration.ofSeconds(remoteCareRequestWindowSeconds);
   }
 
   public void validate(String clientIp, String problem) {
@@ -373,6 +386,17 @@ public class PublicLeadAbuseProtectionService {
   public void validateBusinessRegistration(String clientIp) {
     enforceRateLimit(requestsByBusinessRegistrationIp, normalizeIp(clientIp),
         businessRegistrationMaxRequestsPerWindow, businessRegistrationWindow);
+  }
+
+  /**
+   * Alta pública del plan Casa a distancia (Refundación fase 2, contrato
+   * §B.3): mismo criterio que {@link #validateProviderRegistration} — solo
+   * rate limit, la validación de contenido vive en {@code
+   * RemoteCareRequestService}.
+   */
+  public void validateRemoteCareRequest(String clientIp) {
+    enforceRateLimit(requestsByRemoteCareRequestIp, normalizeIp(clientIp),
+        remoteCareRequestMaxRequestsPerWindow, remoteCareRequestWindow);
   }
 
   private void validateProblem(String problem) {

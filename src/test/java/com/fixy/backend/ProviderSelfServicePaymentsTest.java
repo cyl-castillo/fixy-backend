@@ -16,7 +16,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 /**
- * H1.2: con fixy.payments.enabled=true (default de src/test/resources/application.yml),
+ * H1.2: con fixy.payments.provider-commission-enabled=true (default de
+ * src/test/resources/application.yml),
  * COMPLETED sin amountCharged debe rechazarse con 400. El caso "flag OFF sigue
  * funcionando igual" se cubre en {@link ProviderSelfServicePaymentsDisabledTest}
  * con su propio contexto Spring (@TestPropertySource distinto).
@@ -88,7 +89,7 @@ class ProviderSelfServicePaymentsTest {
             .content("{\"status\": \"COMPLETED\"}"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.message").value(
-            org.hamcrest.Matchers.containsString("monto cobrado")));
+            org.hamcrest.Matchers.containsString("cuánto cobraste")));
   }
 
   @Test

@@ -49,6 +49,15 @@ public class LeadRating {
   @Column(name = "created_at", nullable = false, updatable = false)
   private OffsetDateTime createdAt;
 
+  /** Refundación de Fixy, fase 2 (contrato §A.4.4): true solo cuando el
+   * cargo de servicio ({@link CustomerPayment}, kind SERVICE_FEE) de este
+   * lead está PAID en el momento de crear (o de saldarse después) el
+   * rating — el sello "verificada" que ve el vecino. Default false: la
+   * mayoría de los ratings viejos (antes de esta fase, o de trabajos sin
+   * cargo pagado) no lo son. */
+  @Column(nullable = false)
+  private boolean verified;
+
   @PrePersist
   void prePersist() {
     createdAt = OffsetDateTime.now();
@@ -65,4 +74,6 @@ public class LeadRating {
   public String getComment() { return comment; }
   public void setComment(String comment) { this.comment = comment; }
   public OffsetDateTime getCreatedAt() { return createdAt; }
+  public boolean isVerified() { return verified; }
+  public void setVerified(boolean verified) { this.verified = verified; }
 }

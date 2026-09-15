@@ -6,6 +6,13 @@
 - App bind: `127.0.0.1:8080`
 - Health endpoint: `/api/health`
 - Log principal: `/var/log/fixy-backend.log`
+- Refundación fase 2 (2026-09-15): un solo scheduler de matching
+  (`MatchingWatchdogScheduler`, `fixy.matching.watchdog.*`) reemplaza a los
+  tres viejos (`MatchingStaleScheduler`/`MatchingAutoReleaseScheduler`/
+  `OrphanMatchRetryScheduler`, borrados). Webhook de Mercado Pago
+  (`POST /api/webhooks/mercadopago`) ahora rutea también cargos al cliente
+  (`external_reference` con prefijo `customer:`), no solo comisiones al
+  técnico.
 - Base de datos: este doc describe la instancia LOCAL de `fixy-backend.service`
   (`127.0.0.1:8080` en esta máquina), que usa H2 archivo local en `./data/fixy`
   — solo para dev/verificación. **Prod (AWS Lightsail `fixy-prod`) usa
@@ -77,7 +84,7 @@ Protegido con HTTP Basic Auth:
 - `/api/offers/**`
 - `/api/services/**`
 - `/api/businesses/**`
-- `/api/ops/**`
+- `/api/ops/**` (incluye `/api/ops/customer-payments/**` y `/api/ops/remote-care/**`, Refundación fase 2)
 
 Credenciales:
 - `FIXY_OPS_USERNAME`

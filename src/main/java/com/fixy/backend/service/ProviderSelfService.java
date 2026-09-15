@@ -8,6 +8,7 @@ import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadEventRepository;
+import com.fixy.backend.repository.LeadPhotoRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
@@ -90,9 +91,11 @@ public class ProviderSelfService {
   private final ProviderRepository providerRepository;
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
+  private final LeadPhotoRepository leadPhotoRepository;
   private final ProviderLeadDeclineRepository declineRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
+  private final CustomerPaymentService customerPaymentService;
   private final LeadClosingService leadClosingService;
   private final LeadMessageService leadMessageService;
   private final PushNotificationService pushNotificationService;
@@ -101,34 +104,47 @@ public class ProviderSelfService {
   // otro lado, ver su constructor) para armar el link de panel — sin @Lazy
   // acá también se reintroduce el ciclo de beans en la creación.
   private final TelegramNotifyService telegramNotifyService;
-  private final boolean paymentsEnabled;
+  /** Refundación fase 2 (contrato §A.2): renombrado de "paymentsEnabled" —
+   * gatea EXCLUSIVAMENTE la comisión al técnico (createForCompletedLead),
+   * distinto de {@link #serviceFeeEnabled} (cargo al cliente). */
+  private final boolean providerCommissionEnabled;
+  /** Refundación fase 2 (contrato §A.2/§A.4.1): con true, el monto cobrado
+   * sigue siendo obligatorio para COMPLETED aunque providerCommissionEnabled
+   * sea false — se necesita para calcular el cargo al cliente. */
+  private final boolean serviceFeeEnabled;
 
   public ProviderSelfService(
       ProviderRepository providerRepository,
       LeadRepository leadRepository,
       LeadEventRepository leadEventRepository,
+      LeadPhotoRepository leadPhotoRepository,
       ProviderLeadDeclineRepository declineRepository,
       LeadTimelineService timelineService,
       CommissionService commissionService,
+      CustomerPaymentService customerPaymentService,
       LeadClosingService leadClosingService,
       LeadMessageService leadMessageService,
       PushNotificationService pushNotificationService,
       ProviderCatalogService providerCatalogService,
       @org.springframework.context.annotation.Lazy TelegramNotifyService telegramNotifyService,
-      @Value("${fixy.payments.enabled:false}") boolean paymentsEnabled
+      @Value("${fixy.payments.provider-commission-enabled:false}") boolean providerCommissionEnabled,
+      @Value("${fixy.orders.service-fee-enabled:true}") boolean serviceFeeEnabled
   ) {
     this.providerRepository = providerRepository;
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
+    this.leadPhotoRepository = leadPhotoRepository;
     this.declineRepository = declineRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
+    this.customerPaymentService = customerPaymentService;
     this.leadClosingService = leadClosingService;
     this.leadMessageService = leadMessageService;
     this.pushNotificationService = pushNotificationService;
     this.providerCatalogService = providerCatalogService;
     this.telegramNotifyService = telegramNotifyService;
-    this.paymentsEnabled = paymentsEnabled;
+    this.providerCommissionEnabled = providerCommissionEnabled;
+    this.serviceFeeEnabled = serviceFeeEnabled;
   }
 
   public Provider authenticate(Long providerId, String token) {
@@ -214,13 +230,28 @@ public class ProviderSelfService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "status not allowed for provider self-service");
     }
-    if (paymentsEnabled && newStatus == LeadStatus.COMPLETED
+    // Refundación fase 2 (contrato §A.4.1): el monto es obligatorio si
+    // CUALQUIERA de los dos cobros lo necesita — la comisión al técnico
+    // (providerCommissionEnabled) o el cargo de servicio al cliente
+    // (serviceFeeEnabled, el motivo por defecto desde esta fase). El copy
+    // le habla siempre al cliente-side ("con eso calculamos el servicio
+    // Fixy que paga el cliente"): es la razón que existe en el 100% de los
+    // arranques de prod desde esta fase (service-fee-enabled default true).
+    if ((providerCommissionEnabled || serviceFeeEnabled) && newStatus == LeadStatus.COMPLETED
         && (amountCharged == null || amountCharged.signum() <= 0)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-          "para marcar el trabajo como completado necesitamos el monto cobrado al cliente (mayor a 0)");
+          "Contanos cuánto cobraste: con eso calculamos el servicio Fixy que paga el cliente (vos no pagás nada)");
     }
     Lead lead = requireAssignedLead(provider, leadId);
     LeadStatus before = lead.getStatus();
+    // Refundación fase 2 (contrato §B.4): trabajo remoto (el dueño no está)
+    // exige al menos una foto SUBIDA POR EL PROVEEDOR antes de poder
+    // completarlo — es la única forma que tiene el dueño de ver el trabajo.
+    if (newStatus == LeadStatus.COMPLETED && lead.isRemote() && before != LeadStatus.COMPLETED
+        && leadPhotoRepository.countByLeadIdAndProviderIdIsNotNull(lead.getId()) == 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "Subí al menos una foto del trabajo terminado: el dueño no está en la casa y es su forma de verlo.");
+    }
     if (newStatus == LeadStatus.CANCELLED) {
       // Discriminador: antes de aceptar (PROVIDER_CONTACTED) es un decline de
       // bajo compromiso — pasa todo el tiempo, no exige motivo. Ya aceptado
@@ -284,13 +315,20 @@ public class ProviderSelfService {
       }
       leadRepository.save(lead);
       providerRepository.save(provider);
-      if (paymentsEnabled && newStatus == LeadStatus.COMPLETED) {
+      if (providerCommissionEnabled && newStatus == LeadStatus.COMPLETED) {
         commissionService.createForCompletedLead(lead, provider, amountCharged);
       }
+      if (serviceFeeEnabled && newStatus == LeadStatus.COMPLETED && amountCharged != null) {
+        // Refundación fase 2 (contrato §A.4.1-3): cargo de servicio al
+        // cliente — mensaje propio con el link de pago, independiente del
+        // aviso de comisión (provider_only, arriba) y del de confirmación
+        // (abajo, siempre se manda).
+        customerPaymentService.createServiceFeeForCompletedLead(lead, provider, amountCharged);
+      }
       if (newStatus == LeadStatus.COMPLETED) {
-        // Un solo mensaje: si payments está ON, createForCompletedLead ya
-        // mandó el aviso de comisión al proveedor (canal distinto, no
-        // pisa este). Este es al cliente, pidiendo confirmación/rating.
+        // Un solo mensaje: si algún cobro está ON, ya mandó su propio aviso
+        // (provider_only para la comisión, al cliente para el cargo de
+        // servicio). Este es SIEMPRE al cliente, pidiendo confirmación/rating.
         leadClosingService.notifyCustomerOfCompletion(lead);
       }
     }

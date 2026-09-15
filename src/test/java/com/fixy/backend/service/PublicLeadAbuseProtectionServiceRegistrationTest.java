@@ -22,7 +22,7 @@ class PublicLeadAbuseProtectionServiceRegistrationTest {
   private PublicLeadAbuseProtectionService service(int providerRegistrationMax, int businessRegistrationMax) {
     return new PublicLeadAbuseProtectionService(
         200, 600, 200, 600, 200, 600, 200, 600, 200, 60, 200, 600,
-        200, 600, 200, 60, providerRegistrationMax, 600, businessRegistrationMax, 600);
+        200, 600, 200, 60, providerRegistrationMax, 600, businessRegistrationMax, 600, 200, 600);
   }
 
   @Test

@@ -128,6 +128,15 @@ public class Lead {
   @Column(length = 60)
   private String onSiteContactPhone;
 
+  /** Refundación de Fixy, fase 2 (contrato §B.2/§B.3): FK plana (mismo
+   * criterio que {@link #assignedProviderId}, sin @ManyToOne) al plan Casa
+   * a distancia que originó este pedido cuando vino de {@code POST
+   * /api/public/remote-care/plans/{id}/orders}. Null para leads que no
+   * vienen de un plan — incluido un pedido con {@link #remote}=true creado
+   * a mano desde el checkbox de fase 1. */
+  @Column(name = "remote_care_plan_id")
+  private Long remoteCarePlanId;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -199,4 +208,6 @@ public class Lead {
   public void setOnSiteContactName(String onSiteContactName) { this.onSiteContactName = onSiteContactName; }
   public String getOnSiteContactPhone() { return onSiteContactPhone; }
   public void setOnSiteContactPhone(String onSiteContactPhone) { this.onSiteContactPhone = onSiteContactPhone; }
+  public Long getRemoteCarePlanId() { return remoteCarePlanId; }
+  public void setRemoteCarePlanId(Long remoteCarePlanId) { this.remoteCarePlanId = remoteCarePlanId; }
 }

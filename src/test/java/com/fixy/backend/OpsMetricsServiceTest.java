@@ -36,6 +36,9 @@ class OpsMetricsServiceTest {
   private LeadMessageRepository leadMessageRepository;
 
   @Autowired
+  private com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository;
+
+  @Autowired
   private EntityManager entityManager;
 
   private static final OffsetDateTime WINDOW_FROM = OffsetDateTime.of(2026, 6, 1, 0, 0, 0, 0, ZoneOffset.UTC);
@@ -206,7 +209,8 @@ class OpsMetricsServiceTest {
     java.time.Clock frozenNow = java.time.Clock.fixed(
         WINDOW_TO.plusDays(30).toInstant(), ZoneOffset.UTC);
     OpsMetricsService serviceWithFrozenClock =
-        new OpsMetricsService(leadRepository, leadEventRepository, leadMessageRepository, frozenNow);
+        new OpsMetricsService(leadRepository, leadEventRepository, leadMessageRepository,
+            customerPaymentRepository, frozenNow);
     java.time.OffsetDateTime now = java.time.OffsetDateTime.now(frozenNow);
 
     // Colgado real: NEW, creado hace 49h (>48h) -> cuenta.

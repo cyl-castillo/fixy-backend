@@ -7,6 +7,7 @@ Backend inicial de Fixy en `Spring Boot` para correr la landing y un agente de i
 - `POST /api/intake` para clasificar mensajes de clientes o proveedores
 - Flujo público conversacional para clientes en `POST /api/public/leads`
 - Pedido estructurado con precio cerrado en `POST /api/public/orders` (Refundación fase 1)
+- Cargo de servicio al cliente por Mercado Pago (garantía 30 días + reseña verificada), plan mensual "Casa a distancia" (`/api/public/remote-care/**`) y un solo scheduler de matching (`MatchingWatchdogScheduler`) — Refundación fase 2
 - Registro público de proveedores en `POST /api/public/providers`
 - API admin protegida con Basic Auth (`/api/leads/**`, `/api/providers/**`, `/api/offers/**`, `/api/services/**`, `/api/ops/**`, `/api/businesses/**`) — la UI operativa vive en `fixy-app` (frontend), no en este repo. `/` responde JSON simple (`{"service":"fixy-backend","status":"ok"}`), sin landing estática.
 - Fallback heurístico para operar sin IA externa

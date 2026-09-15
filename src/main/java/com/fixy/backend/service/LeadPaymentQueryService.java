@@ -43,19 +43,23 @@ public class LeadPaymentQueryService {
   private final LeadTimelineService leadTimelineService;
   private final CommissionService commissionService;
   private final Clock clock;
+  private final boolean providerCommissionEnabled;
 
   public LeadPaymentQueryService(
       LeadPaymentRepository leadPaymentRepository,
       LeadRepository leadRepository,
       LeadTimelineService leadTimelineService,
       CommissionService commissionService,
-      Clock clock
+      Clock clock,
+      @org.springframework.beans.factory.annotation.Value("${fixy.payments.provider-commission-enabled:false}")
+      boolean providerCommissionEnabled
   ) {
     this.leadPaymentRepository = leadPaymentRepository;
     this.leadRepository = leadRepository;
     this.leadTimelineService = leadTimelineService;
     this.commissionService = commissionService;
     this.clock = clock;
+    this.providerCommissionEnabled = providerCommissionEnabled;
   }
 
   public List<LeadPaymentSummary> list(CommissionStatus statusFilter) {
@@ -157,13 +161,14 @@ public class LeadPaymentQueryService {
    * que el panel self-service muestre "cuánto le debe a Fixy" sin exponer
    * el detalle fila por fila (eso es de ops). Si el proveedor no tiene
    * ningún LeadPayment (payments deshabilitado, o sin leads COMPLETED
-   * todavía), devuelve {@link ProviderCommissionSummary#empty()} — nunca
-   * null ni un error, el front distingue "sin comisiones" de una falla.
+   * todavía), devuelve {@link ProviderCommissionSummary#empty(boolean)} —
+   * nunca null ni un error, el front distingue "sin comisiones" de una
+   * falla.
    */
   public ProviderCommissionSummary summaryFor(Long providerId) {
     List<LeadPayment> payments = leadPaymentRepository.findByProviderIdOrderByCreatedAtDesc(providerId);
     if (payments.isEmpty()) {
-      return ProviderCommissionSummary.empty();
+      return ProviderCommissionSummary.empty(providerCommissionEnabled);
     }
 
     BigDecimal pending = BigDecimal.ZERO;
@@ -214,7 +219,7 @@ public class LeadPaymentQueryService {
     return new ProviderCommissionSummary(
         pending, pendingCount, paid, paidCount, currency,
         earningsThisMonth, earningsThisMonthCount, earningsTotal, earningsTotalCount,
-        List.copyOf(pendingItems));
+        List.copyOf(pendingItems), providerCommissionEnabled);
   }
 
   private boolean isSameMonth(OffsetDateTime a, OffsetDateTime b) {

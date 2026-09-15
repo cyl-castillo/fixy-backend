@@ -49,15 +49,19 @@ public class OpsMetricsService {
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
   private final LeadMessageRepository leadMessageRepository;
+  private final com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository;
   private final Clock clock;
 
   public OpsMetricsService(
       LeadRepository leadRepository, LeadEventRepository leadEventRepository,
-      LeadMessageRepository leadMessageRepository, Clock clock
+      LeadMessageRepository leadMessageRepository,
+      com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository,
+      Clock clock
   ) {
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
     this.leadMessageRepository = leadMessageRepository;
+    this.customerPaymentRepository = customerPaymentRepository;
     this.clock = clock;
   }
 
@@ -94,7 +98,9 @@ public class OpsMetricsService {
 
     long realRequests = leadsInRange.stream()
         .filter(lead -> hasText(lead.getDetectedCategory()))
-        .filter(lead -> leadIdsWithCustomerMessage.contains(lead.getId()) || "web-order".equals(lead.getChannel()))
+        // Un pedido estructurado (home o plan Casa a distancia) es real por
+        // definición: trajo servicio, zona y teléfono sin necesidad de chat.
+        .filter(lead -> leadIdsWithCustomerMessage.contains(lead.getId()) || hasText(lead.getServiceCode()))
         .count();
     long structuredOrders = leadsInRange.stream()
         .filter(lead -> hasText(lead.getServiceCode()))
@@ -108,6 +114,21 @@ public class OpsMetricsService {
         .filter(lead -> lead.getServiceCode() == null)
         .filter(lead -> !leadIdsWithCustomerMessage.contains(lead.getId()))
         .count();
+
+    // Refundación fase 2 (contrato §A.4.6): cargos de servicio creados vs.
+    // cobrados. "Creados" mide por created_at (cuándo se generó el cargo);
+    // "cobrados" mide por paid_at (cuándo se pagó), no necesariamente el
+    // mismo — un cargo creado el 30 puede pagarse el 2 del mes siguiente,
+    // así que ambos filtran independientemente sobre la ventana.
+    long serviceFeesCreated = customerPaymentRepository
+        .findByCreatedAtGreaterThanEqualAndCreatedAtLessThan(from, to).stream()
+        .filter(p -> p.getKind() == com.fixy.backend.model.CustomerPaymentKind.SERVICE_FEE)
+        .count();
+    java.math.BigDecimal serviceFeesCollected = customerPaymentRepository
+        .findByPaidAtGreaterThanEqualAndPaidAtLessThan(from, to).stream()
+        .filter(p -> p.getKind() == com.fixy.backend.model.CustomerPaymentKind.SERVICE_FEE)
+        .map(com.fixy.backend.model.CustomerPayment::getAmount)
+        .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
 
     return new OpsDailyMetricsResponse(
         from,
@@ -124,7 +145,9 @@ public class OpsMetricsService {
         realRequests,
         structuredOrders,
         completedJobs,
-        emptyChats
+        emptyChats,
+        serviceFeesCreated,
+        serviceFeesCollected
     );
   }
 

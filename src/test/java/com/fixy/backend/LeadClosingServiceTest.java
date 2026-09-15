@@ -20,14 +20,14 @@ import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * P0-2: H2.1 (confirmación pública), H2.3 (agregación de rating) y H2.6
- * (disputa). Corre con fixy.payments.enabled=false (a diferencia de la
+ * (disputa). Corre con fixy.payments.provider-commission-enabled=false (a diferencia de la
  * suite general) para aislar el loop de cierre de la comisión de P0-1 —
  * ambos flujos son independientes (la comisión no se auto-reversa por
  * disputa, según decisión de Carlos) y mezclarlos solo agregaría ruido.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@TestPropertySource(properties = "fixy.payments.enabled=false")
+@TestPropertySource(properties = "fixy.payments.provider-commission-enabled=false")
 class LeadClosingServiceTest {
 
   @Autowired

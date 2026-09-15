@@ -36,6 +36,7 @@ public class LeadClosingService {
   private final LeadTimelineService timelineService;
   private final LeadMessageService leadMessageService;
   private final TelegramNotifyService telegramNotifyService;
+  private final CustomerPaymentService customerPaymentService;
 
   public LeadClosingService(
       LeadRepository leadRepository,
@@ -43,7 +44,8 @@ public class LeadClosingService {
       LeadRatingRepository leadRatingRepository,
       LeadTimelineService timelineService,
       LeadMessageService leadMessageService,
-      TelegramNotifyService telegramNotifyService
+      TelegramNotifyService telegramNotifyService,
+      CustomerPaymentService customerPaymentService
   ) {
     this.leadRepository = leadRepository;
     this.providerRepository = providerRepository;
@@ -51,6 +53,7 @@ public class LeadClosingService {
     this.timelineService = timelineService;
     this.leadMessageService = leadMessageService;
     this.telegramNotifyService = telegramNotifyService;
+    this.customerPaymentService = customerPaymentService;
   }
 
   /**
@@ -107,6 +110,10 @@ public class LeadClosingService {
     rating.setProviderId(providerId);
     rating.setScore(score);
     rating.setComment(request.comment());
+    // Refundación fase 2 (contrato §A.4.4): "verificada" cuando el cargo de
+    // servicio de este lead ya está PAID en el momento de calificar. Si el
+    // pago llega DESPUÉS, CustomerPaymentService.markPaid la verifica ahí.
+    rating.setVerified(customerPaymentService.hasServiceFeePaid(lead.getId()));
     leadRatingRepository.save(rating);
 
     recalculateProviderAggregates(provider);

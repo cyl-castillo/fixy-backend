@@ -18,9 +18,18 @@ public record ProviderAssignedLeadSummary(
     LeadStatus status,
     OffsetDateTime createdAt,
     OffsetDateTime updatedAt,
-    String accessToken
+    String accessToken,
+    /** Fase 2 (contrato B.5): el técnico tiene que saber que el dueño no está. */
+    Boolean remote,
+    OnSiteContact onSiteContact
 ) {
+  public record OnSiteContact(String name, String phone) {}
+
   public static ProviderAssignedLeadSummary fromEntity(Lead lead) {
+    boolean remote = lead.isRemote();
+    OnSiteContact onSite = remote && (lead.getOnSiteContactName() != null || lead.getOnSiteContactPhone() != null)
+        ? new OnSiteContact(lead.getOnSiteContactName(), lead.getOnSiteContactPhone())
+        : null;
     return new ProviderAssignedLeadSummary(
         lead.getId(),
         lead.getName(),
@@ -35,7 +44,9 @@ public record ProviderAssignedLeadSummary(
         lead.getStatus(),
         lead.getCreatedAt(),
         lead.getUpdatedAt(),
-        lead.getAccessToken()
+        lead.getAccessToken(),
+        remote,
+        onSite
     );
   }
 }

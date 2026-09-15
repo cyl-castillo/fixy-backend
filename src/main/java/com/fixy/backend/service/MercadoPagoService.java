@@ -95,15 +95,47 @@ public class MercadoPagoService {
       String currency,
       String description
   ) {
+    return createPreference(externalReference, description, commissionAmount, currency, "leadPayment=" + leadPaymentId);
+  }
+
+  /**
+   * Método genérico de creación de preference (Refundación de Fixy, fase 2,
+   * contrato §A.4.2): {@code createCommissionPreference} pasa a llamarlo —
+   * un solo punto de integración con Checkout Pro para la comisión al
+   * técnico (P0-1) y el cargo de servicio al cliente (fase 2, {@code
+   * CustomerPaymentService}). {@code externalReference} decide, del lado
+   * del webhook, a qué entidad reconciliar: sin prefijo → {@code
+   * LeadPayment} (compatibilidad con preferencias viejas); {@code
+   * "customer:"} → {@code CustomerPayment}.
+   *
+   * <p>Deviation menor del contrato (que listaba {@code externalReference,
+   * title, amount, description} como firma): se mantiene {@code currency}
+   * como parámetro explícito en vez de asumir UYU — el llamador ya conoce
+   * la currency del registro que está cobrando (ver
+   * {@code CustomerPayment#getCurrency()}), y las preferences de Mercado
+   * Pago requieren {@code currency_id} en el body de todas formas.
+   *
+   * @param logTag identificador libre para los logs (ej. "leadPayment=12",
+   *               "customerPayment=45") — no viaja a Mercado Pago.
+   * @return preferenceId + init_point (link de pago), o Optional.empty() si
+   *         MP no está configurado o la llamada falla.
+   */
+  public java.util.Optional<PreferenceResult> createPreference(
+      String externalReference,
+      String title,
+      BigDecimal amount,
+      String currency,
+      String logTag
+  ) {
     if (!enabled) {
-      log.warn("mercadopago disabled, skip createCommissionPreference for leadPayment={}", leadPaymentId);
+      log.warn("mercadopago disabled, skip createPreference for {}", logTag);
       return java.util.Optional.empty();
     }
     Map<String, Object> item = Map.of(
-        "title", description,
+        "title", title,
         "quantity", 1,
         "currency_id", currency,
-        "unit_price", commissionAmount.doubleValue()
+        "unit_price", amount.doubleValue()
     );
     Map<String, Object> body = notificationUrl != null
         ? Map.of(
@@ -115,7 +147,7 @@ public class MercadoPagoService {
             "external_reference", externalReference);
     if (notificationUrl == null) {
       log.warn("mercadopago preference sin notification_url (fixy.payments.webhook-base-url vacia) "
-          + "leadPayment={}: MP no va a notificar este pago", leadPaymentId);
+          + "{}: MP no va a notificar este pago", logTag);
     }
     try {
       String response = client.post()
@@ -127,21 +159,21 @@ public class MercadoPagoService {
           .timeout(Duration.ofSeconds(15))
           .block();
       if (response == null) {
-        log.warn("mercadopago createCommissionPreference leadPayment={}: empty response", leadPaymentId);
+        log.warn("mercadopago createPreference {}: empty response", logTag);
         return java.util.Optional.empty();
       }
       JsonNode root = objectMapper.readTree(response);
       String preferenceId = root.path("id").asText(null);
       String initPoint = root.path("init_point").asText(null);
       if (preferenceId == null || initPoint == null) {
-        log.warn("mercadopago createCommissionPreference leadPayment={}: unexpected response {}",
-            leadPaymentId, response.length() > 300 ? response.substring(0, 300) : response);
+        log.warn("mercadopago createPreference {}: unexpected response {}",
+            logTag, response.length() > 300 ? response.substring(0, 300) : response);
         return java.util.Optional.empty();
       }
-      log.info("mercadopago preference created leadPayment={} preferenceId={}", leadPaymentId, preferenceId);
+      log.info("mercadopago preference created {} preferenceId={}", logTag, preferenceId);
       return java.util.Optional.of(new PreferenceResult(preferenceId, initPoint));
     } catch (Exception ex) {
-      log.warn("mercadopago createCommissionPreference leadPayment={} failed: {}", leadPaymentId, ex.getMessage());
+      log.warn("mercadopago createPreference {} failed: {}", logTag, ex.getMessage());
       return java.util.Optional.empty();
     }
   }

@@ -15,8 +15,13 @@ import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import com.fixy.backend.service.LeadAgentService;
-import com.fixy.backend.service.OrphanMatchRetryScheduler;
+import com.fixy.backend.service.LeadMessageService;
+import com.fixy.backend.service.LeadTimelineService;
+import com.fixy.backend.service.MatchingWatchdogScheduler;
+import com.fixy.backend.service.ProviderCatalogService;
 import com.fixy.backend.service.ProviderSelfService;
+import com.fixy.backend.service.PushNotificationService;
+import com.fixy.backend.service.TelegramNotifyService;
 import com.jayway.jsonpath.JsonPath;
 import java.time.Clock;
 import org.junit.jupiter.api.Test;
@@ -45,7 +50,7 @@ import org.springframework.test.web.servlet.MvcResult;
 @SpringBootTest
 @AutoConfigureMockMvc
 @TestPropertySource(properties = {
-    "fixy.payments.enabled=false"
+    "fixy.payments.provider-commission-enabled=false"
 })
 class ProviderCancelReleasesLeadTest {
 
@@ -58,10 +63,21 @@ class ProviderCancelReleasesLeadTest {
   @Autowired private ProviderRepository providerRepository;
   @Autowired private ProviderLeadDeclineRepository declineRepository;
   @Autowired private LeadAgentService leadAgentService;
+  @Autowired private ProviderCatalogService providerCatalogService;
+  @Autowired private ProviderSelfService providerSelfService;
+  @Autowired private LeadTimelineService timelineService;
+  @Autowired private LeadMessageService leadMessageService;
+  @Autowired private PushNotificationService pushNotificationService;
+  @Autowired private TelegramNotifyService telegramNotifyService;
 
-  private OrphanMatchRetryScheduler scheduler() {
-    return new OrphanMatchRetryScheduler(
-        leadRepository, leadEventRepository, leadAgentService, true, MAX_AGE_DAYS, Clock.systemUTC());
+  /** Instancia propia: mismo motivo que antes (scheduler del contexto apagado
+   * a propósito, ver src/test/resources/application.yml). */
+  private MatchingWatchdogScheduler scheduler() {
+    return new MatchingWatchdogScheduler(
+        leadRepository, leadEventRepository, providerRepository, declineRepository,
+        providerCatalogService, providerSelfService, leadAgentService, timelineService,
+        leadMessageService, pushNotificationService, telegramNotifyService,
+        true, 45, 20, 12, 4, MAX_AGE_DAYS, 60, Clock.systemUTC());
   }
 
   private Lead makeOrphanWaiting(String zone) throws Exception {

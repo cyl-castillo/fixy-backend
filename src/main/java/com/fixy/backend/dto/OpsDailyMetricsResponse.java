@@ -45,6 +45,10 @@ import java.util.Map;
  * @param completedJobs               leads del rango con status COMPLETED.
  * @param emptyChats                  leads del rango sin ningún mensaje del cliente — cuánto
  *                                    ruido elimina el pedido estructurado frente al chat libre.
+ * @param serviceFeesCreated          Refundación fase 2 (contrato §A.4.6): cantidad de cargos
+ *                                    de servicio (kind SERVICE_FEE) creados dentro de la ventana.
+ * @param serviceFeesCollected        suma de {@code amount} de los cargos SERVICE_FEE que se
+ *                                    pagaron (paidAt) dentro de la ventana.
  */
 public record OpsDailyMetricsResponse(
     OffsetDateTime from,
@@ -61,6 +65,8 @@ public record OpsDailyMetricsResponse(
     long realRequests,
     long structuredOrders,
     long completedJobs,
-    long emptyChats
+    long emptyChats,
+    long serviceFeesCreated,
+    java.math.BigDecimal serviceFeesCollected
 ) {
 }

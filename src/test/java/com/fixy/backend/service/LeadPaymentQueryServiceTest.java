@@ -53,7 +53,7 @@ class LeadPaymentQueryServiceTest {
 
   private LeadPaymentQueryService service() {
     return new LeadPaymentQueryService(
-        leadPaymentRepository, leadRepository, leadTimelineService, commissionService, FIXED_CLOCK);
+        leadPaymentRepository, leadRepository, leadTimelineService, commissionService, FIXED_CLOCK, false);
   }
 
   private LeadPayment payment(BigDecimal amountCharged, BigDecimal commissionAmount,
@@ -87,7 +87,7 @@ class LeadPaymentQueryServiceTest {
     var service = service();
     ProviderCommissionSummary summary = service.summaryFor(1L);
 
-    assertThat(summary).isEqualTo(ProviderCommissionSummary.empty());
+    assertThat(summary).isEqualTo(ProviderCommissionSummary.empty(false));
   }
 
   @Test

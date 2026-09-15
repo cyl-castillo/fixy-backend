@@ -64,6 +64,8 @@ public class SitemapService {
     appendUrl(xml, publicAppBaseUrl + "/", null);
     appendUrl(xml, publicAppBaseUrl + "/ofertas", null);
     appendUrl(xml, publicAppBaseUrl + "/sumate", null);
+    // Fase 2 (contrato B.5): la landing del plan Casa a distancia es indexable.
+    appendUrl(xml, publicAppBaseUrl + "/casa-a-distancia", null);
     for (Offer offer : vigentes) {
       appendUrl(xml, publicAppBaseUrl + "/oferta/" + offer.getId(), offer.getUpdatedAt());
     }
