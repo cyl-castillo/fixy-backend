@@ -62,6 +62,10 @@ public class TelegramNotifyService {
   static final String DISPUTE_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_DISPUTE";
   /** Aviso a ops de trabajo asignado que lleva 48h sin cerrar — una vez por lead. */
   static final String STALE_JOB_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_JOB";
+  /** Tier 1 (contrato §B.1): aviso a ops de que el cliente rechazó un
+   * cambio de precio — una vez por lead, mismo criterio idempotente que
+   * {@link #notifyDisputeOpened}. */
+  static final String PRICE_CHANGE_REJECTED_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_PRICE_CHANGE_REJECTED";
   /** Aviso a ops de pedido listo que nadie acepta (MatchingStaleScheduler) — una vez por lead. */
   static final String STALE_MATCHING_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_MATCHING";
 
@@ -265,6 +269,27 @@ public class TelegramNotifyService {
             lead.getId()
         );
     send(lead, DISPUTE_NOTIFIED_EVENT_TYPE, text, "Aviso de disputa abierta enviado a ops");
+  }
+
+  /**
+   * Tier 1 (contrato §B.1): el cliente no aceptó el precio nuevo que
+   * propuso el proveedor — "una persona te escribe" es la promesa hecha al
+   * cliente en el mismo momento, así que ops tiene que enterarse ya. Mismo
+   * patrón que {@link #notifyDisputeOpened}.
+   */
+  @Async
+  public void notifyPriceChangeRejected(Lead lead, java.math.BigDecimal proposedAmount, String reason) {
+    if (!shouldNotify(lead, PRICE_CHANGE_REJECTED_NOTIFIED_EVENT_TYPE)) return;
+    String text = "💸 Lead #%d (%s en %s, cliente %s): rechazó el precio nuevo propuesto ($%s, motivo: %s) — le prometimos que alguien le escribe."
+        .formatted(
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            safe(lead.getName()),
+            proposedAmount == null ? "?" : proposedAmount.toPlainString(),
+            truncate(safe(reason), 150)
+        );
+    send(lead, PRICE_CHANGE_REJECTED_NOTIFIED_EVENT_TYPE, text, "Aviso de rechazo de cambio de precio enviado a ops");
   }
 
   /**

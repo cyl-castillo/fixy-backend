@@ -46,7 +46,11 @@ public record LeadResponse(
     /** Refundación fase 2 (contrato §A.4.7): cargo de servicio al cliente de
      * este lead, null si el trabajo todavía no fue marcado COMPLETED (o si
      * el cargo redondeó a 0, ver CustomerPaymentService). */
-    ServiceFee serviceFee
+    ServiceFee serviceFee,
+    /** Tier 1 (contrato §B.1): propuesta de precio nuevo del proveedor
+     * ("protocolo al llegar"), null si nunca se propuso ninguna en este
+     * lead. */
+    PriceChange priceChange
 ) {
   /** Contacto que abre la puerta cuando el cliente no va a estar (contrato §3). */
   public record OnSiteContact(String name, String phone) {
@@ -86,5 +90,17 @@ public record LeadResponse(
 
   /** Reseña pública anónima: solo estrella y texto (mejoras UX 2026-08). */
   public record ReviewSnippet(Integer score, String comment) {
+  }
+
+  /** Tier 1 (contrato §B.1): estado público de la propuesta de precio
+   * nuevo — ver {@link com.fixy.backend.model.PriceChangeStatus}. */
+  public record PriceChange(
+      java.math.BigDecimal proposedAmount,
+      String reason,
+      OffsetDateTime proposedAt,
+      java.math.BigDecimal agreedAmount,
+      OffsetDateTime agreedAt,
+      com.fixy.backend.model.PriceChangeStatus status
+  ) {
   }
 }

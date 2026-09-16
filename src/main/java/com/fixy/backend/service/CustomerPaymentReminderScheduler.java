@@ -16,17 +16,19 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 /**
- * Contrato §A.4.5: recordatorio único del cargo de servicio. Corre cada
- * hora; sobre cargos SERVICE_FEE PENDING con link, creados hace más de 48h
- * y nunca recordados, manda un mensaje amable UNA sola vez. Nunca cambia el
- * status — el vecino no paga, no pasa nada (doctrina del contrato: "nunca
- * castigar por no pagar").
+ * Contrato §A.4.5 (Tier 1 §C.2 lo acorta de 48h a 24h): recordatorio único
+ * del cargo de servicio. Corre cada hora; sobre cargos SERVICE_FEE PENDING
+ * con link, creados hace más de {@link #DUE_AFTER_HOURS} y nunca recordados,
+ * manda un mensaje amable UNA sola vez. Nunca cambia el status — el vecino
+ * no paga, no pasa nada (doctrina del contrato: "nunca castigar por no
+ * pagar").
  */
 @Service
 public class CustomerPaymentReminderScheduler {
 
   private static final Logger log = LoggerFactory.getLogger(CustomerPaymentReminderScheduler.class);
-  private static final long DUE_AFTER_HOURS = 48;
+  /** Tier 1 (contrato §C.2): era 48h, ahora 24h. */
+  private static final long DUE_AFTER_HOURS = 24;
   /** A los 7 días sin pagar se le avisa a ops UNA vez (dato, no cobranza). */
   static final long UNPAID_NOTIFY_AFTER_DAYS = 7;
 
@@ -77,9 +79,14 @@ public class CustomerPaymentReminderScheduler {
         continue;
       }
       try {
+        // Tier 1 (contrato §C.2): texto nuevo, con el monto explícito y sin
+        // presión ("si preferís no hacerlo, no pasa nada" — misma doctrina
+        // que el resto del recordatorio).
+        String amountText = ServiceCatalogService.formatUyu(
+            payment.getAmount().setScale(0, java.math.RoundingMode.HALF_UP).intValueExact());
         leadMessageService.postFromOps(payment.getLeadId(), "fixy",
-            "¿Te acordás del servicio Fixy? La garantía se activa cuando lo pagás: %s"
-                .formatted(payment.getMpPaymentLink()));
+            "Todavía podés activar la garantía Fixy de este trabajo: $%s → %s. Si preferís no hacerlo, no pasa nada."
+                .formatted(amountText, payment.getMpPaymentLink()));
         customerPaymentQueryService.markReminded(payment.getId());
         reminded++;
       } catch (Exception ex) {

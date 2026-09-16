@@ -137,6 +137,45 @@ public class Lead {
   @Column(name = "remote_care_plan_id")
   private Long remoteCarePlanId;
 
+  /** Tier 1 (contrato §B.1, protocolo "al llegar"): monto que el proveedor
+   * propone cuando el trabajo real difiere de lo cerrado. Se pisa en cada
+   * propuesta nueva — el historial de propuestas vive en el timeline
+   * (evento PRICE_CHANGE_PROPOSED), no acá. */
+  @Column(precision = 12, scale = 2)
+  private java.math.BigDecimal proposedAmount;
+
+  @Column(length = 300)
+  private String proposedReason;
+
+  private OffsetDateTime proposedAt;
+
+  /** Monto que el cliente aceptó — registro legal (contrato §B.1: "no se
+   * borra nunca", mínimo 90 días). Null mientras la propuesta esté
+   * pendiente o si fue rechazada. */
+  @Column(precision = 12, scale = 2)
+  private java.math.BigDecimal agreedAmount;
+
+  private OffsetDateTime agreedAt;
+
+  /** Desvío del contrato (ver "Cambios durante implementación" al final de
+   * TIER1_CONTRATO.md): columna no listada en el contrato, necesaria para
+   * que {@link com.fixy.backend.model.PriceChangeStatus#of} pueda distinguir
+   * REJECTED de PENDING sin un historial de estados — proposed_at/agreed_at
+   * solos no alcanzan porque un rechazo no borra la propuesta, solo la
+   * resuelve. Se pisa a null en cada propuesta nueva, igual que proposed_*. */
+  private OffsetDateTime priceChangeRejectedAt;
+
+  /** Tier 1 (contrato §C.2): el cliente eligió "solo el técnico, sin
+   * garantía" al reservar (control en el pedido estructurado, §C.1). Default
+   * false — también el valor correcto para leads que no pasan por ese flujo
+   * (chat conversacional clásico). */
+  // columnDefinition con default: en dev (H2 + ddl-auto=update) Hibernate no
+  // puede agregar una columna NOT NULL sin default a una tabla con filas
+  // (mismo tropiezo que "disputed" en jul-2026). Prod usa Flyway (V30 trae
+  // el DEFAULT false); acá solo importa para el esquema generado.
+  @Column(nullable = false, columnDefinition = "boolean default false")
+  private boolean serviceFeeOptOut;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -210,4 +249,18 @@ public class Lead {
   public void setOnSiteContactPhone(String onSiteContactPhone) { this.onSiteContactPhone = onSiteContactPhone; }
   public Long getRemoteCarePlanId() { return remoteCarePlanId; }
   public void setRemoteCarePlanId(Long remoteCarePlanId) { this.remoteCarePlanId = remoteCarePlanId; }
+  public java.math.BigDecimal getProposedAmount() { return proposedAmount; }
+  public void setProposedAmount(java.math.BigDecimal proposedAmount) { this.proposedAmount = proposedAmount; }
+  public String getProposedReason() { return proposedReason; }
+  public void setProposedReason(String proposedReason) { this.proposedReason = proposedReason; }
+  public OffsetDateTime getProposedAt() { return proposedAt; }
+  public void setProposedAt(OffsetDateTime proposedAt) { this.proposedAt = proposedAt; }
+  public java.math.BigDecimal getAgreedAmount() { return agreedAmount; }
+  public void setAgreedAmount(java.math.BigDecimal agreedAmount) { this.agreedAmount = agreedAmount; }
+  public OffsetDateTime getAgreedAt() { return agreedAt; }
+  public void setAgreedAt(OffsetDateTime agreedAt) { this.agreedAt = agreedAt; }
+  public OffsetDateTime getPriceChangeRejectedAt() { return priceChangeRejectedAt; }
+  public void setPriceChangeRejectedAt(OffsetDateTime priceChangeRejectedAt) { this.priceChangeRejectedAt = priceChangeRejectedAt; }
+  public boolean isServiceFeeOptOut() { return serviceFeeOptOut; }
+  public void setServiceFeeOptOut(boolean serviceFeeOptOut) { this.serviceFeeOptOut = serviceFeeOptOut; }
 }

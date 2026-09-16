@@ -2,6 +2,7 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
+import com.fixy.backend.dto.PriceChangeProposeRequest;
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
 import com.fixy.backend.dto.ProviderCommissionSummary;
 import com.fixy.backend.dto.ProviderOpportunitySummary;
@@ -13,6 +14,7 @@ import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadPaymentQueryService;
+import com.fixy.backend.service.PriceChangeService;
 import com.fixy.backend.service.ProviderOpportunityService;
 import com.fixy.backend.service.ProviderGoogleAuthService;
 import com.fixy.backend.service.ProviderSelfService;
@@ -41,6 +43,7 @@ public class PublicProviderSelfController {
   private final LeadPaymentQueryService leadPaymentQueryService;
   private final ProviderGoogleAuthService providerGoogleAuthService;
   private final com.fixy.backend.service.LeadAgentService leadAgentService;
+  private final PriceChangeService priceChangeService;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
@@ -48,7 +51,8 @@ public class PublicProviderSelfController {
       ProviderOpportunityService opportunityService,
       LeadPaymentQueryService leadPaymentQueryService,
       ProviderGoogleAuthService providerGoogleAuthService,
-      com.fixy.backend.service.LeadAgentService leadAgentService
+      com.fixy.backend.service.LeadAgentService leadAgentService,
+      PriceChangeService priceChangeService
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
@@ -56,6 +60,7 @@ public class PublicProviderSelfController {
     this.leadPaymentQueryService = leadPaymentQueryService;
     this.providerGoogleAuthService = providerGoogleAuthService;
     this.leadAgentService = leadAgentService;
+    this.priceChangeService = priceChangeService;
   }
 
   @GetMapping("/opportunities")
@@ -231,6 +236,23 @@ public class PublicProviderSelfController {
     Provider provider = selfService.authenticate(providerId, token);
     Lead updated = selfService.updateLeadStatus(provider, leadId, request.status(), request.amountCharged(),
         request.cancelReason(), request.cancelReasonDetail());
+    return ProviderAssignedLeadSummary.fromEntity(updated);
+  }
+
+  /**
+   * Tier 1 (contrato §B.1): "cambió el precio" — protocolo "al llegar".
+   * Exige >=1 foto subida por el proveedor (400 con el texto del contrato
+   * si falta) y solo en ASSIGNED/IN_PROGRESS.
+   */
+  @PostMapping("/leads/{leadId}/price-change")
+  public ProviderAssignedLeadSummary proposePriceChange(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody PriceChangeProposeRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Lead updated = priceChangeService.propose(provider, leadId, request.amount(), request.reason());
     return ProviderAssignedLeadSummary.fromEntity(updated);
   }
 

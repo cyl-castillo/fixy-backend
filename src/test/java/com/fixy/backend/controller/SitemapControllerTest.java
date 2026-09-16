@@ -14,7 +14,8 @@ import org.springframework.test.web.servlet.MvcResult;
 
 /**
  * {@code GET /sitemap.xml} — público (sin credenciales), content-type XML,
- * siempre incluye al menos home y /ofertas. El detalle de qué ofertas
+ * siempre incluye al menos home, /sumate y las páginas de servicios (Tier 1);
+ * /ofertas salió del sitemap al pausarse. El detalle de qué ofertas
  * entran vive en {@link com.fixy.backend.service.SitemapServiceTest}.
  */
 @SpringBootTest
@@ -34,7 +35,8 @@ class SitemapControllerTest {
     assertThat(body).startsWith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
     assertThat(body).contains("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">");
     assertThat(body).contains("<loc>https://www.fixy.com.uy/</loc>");
-    assertThat(body).contains("<loc>https://www.fixy.com.uy/ofertas</loc>");
+    assertThat(body).doesNotContain("<loc>https://www.fixy.com.uy/ofertas</loc>");
+    assertThat(body).contains("<loc>https://www.fixy.com.uy/servicios/aire-acondicionado-ciudad-de-la-costa/</loc>");
     assertThat(body).contains("<loc>https://www.fixy.com.uy/sumate</loc>");
   }
 }

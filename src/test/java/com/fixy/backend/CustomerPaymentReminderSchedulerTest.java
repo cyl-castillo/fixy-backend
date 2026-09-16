@@ -23,9 +23,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * Contrato §A.4.5: recordatorio único del cargo de servicio — cada hora,
- * SERVICE_FEE PENDING con link, más de 48h sin recordar, un solo mensaje.
- * Nunca cambia el status (doctrina: "nunca castigar por no pagar").
+ * Contrato §A.4.5 (Tier 1 §C.2: 48h→24h): recordatorio único del cargo de
+ * servicio — cada hora, SERVICE_FEE PENDING con link, más de 24h sin
+ * recordar, un solo mensaje. Nunca cambia el status (doctrina: "nunca
+ * castigar por no pagar").
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -108,11 +109,11 @@ class CustomerPaymentReminderSchedulerTest {
   }
 
   @Test
-  void recuerdaUnaSolaVezPasadas48hConLink() {
+  void recuerdaUnaSolaVezPasadas24hConLink() {
     Lead lead = createLead("099730001");
     CustomerPayment payment = createServiceFee(lead, "https://mp.test/pref-reminder");
 
-    CustomerPaymentReminderScheduler scheduler = schedulerWithClock(inFuture(Duration.ofHours(50)));
+    CustomerPaymentReminderScheduler scheduler = schedulerWithClock(inFuture(Duration.ofHours(26)));
     scheduler.processOnce();
 
     CustomerPayment reloaded = customerPaymentRepository.findById(payment.getId()).orElseThrow();
@@ -120,20 +121,21 @@ class CustomerPaymentReminderSchedulerTest {
     assertThat(reloaded.getStatus()).isEqualTo(CustomerPaymentStatus.PENDING);
 
     long reminders = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
-        .filter(m -> m.getText() != null && m.getText().contains("¿Te acordás del servicio Fixy?"))
+        .filter(m -> m.getText() != null && m.getText().contains("Todavía podés activar la garantía Fixy")
+            && m.getText().contains("$525") && m.getText().contains("https://mp.test/pref-reminder"))
         .count();
     assertThat(reminders).isEqualTo(1);
 
     // Segundo ciclo: idempotente, no duplica.
     scheduler.processOnce();
     long remindersAfterSecondRun = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
-        .filter(m -> m.getText() != null && m.getText().contains("¿Te acordás del servicio Fixy?"))
+        .filter(m -> m.getText() != null && m.getText().contains("Todavía podés activar la garantía Fixy"))
         .count();
     assertThat(remindersAfterSecondRun).isEqualTo(1);
   }
 
   @Test
-  void noRecuerdaAntesDe48h() {
+  void noRecuerdaAntesDe24h() {
     Lead lead = createLead("099730002");
     CustomerPayment payment = createServiceFee(lead, "https://mp.test/pref-reminder-2");
 
@@ -148,7 +150,7 @@ class CustomerPaymentReminderSchedulerTest {
     Lead lead = createLead("099730003");
     CustomerPayment payment = createServiceFee(lead, null);
 
-    schedulerWithClock(inFuture(Duration.ofHours(50))).processOnce();
+    schedulerWithClock(inFuture(Duration.ofHours(26))).processOnce();
 
     CustomerPayment reloaded = customerPaymentRepository.findById(payment.getId()).orElseThrow();
     assertThat(reloaded.getRemindedAt()).isNull();

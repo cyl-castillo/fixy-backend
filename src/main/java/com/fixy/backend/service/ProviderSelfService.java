@@ -252,6 +252,22 @@ public class ProviderSelfService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "Subí al menos una foto del trabajo terminado: el dueño no está en la casa y es su forma de verlo.");
     }
+    // Tier 1 (contrato §B.1): guards del protocolo "al llegar" — una
+    // propuesta de precio pendiente bloquea el cierre; una ya aceptada pone
+    // un techo a lo que se puede cobrar.
+    if (newStatus == LeadStatus.COMPLETED && before != LeadStatus.COMPLETED) {
+      if (lead.getProposedAt() != null && lead.getAgreedAt() == null && lead.getPriceChangeRejectedAt() == null) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT,
+            "El vecino todavía no aceptó el precio nuevo. Esperá su OK o cancelá la propuesta.");
+      }
+      if (lead.getAgreedAmount() != null && amountCharged != null
+          && amountCharged.compareTo(lead.getAgreedAmount()) > 0) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+            "Cobraste más de lo que el vecino aceptó ($%s)."
+                .formatted(ServiceCatalogService.formatUyu(
+                    lead.getAgreedAmount().setScale(0, java.math.RoundingMode.HALF_UP).intValueExact())));
+      }
+    }
     if (newStatus == LeadStatus.CANCELLED) {
       // Discriminador: antes de aceptar (PROVIDER_CONTACTED) es un decline de
       // bajo compromiso — pasa todo el tiempo, no exige motivo. Ya aceptado
@@ -318,7 +334,11 @@ public class ProviderSelfService {
       if (providerCommissionEnabled && newStatus == LeadStatus.COMPLETED) {
         commissionService.createForCompletedLead(lead, provider, amountCharged);
       }
-      if (serviceFeeEnabled && newStatus == LeadStatus.COMPLETED && amountCharged != null) {
+      // Tier 1 (contrato §C.2): el cliente eligió "solo el técnico, sin
+      // garantía" al reservar — no se crea CustomerPayment para este lead
+      // nunca, sin importar cuánto cobró el técnico.
+      boolean serviceFeeOptOut = lead.isServiceFeeOptOut();
+      if (serviceFeeEnabled && newStatus == LeadStatus.COMPLETED && amountCharged != null && !serviceFeeOptOut) {
         // Refundación fase 2 (contrato §A.4.1-3): cargo de servicio al
         // cliente — mensaje propio con el link de pago, independiente del
         // aviso de comisión (provider_only, arriba) y del de confirmación
@@ -326,10 +346,21 @@ public class ProviderSelfService {
         customerPaymentService.createServiceFeeForCompletedLead(lead, provider, amountCharged);
       }
       if (newStatus == LeadStatus.COMPLETED) {
-        // Un solo mensaje: si algún cobro está ON, ya mandó su propio aviso
-        // (provider_only para la comisión, al cliente para el cargo de
-        // servicio). Este es SIEMPRE al cliente, pidiendo confirmación/rating.
-        leadClosingService.notifyCustomerOfCompletion(lead);
+        if (serviceFeeOptOut) {
+          // Contrato §C.2: mensaje ÚNICO y distinto — no hay cargo de
+          // servicio pendiente, así que no tiene sentido pedir "confirmá
+          // que quedó todo bien para activar la garantía" (no hay garantía).
+          String technicianName = hasText(provider.getName()) ? provider.getName() : "El técnico";
+          leadMessageService.postFromOps(lead.getId(), "fixy",
+              ("%s marcó el trabajo como terminado. Elegiste sin garantía Fixy: no hay nada más que pagar. "
+                  + "¿Quedó todo bien?").formatted(technicianName));
+        } else {
+          // Un solo mensaje: si algún cobro está ON, ya mandó su propio
+          // aviso (provider_only para la comisión, al cliente para el cargo
+          // de servicio). Este es SIEMPRE al cliente, pidiendo
+          // confirmación/rating.
+          leadClosingService.notifyCustomerOfCompletion(lead);
+        }
       }
     }
     return lead;

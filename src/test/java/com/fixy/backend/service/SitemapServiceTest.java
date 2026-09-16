@@ -16,11 +16,12 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * {@link SitemapService}: home + /ofertas siempre presentes, y una entrada
- * por cada oferta ACTIVE y vigente (mismo criterio que
- * {@code OfferService.listPublic}). Cada aserción filtra por el id de la
- * oferta creada en ESTE test — H2 compartida entre contextos, no asumir
- * sitemap vacío (lección conocida del repo).
+ * {@link SitemapService}: home + rutas estáticas siempre presentes (Tier 1,
+ * contrato §A.5: /ofertas se quitó del listado estático por estar pausado),
+ * y una entrada por cada oferta ACTIVE y vigente que exista igual (mismo
+ * criterio que {@code OfferService.listPublic}). Cada aserción filtra por
+ * el id de la oferta creada en ESTE test — H2 compartida entre contextos,
+ * no asumir sitemap vacío (lección conocida del repo).
  */
 @SpringBootTest
 @Transactional
@@ -52,15 +53,42 @@ class SitemapServiceTest {
   }
 
   @Test
-  void incluyeSiempreHomeOfertasYSumate() {
+  void incluyeSiempreHomeYSumate() {
     String xml = sitemapService.render();
 
     assertThat(xml).contains("<loc>https://www.fixy.com.uy/</loc>");
-    assertThat(xml).contains("<loc>https://www.fixy.com.uy/ofertas</loc>");
     // Puerta única de registro (Fase 3+4, 2026-08-27): la landing de alta de
     // comercios/proveedores es una ruta estática más, mismo patrón que home
-    // y /ofertas — siempre presente, sin depender de datos.
+    // — siempre presente, sin depender de datos.
     assertThat(xml).contains("<loc>https://www.fixy.com.uy/sumate</loc>");
+  }
+
+  @Test
+  void noIncluyeLaEntradaEstaticaDeOfertasPausada() {
+    // Tier 1 (contrato §A.5): /ofertas está pausado, se quita del sitemap.
+    // Una oferta ACTIVE vigente que exista igual mantiene su propia URL
+    // (/oferta/{id}, ver test aparte) — lo que se quita es SOLO la entrada
+    // estática de listado.
+    String xml = sitemapService.render();
+
+    assertThat(xml).doesNotContain("<loc>https://www.fixy.com.uy/ofertas</loc>");
+  }
+
+  @Test
+  void incluyeTerminosYLasTresPaginasDeServicioMasCasaADistancia() {
+    // Tier 1 (contrato §A.2/§A.5): las tres páginas estáticas servicio+zona
+    // y /terminos, siempre presentes (no dependen de datos, mismo criterio
+    // que /sumate y /casa-a-distancia).
+    String xml = sitemapService.render();
+
+    assertThat(xml).contains("<loc>https://www.fixy.com.uy/terminos</loc>");
+    assertThat(xml).contains("<loc>https://www.fixy.com.uy/casa-a-distancia</loc>");
+    assertThat(xml).contains(
+        "<loc>https://www.fixy.com.uy/servicios/aire-acondicionado-ciudad-de-la-costa/</loc>");
+    assertThat(xml).contains(
+        "<loc>https://www.fixy.com.uy/servicios/sanitario-plomero-ciudad-de-la-costa/</loc>");
+    assertThat(xml).contains(
+        "<loc>https://www.fixy.com.uy/servicios/barometrica-ciudad-de-la-costa/</loc>");
   }
 
   @Test

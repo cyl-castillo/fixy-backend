@@ -70,7 +70,7 @@ public class OrderService {
         request.serviceCode(), request.zone(), request.timeWindow(), request.notes(),
         request.name(), request.phone(), remote, onSiteName, onSitePhone,
         hasText(request.channel()) ? request.channel().trim() : "web-order",
-        smoke, null, null, clientIp
+        smoke, null, null, clientIp, Boolean.TRUE.equals(request.serviceFeeOptOut())
     );
   }
 
@@ -89,14 +89,17 @@ public class OrderService {
         request.serviceCode(), request.zone(), request.timeWindow(), request.notes(),
         plan.getOwnerName(), plan.getOwnerPhone(), true, plan.getOnSiteName(), plan.getOnSitePhone(),
         hasText(request.channel()) ? request.channel().trim() : "remote-care",
-        smoke, plan.getId(), plan.getOwnerName(), clientIp
+        // Contrato §C.1: el control de "solo el técnico, sin garantía" NO se
+        // muestra en el pedido remoto del plan — siempre con garantía.
+        smoke, plan.getId(), plan.getOwnerName(), clientIp, false
     );
   }
 
   private OrderCreateResponse createInternal(
       String serviceCode, String zoneLabel, String timeWindowId, String notes,
       String name, String phone, boolean remote, String onSiteName, String onSitePhone,
-      String channel, boolean smoke, Long remoteCarePlanId, String remoteCarePlanOwnerName, String clientIp
+      String channel, boolean smoke, Long remoteCarePlanId, String remoteCarePlanOwnerName, String clientIp,
+      boolean serviceFeeOptOut
   ) {
     ServiceCatalogItem service = serviceCatalogService.findOrderable(serviceCode)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -145,6 +148,7 @@ public class OrderService {
     lead.setOnSiteContactName(onSiteName);
     lead.setOnSiteContactPhone(onSitePhone);
     lead.setRemoteCarePlanId(remoteCarePlanId);
+    lead.setServiceFeeOptOut(serviceFeeOptOut);
     lead.setStatus(LeadStatus.NEW);
     lead.setNotes(hasText(notes) ? notes.trim() : "");
     lead.setReadyForMatching(true);
@@ -157,7 +161,7 @@ public class OrderService {
         "Pedido: %s en %s, %s".formatted(service.getName(), zone.label(), timeWindow.label()));
 
     leadMessageService.postFromAgent(saved.getId(),
-        buildConfirmationMessage(service, zone, timeWindow, remote, saved, remoteCarePlanId != null));
+        buildConfirmationMessage(service, zone, timeWindow, remote, saved, remoteCarePlanId != null, serviceFeeOptOut));
 
     boolean contacted = leadAgentService.matchNow(saved);
 
@@ -180,13 +184,19 @@ public class OrderService {
    */
   private String buildConfirmationMessage(
       ServiceCatalogItem service, CoverageZone zone, OrderTimeWindow timeWindow, boolean remote, Lead lead,
-      boolean fromRemoteCarePlan
+      boolean fromRemoteCarePlan, boolean serviceFeeOptOut
   ) {
     StringBuilder message = new StringBuilder()
         .append("Tomé tu pedido: **").append(service.getName()).append("** en **").append(zone.label())
         .append("**, ").append(timeWindow.label()).append(". Precio orientativo desde $")
         .append(ServiceCatalogService.formatUyu(service.getPriceFrom()))
-        .append(" (incluye servicio Fixy y garantía). Estoy contactando a un técnico y te aviso por acá y por WhatsApp.");
+        // Contrato §C.2: el mensaje de confirmación dice "sin garantía Fixy
+        // (elegiste pagar solo al técnico)" cuando el cliente optó por no
+        // pagar el cargo de servicio al reservar.
+        .append(serviceFeeOptOut
+            ? " — sin garantía Fixy (elegiste pagar solo al técnico)."
+            : " (incluye servicio Fixy y garantía).")
+        .append(" Estoy contactando a un técnico y te aviso por acá y por WhatsApp.");
 
     String onSiteName = hasText(lead.getOnSiteContactName()) ? lead.getOnSiteContactName().trim() : "la persona que quede a cargo";
     if (fromRemoteCarePlan) {

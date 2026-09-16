@@ -15,9 +15,11 @@ import org.springframework.stereotype.Service;
 
 /**
  * Arma el {@code sitemap.xml} servido en {@code GET /sitemap.xml} (ver
- * {@code SitemapController}) — SEO básico: home, {@code /ofertas},
- * {@code /sumate} (puerta única de registro) y una entrada por cada oferta
- * pública vigente. Mismo criterio {@code ACTIVE} +
+ * {@code SitemapController}) — SEO básico: home, {@code /sumate} (puerta
+ * única de registro), {@code /terminos}, las tres páginas estáticas
+ * servicio+zona (Tier 1, contrato §A.2/§A.5 — sin {@code /ofertas},
+ * pausado) y una entrada por cada oferta pública vigente. Mismo criterio
+ * {@code ACTIVE} +
  * {@code validUntil} no vencida que {@code OfferService.listPublic}, para
  * que un buscador nunca indexe una oferta que el propio backend ya no le
  * serviría a un vecino (misma consulta: {@link OfferRepository#findByStatusAndValidUntilAfter}).
@@ -62,10 +64,17 @@ public class SitemapService {
     xml.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     xml.append("<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n");
     appendUrl(xml, publicAppBaseUrl + "/", null);
-    appendUrl(xml, publicAppBaseUrl + "/ofertas", null);
     appendUrl(xml, publicAppBaseUrl + "/sumate", null);
     // Fase 2 (contrato B.5): la landing del plan Casa a distancia es indexable.
     appendUrl(xml, publicAppBaseUrl + "/casa-a-distancia", null);
+    // Tier 1 (contrato §A.5): /ofertas está pausado (fixy.offers.enabled=
+    // false desde la Refundación fase 1) — se quita la entrada estática,
+    // pero las ofertas ACTIVE vigentes que puedan seguir existiendo (lectura
+    // pública intacta) mantienen su URL propia, igual que antes.
+    appendUrl(xml, publicAppBaseUrl + "/terminos", null);
+    appendUrl(xml, publicAppBaseUrl + "/servicios/aire-acondicionado-ciudad-de-la-costa/", null);
+    appendUrl(xml, publicAppBaseUrl + "/servicios/sanitario-plomero-ciudad-de-la-costa/", null);
+    appendUrl(xml, publicAppBaseUrl + "/servicios/barometrica-ciudad-de-la-costa/", null);
     for (Offer offer : vigentes) {
       appendUrl(xml, publicAppBaseUrl + "/oferta/" + offer.getId(), offer.getUpdatedAt());
     }

@@ -638,6 +638,15 @@ public class LeadService {
         .map(p -> new LeadResponse.ServiceFee(p.getAmount(), p.getStatus(), p.getMpPaymentLink(), p.getGuaranteeUntil()))
         .orElse(null);
 
+    LeadResponse.PriceChange priceChange = lead.getProposedAt() == null ? null : new LeadResponse.PriceChange(
+        lead.getProposedAmount(),
+        lead.getProposedReason(),
+        lead.getProposedAt(),
+        lead.getAgreedAmount(),
+        lead.getAgreedAt(),
+        com.fixy.backend.model.PriceChangeStatus.of(lead)
+    );
+
     return new LeadResponse(
         lead.getId(),
         lead.getName(),
@@ -670,7 +679,8 @@ public class LeadService {
         lead.getTimeWindow(),
         lead.isRemote(),
         onSiteContact,
-        serviceFee
+        serviceFee,
+        priceChange
     );
   }
 

@@ -15,7 +15,11 @@ public record OrderCreateRequest(
     String notes,
     Boolean remote,
     OnSiteContact onSiteContact,
-    String channel
+    String channel,
+    /** Tier 1 (contrato §C.1/§C.2): "solo el técnico, sin garantía" — el
+     * cliente eligió no pagar el cargo de servicio Fixy al reservar. Default
+     * false (con garantía) cuando no viene en el body. */
+    Boolean serviceFeeOptOut
 ) {
   /** Quién abre la puerta cuando {@code remote=true}. */
   public record OnSiteContact(String name, String phone) {
