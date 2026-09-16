@@ -1,6 +1,11 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.model.CustomerPayment;
+import com.fixy.backend.model.CustomerPaymentKind;
+import com.fixy.backend.model.CustomerPaymentStatus;
+import com.fixy.backend.model.Lead;
+import com.fixy.backend.repository.CustomerPaymentRepository;
+import com.fixy.backend.repository.LeadRepository;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -22,20 +27,31 @@ public class CustomerPaymentReminderScheduler {
 
   private static final Logger log = LoggerFactory.getLogger(CustomerPaymentReminderScheduler.class);
   private static final long DUE_AFTER_HOURS = 48;
+  /** A los 7 días sin pagar se le avisa a ops UNA vez (dato, no cobranza). */
+  static final long UNPAID_NOTIFY_AFTER_DAYS = 7;
 
   private final CustomerPaymentQueryService customerPaymentQueryService;
   private final LeadMessageService leadMessageService;
+  private final CustomerPaymentRepository customerPaymentRepository;
+  private final LeadRepository leadRepository;
+  private final TelegramNotifyService telegramNotifyService;
   private final boolean enabled;
   private final Clock clock;
 
   public CustomerPaymentReminderScheduler(
       CustomerPaymentQueryService customerPaymentQueryService,
       LeadMessageService leadMessageService,
+      CustomerPaymentRepository customerPaymentRepository,
+      LeadRepository leadRepository,
+      TelegramNotifyService telegramNotifyService,
       @Value("${fixy.customer-payments.reminder.enabled:true}") boolean enabled,
       Clock clock
   ) {
     this.customerPaymentQueryService = customerPaymentQueryService;
     this.leadMessageService = leadMessageService;
+    this.customerPaymentRepository = customerPaymentRepository;
+    this.leadRepository = leadRepository;
+    this.telegramNotifyService = telegramNotifyService;
     this.enabled = enabled;
     this.clock = clock;
   }
@@ -71,6 +87,33 @@ public class CustomerPaymentReminderScheduler {
             payment.getId(), ex.getMessage());
       }
     }
+    notifyUnpaidToOps();
     return reminded;
+  }
+
+  /**
+   * Cargos SERVICE_FEE que siguen PENDING pasados 7 días: un aviso a ops por
+   * cargo (idempotente por evento de timeline, lo garantiza
+   * TelegramNotifyService.shouldNotify). Nunca toca el cargo ni al cliente.
+   */
+  void notifyUnpaidToOps() {
+    OffsetDateTime cutoff = OffsetDateTime.now(clock).minusDays(UNPAID_NOTIFY_AFTER_DAYS);
+    for (CustomerPayment payment : customerPaymentRepository.findByStatusOrderByCreatedAtDesc(CustomerPaymentStatus.PENDING)) {
+      if (payment.getKind() != CustomerPaymentKind.SERVICE_FEE || payment.getLeadId() == null) {
+        continue;
+      }
+      if (payment.getCreatedAt() == null || payment.getCreatedAt().isAfter(cutoff)) {
+        continue;
+      }
+      Lead lead = leadRepository.findById(payment.getLeadId()).orElse(null);
+      if (lead == null) {
+        continue;
+      }
+      try {
+        telegramNotifyService.notifyServiceFeeUnpaid(lead, payment.getAmount(), payment.getId(), UNPAID_NOTIFY_AFTER_DAYS);
+      } catch (Exception ex) {
+        log.warn("aviso de cargo sin pagar a ops falló para customerPayment {}: {}", payment.getId(), ex.getMessage());
+      }
+    }
   }
 }

@@ -66,6 +66,9 @@ public class MatchingWatchdogScheduler {
   private static final Logger log = LoggerFactory.getLogger(MatchingWatchdogScheduler.class);
 
   static final String STALE_EVENT_TYPE = "MATCHING_STALE_NOTIFIED";
+  /** Compuerta del plan de 90 días: el técnico contesta en 15 min. Solo ops se entera acá; el cliente recién a los stale-minutes. */
+  static final String SLOW_EVENT_TYPE = "PROVIDER_SLOW_NOTIFIED";
+  static final long SLOW_MINUTES = 15;
   static final String MATCH_BLOCKED_EVENT_TYPE = "MATCH_BLOCKED";
   private static final String PROVIDER_CONTACTED_EVENT_TYPE = "PROVIDER_CONTACTED";
   private static final Set<LeadStatus> ORPHAN_WAITING_STATUSES = Set.of(LeadStatus.NEW, LeadStatus.IN_REVIEW);
@@ -182,9 +185,15 @@ public class MatchingWatchdogScheduler {
         if (handleRelease(lead, releaseThreshold, releasedToPool)) {
           actions++;
         }
-      } else if (sinceContact.toMinutes() >= staleThreshold) {
-        if (!timelineService.hasEvent(lead.getId(), STALE_EVENT_TYPE)) {
+      } else {
+        if (sinceContact.toMinutes() >= staleThreshold
+            && !timelineService.hasEvent(lead.getId(), STALE_EVENT_TYPE)) {
           handleStale(lead, staleThreshold);
+          actions++;
+        }
+        if (sinceContact.toMinutes() >= SLOW_MINUTES
+            && !timelineService.hasEvent(lead.getId(), SLOW_EVENT_TYPE)) {
+          handleSlow(lead, sinceContact.toMinutes());
           actions++;
         }
       }
@@ -220,6 +229,14 @@ public class MatchingWatchdogScheduler {
     telegramNotifyService.notifyStaleMatching(lead, thresholdMinutes);
     timelineService.appendEvent(lead, STALE_EVENT_TYPE, "system",
         "Sin respuesta tras %d min: se avisó a cliente, proveedor y ops".formatted(thresholdMinutes));
+  }
+
+  private void handleSlow(Lead lead, long minutes) {
+    Provider contacted = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
+    String name = contacted != null ? contacted.getName() : "el técnico contactado";
+    telegramNotifyService.notifyProviderSlow(lead, name, minutes);
+    timelineService.appendEvent(lead, SLOW_EVENT_TYPE, "system",
+        "%s sin contestar tras %d min: se avisó a ops".formatted(name, minutes));
   }
 
   private void remindContactedProvider(Lead lead) {

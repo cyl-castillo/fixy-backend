@@ -625,6 +625,58 @@ public class TelegramNotifyService {
   }
 
   /** Pedido listo para matching que nadie aceptó tras N minutos — el cliente sigue esperando (ver MatchingStaleScheduler). */
+  static final String SERVICE_FEE_PAID_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_SERVICE_FEE_PAID";
+  static final String SERVICE_FEE_UNPAID_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_SERVICE_FEE_UNPAID";
+  static final String PROVIDER_SLOW_NOTIFIED_EVENT_TYPE = "PROVIDER_SLOW_NOTIFIED";
+
+  /** Entró un pago del servicio Fixy (webhook de MP o marcado a mano por ops):
+   * el evento más lindo de leer, y el que mide la compuerta del día 60. */
+  public void notifyServiceFeePaid(Lead lead, java.math.BigDecimal amount, Long paymentId) {
+    if (!shouldNotify(lead, SERVICE_FEE_PAID_NOTIFIED_EVENT_TYPE)) return;
+    String text = "💰 Cobrado: servicio Fixy $%s del pedido #%d (%s en %s). Garantía activa 30 días. Recibo #%d."
+        .formatted(
+            ServiceCatalogService.formatUyu(amount == null ? null : amount.intValue()),
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            paymentId
+        );
+    send(lead, SERVICE_FEE_PAID_NOTIFIED_EVENT_TYPE, text, "Aviso de cobro de servicio Fixy enviado a ops");
+  }
+
+  /** Un cargo lleva 7 días sin pagarse. NO se persigue (doctrina: nunca
+   * castigar) — es un dato para conocer la tasa real de cobro. Una sola vez. */
+  public void notifyServiceFeeUnpaid(Lead lead, java.math.BigDecimal amount, Long paymentId, long days) {
+    if (!shouldNotify(lead, SERVICE_FEE_UNPAID_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⏳ Sin pagar: servicio Fixy $%s del pedido #%d (%s en %s) lleva %d días pendiente (recibo #%d). No se persigue — dato para la tasa de cobro."
+        .formatted(
+            ServiceCatalogService.formatUyu(amount == null ? null : amount.intValue()),
+            lead.getId(),
+            humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()),
+            days,
+            paymentId
+        );
+    send(lead, SERVICE_FEE_UNPAID_NOTIFIED_EVENT_TYPE, text, "Aviso de cargo sin pagar a los 7 días enviado a ops");
+  }
+
+  /**
+   * El técnico contactado no contestó en los minutos de la compuerta del
+   * plan (15). Solo ops: el cliente recién se entera a los 45 (stale). No
+   * escribe el evento de idempotencia — lo escribe el watchdog, que es quien
+   * decide (mismo reparto que handleStale).
+   */
+  public void notifyProviderSlow(Lead lead, String providerName, long minutes) {
+    if (!shouldNotify(lead, PROVIDER_SLOW_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⏱️ %s no contestó en %d min el pedido #%d (%s en %s). Un WhatsApp tuyo ahora vale más que el watchdog."
+        .formatted(safe(providerName), minutes, lead.getId(), humanCategory(lead.getDetectedCategory()), safe(lead.getLocation()));
+    try {
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify (provider slow) lead={} failed: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
   public void notifyStaleMatching(Lead lead, long minutes) {
     if (!shouldNotify(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE)) return;
     String text = "🕳️ Pedido #%d (%s en %s) lleva %d min sin que nadie lo acepte — el cliente ya fue avisado, mirá si hay que mover proveedores a mano."

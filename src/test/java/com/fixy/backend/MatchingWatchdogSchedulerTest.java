@@ -158,6 +158,33 @@ class MatchingWatchdogSchedulerTest {
   // ---- 1a. Contactado sin respuesta: aviso a los stale-minutes -----------
 
   @Test
+  void avisaAOpsUnaSolaVezCuandoElTecnicoNoContestaEn15Min() throws Exception {
+    String zone = "Zona Watchdog Lento";
+    Provider provider = createProvider("Plomero Lento Quince", zone);
+    Lead lead = contactProvider(createChatLead(), provider, zone);
+    com.fixy.backend.service.TelegramNotifyService telegram =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+
+    MatchingWatchdogScheduler scheduler = schedulerWithClockAndTelegram(inFuture(Duration.ofMinutes(16)), telegram);
+    scheduler.processOnce();
+
+    // Solo ops: a los 15 min el cliente todavía no recibe el mensaje de stale.
+    org.mockito.Mockito.verify(telegram, org.mockito.Mockito.times(1))
+        .notifyProviderSlow(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.eq("Plomero Lento Quince"), org.mockito.ArgumentMatchers.longThat(m -> m >= 15 && m <= 17));
+    assertThat(staleMessagesFor(lead.getId())).isEqualTo(0);
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "PROVIDER_SLOW_NOTIFIED")).hasSize(1);
+
+    // Idempotencia: el segundo ciclo no vuelve a avisar.
+    scheduler.processOnce();
+    // Filtrado por lead: la H2 compartida entre tests puede tener otros
+    // contactados viejos que también disparan su propio aviso (una vez cada uno).
+    org.mockito.Mockito.verify(telegram, org.mockito.Mockito.times(1))
+        .notifyProviderSlow(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+  }
+
+  @Test
   void notificaUnaSolaVezAlSuperarElUmbralDeStale() throws Exception {
     String zone = "Zona Watchdog Stale Uno";
     Provider provider = createProvider("Plomero Silencioso Stale", zone);

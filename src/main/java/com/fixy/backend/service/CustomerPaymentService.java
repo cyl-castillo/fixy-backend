@@ -47,6 +47,9 @@ public class CustomerPaymentService {
   private final LeadTimelineService timelineService;
   private final LeadMessageService leadMessageService;
   private final MercadoPagoService mercadoPagoService;
+  // @Lazy: TelegramNotifyService depende de ProviderSelfService, que depende de
+  // este servicio — sin el proxy perezoso Spring no puede armar el ciclo.
+  private final TelegramNotifyService telegramNotifyService;
   private final BigDecimal serviceFeePercent;
   private final boolean serviceFeeEnabled;
   private final long guaranteeDays;
@@ -60,6 +63,7 @@ public class CustomerPaymentService {
       LeadTimelineService timelineService,
       LeadMessageService leadMessageService,
       MercadoPagoService mercadoPagoService,
+      @org.springframework.context.annotation.Lazy TelegramNotifyService telegramNotifyService,
       @Value("${fixy.orders.service-fee-percent:15}") double serviceFeePercent,
       @Value("${fixy.orders.service-fee-enabled:true}") boolean serviceFeeEnabled,
       @Value("${fixy.guarantee.days:30}") long guaranteeDays,
@@ -72,6 +76,7 @@ public class CustomerPaymentService {
     this.timelineService = timelineService;
     this.leadMessageService = leadMessageService;
     this.mercadoPagoService = mercadoPagoService;
+    this.telegramNotifyService = telegramNotifyService;
     this.serviceFeePercent = BigDecimal.valueOf(serviceFeePercent);
     this.serviceFeeEnabled = serviceFeeEnabled;
     this.guaranteeDays = guaranteeDays;
@@ -200,6 +205,11 @@ public class CustomerPaymentService {
     timelineService.appendEvent(lead, "SERVICE_FEE_PAID", "system",
         "Cargo de servicio Fixy %s %s pagado (MP payment %s)".formatted(
             payment.getCurrency(), payment.getAmount(), mpPaymentId));
+    try {
+      telegramNotifyService.notifyServiceFeePaid(lead, payment.getAmount(), payment.getId());
+    } catch (Exception ex) {
+      log.warn("aviso de cobro a ops falló para CustomerPayment {}: {}", payment.getId(), ex.getMessage());
+    }
 
     String guaranteeDate = guaranteeUntil.toLocalDate().toString();
     leadMessageService.postFromOps(lead.getId(), "fixy",

@@ -38,7 +38,48 @@ class CustomerPaymentReminderSchedulerTest {
   @Autowired private LeadMessageService leadMessageService;
 
   private CustomerPaymentReminderScheduler schedulerWithClock(Clock clock) {
-    return new CustomerPaymentReminderScheduler(customerPaymentQueryService, leadMessageService, true, clock);
+    return new CustomerPaymentReminderScheduler(customerPaymentQueryService, leadMessageService,
+        customerPaymentRepository, leadRepository, telegramNotifyService, true, clock);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired private com.fixy.backend.service.TelegramNotifyService telegramNotifyService;
+
+  @Test
+  void avisaAOpsUnaVezCuandoElCargoLleva7DiasSinPagar() {
+    Lead lead = createLead("099730077");
+    CustomerPayment payment = createServiceFee(lead, "https://mp.test/pref-unpaid");
+    com.fixy.backend.service.TelegramNotifyService telegram =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    CustomerPaymentReminderScheduler scheduler = new CustomerPaymentReminderScheduler(
+        customerPaymentQueryService, leadMessageService, customerPaymentRepository, leadRepository, telegram,
+        true, inFuture(Duration.ofDays(8)));
+
+    scheduler.processOnce();
+
+    org.mockito.Mockito.verify(telegram, org.mockito.Mockito.times(1))
+        .notifyServiceFeeUnpaid(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.argThat(a -> a.compareTo(payment.getAmount()) == 0),
+            org.mockito.ArgumentMatchers.eq(payment.getId()), org.mockito.ArgumentMatchers.eq(7L));
+    // El cargo NO cambia: nunca castigar por no pagar.
+    assertThat(customerPaymentRepository.findById(payment.getId()).orElseThrow().getStatus())
+        .isEqualTo(CustomerPaymentStatus.PENDING);
+  }
+
+  @Test
+  void noAvisaAOpsAntesDeLos7Dias() {
+    Lead lead = createLead("099730078");
+    createServiceFee(lead, "https://mp.test/pref-fresh");
+    com.fixy.backend.service.TelegramNotifyService telegram =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    CustomerPaymentReminderScheduler scheduler = new CustomerPaymentReminderScheduler(
+        customerPaymentQueryService, leadMessageService, customerPaymentRepository, leadRepository, telegram,
+        true, inFuture(Duration.ofDays(2)));
+
+    scheduler.processOnce();
+
+    org.mockito.Mockito.verify(telegram, org.mockito.Mockito.never())
+        .notifyServiceFeeUnpaid(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
   }
 
   private Clock inFuture(Duration duration) {
