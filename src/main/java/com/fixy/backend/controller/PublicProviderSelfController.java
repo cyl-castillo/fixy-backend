@@ -2,6 +2,8 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadMessageCreateRequest;
 import com.fixy.backend.dto.LeadMessageResponse;
+import com.fixy.backend.dto.LeadRatingReplyRequest;
+import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.PriceChangeProposeRequest;
 import com.fixy.backend.dto.ProviderAssignedLeadSummary;
 import com.fixy.backend.dto.ProviderCommissionSummary;
@@ -12,17 +14,21 @@ import com.fixy.backend.dto.ProviderStatsResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.repository.LeadRatingRepository;
+import com.fixy.backend.service.LeadClosingService;
 import com.fixy.backend.service.LeadMessageService;
 import com.fixy.backend.service.LeadPaymentQueryService;
 import com.fixy.backend.service.PriceChangeService;
 import com.fixy.backend.service.ProviderOpportunityService;
 import com.fixy.backend.service.ProviderGoogleAuthService;
+import com.fixy.backend.service.ProviderPhotoService;
 import com.fixy.backend.service.ProviderSelfService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,6 +38,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/public/providers/{providerId}")
@@ -44,6 +52,9 @@ public class PublicProviderSelfController {
   private final ProviderGoogleAuthService providerGoogleAuthService;
   private final com.fixy.backend.service.LeadAgentService leadAgentService;
   private final PriceChangeService priceChangeService;
+  private final ProviderPhotoService providerPhotoService;
+  private final LeadClosingService leadClosingService;
+  private final LeadRatingRepository leadRatingRepository;
 
   public PublicProviderSelfController(
       ProviderSelfService selfService,
@@ -52,7 +63,10 @@ public class PublicProviderSelfController {
       LeadPaymentQueryService leadPaymentQueryService,
       ProviderGoogleAuthService providerGoogleAuthService,
       com.fixy.backend.service.LeadAgentService leadAgentService,
-      PriceChangeService priceChangeService
+      PriceChangeService priceChangeService,
+      ProviderPhotoService providerPhotoService,
+      LeadClosingService leadClosingService,
+      LeadRatingRepository leadRatingRepository
   ) {
     this.selfService = selfService;
     this.messageService = messageService;
@@ -61,6 +75,15 @@ public class PublicProviderSelfController {
     this.providerGoogleAuthService = providerGoogleAuthService;
     this.leadAgentService = leadAgentService;
     this.priceChangeService = priceChangeService;
+    this.providerPhotoService = providerPhotoService;
+    this.leadClosingService = leadClosingService;
+    this.leadRatingRepository = leadRatingRepository;
+  }
+
+  private List<ProviderAssignedLeadSummary> assignedLeadSummaries(Provider provider) {
+    return selfService.assignedLeadsFor(provider).stream()
+        .map(lead -> ProviderAssignedLeadSummary.fromEntity(lead, leadRatingRepository.findByLeadId(lead.getId()).orElse(null)))
+        .toList();
   }
 
   @GetMapping("/opportunities")
@@ -76,10 +99,12 @@ public class PublicProviderSelfController {
   public ProviderAssignedLeadSummary acceptOpportunity(
       @PathVariable Long providerId,
       @PathVariable Long leadId,
-      @RequestParam("token") String token
+      @RequestParam("token") String token,
+      @RequestBody(required = false) AcceptOpportunityRequest request
   ) {
     Provider provider = selfService.authenticate(providerId, token);
-    return opportunityService.accept(provider, leadId);
+    String arrivalWindow = request == null ? null : request.arrivalWindow();
+    return opportunityService.accept(provider, leadId, arrivalWindow);
   }
 
   @PostMapping("/opportunities/{leadId}/decline")
@@ -99,24 +124,26 @@ public class PublicProviderSelfController {
       @RequestParam("token") String token
   ) {
     Provider provider = selfService.authenticate(providerId, token);
-    List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(provider).stream()
-        .map(ProviderAssignedLeadSummary::fromEntity)
-        .toList();
-    return ProviderSelfResponse.fromEntity(provider, leads, selfService.declinedLeadsFor(provider));
+    return ProviderSelfResponse.fromEntity(provider, assignedLeadSummaries(provider), selfService.declinedLeadsFor(provider));
   }
 
+  /**
+   * Tier 2 (contrato §A.4): {@code acceptingWork} y/o {@code
+   * availabilityWindows}, al menos uno presente (400 si ninguno).
+   */
   @PatchMapping("/availability")
   public ProviderSelfResponse updateAvailability(
       @PathVariable Long providerId,
       @RequestParam("token") String token,
-      @Valid @RequestBody AvailabilityUpdateRequest request
+      @RequestBody AvailabilityUpdateRequest request
   ) {
+    if (request.acceptingWork() == null && request.availabilityWindows() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+          "mandá acceptingWork y/o availabilityWindows");
+    }
     Provider provider = selfService.authenticate(providerId, token);
-    Provider updated = selfService.setAcceptingWork(provider, request.acceptingWork());
-    List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(updated).stream()
-        .map(ProviderAssignedLeadSummary::fromEntity)
-        .toList();
-    return ProviderSelfResponse.fromEntity(updated, leads);
+    Provider updated = selfService.updateAvailability(provider, request.acceptingWork(), request.availabilityWindows());
+    return ProviderSelfResponse.fromEntity(updated, assignedLeadSummaries(updated));
   }
 
   /**
@@ -140,10 +167,41 @@ public class PublicProviderSelfController {
         request.coverageZones(),
         request.phone()
     );
-    List<ProviderAssignedLeadSummary> leads = selfService.assignedLeadsFor(updated).stream()
-        .map(ProviderAssignedLeadSummary::fromEntity)
-        .toList();
-    return ProviderSelfResponse.fromEntity(updated, leads);
+    return ProviderSelfResponse.fromEntity(updated, assignedLeadSummaries(updated));
+  }
+
+  /** Tier 2 (contrato §B.1): "Tu foto" — el vecino la ve cuando aceptás su pedido. */
+  @PostMapping("/photo")
+  public ProviderSelfResponse uploadPhoto(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token,
+      @RequestParam("file") MultipartFile file
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Provider updated = providerPhotoService.upload(provider, file);
+    return ProviderSelfResponse.fromEntity(updated, assignedLeadSummaries(updated));
+  }
+
+  @DeleteMapping("/photo")
+  public ProviderSelfResponse removePhoto(
+      @PathVariable Long providerId,
+      @RequestParam("token") String token
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    Provider updated = providerPhotoService.remove(provider);
+    return ProviderSelfResponse.fromEntity(updated, assignedLeadSummaries(updated));
+  }
+
+  /** Tier 2 (contrato §C.3): respuesta pública del proveedor a la reseña de este trabajo. */
+  @PostMapping("/leads/{leadId}/rating-reply")
+  public LeadResponse.Rating replyToRating(
+      @PathVariable Long providerId,
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody LeadRatingReplyRequest request
+  ) {
+    Provider provider = selfService.authenticate(providerId, token);
+    return leadClosingService.replyToRating(provider, leadId, request);
   }
 
   /**
@@ -235,8 +293,8 @@ public class PublicProviderSelfController {
   ) {
     Provider provider = selfService.authenticate(providerId, token);
     Lead updated = selfService.updateLeadStatus(provider, leadId, request.status(), request.amountCharged(),
-        request.cancelReason(), request.cancelReasonDetail());
-    return ProviderAssignedLeadSummary.fromEntity(updated);
+        request.cancelReason(), request.cancelReasonDetail(), request.arrivalWindow());
+    return ProviderAssignedLeadSummary.fromEntity(updated, leadRatingRepository.findByLeadId(updated.getId()).orElse(null));
   }
 
   /**
@@ -295,21 +353,31 @@ public class PublicProviderSelfController {
    *                            status lo ignoran. Contrato con el frontend:
    *                            "sin_disponibilidad" | "zona" | "precio" | "otro".
    * @param cancelReasonDetail campo libre opcional, máx 300 caracteres.
+   * @param arrivalWindow      Tier 2 (contrato §B.2): franja corta opcional,
+   *                            solo aplica cuando {@code status == ASSIGNED}.
    */
   public record StatusUpdateRequest(
       @NotNull LeadStatus status,
       BigDecimal amountCharged,
       String cancelReason,
-      String cancelReasonDetail
+      String cancelReasonDetail,
+      String arrivalWindow
   ) {
   }
 
   public record ScheduleProposalRequest(@NotNull String proposal) {
   }
 
-  public record AvailabilityUpdateRequest(@NotNull Boolean acceptingWork) {
+  /** Tier 2 (contrato §A.4): ambos opcionales, al menos uno presente
+   * (validado en el controller, no acá — un record no puede expresar
+   * "al menos uno de dos" con Bean Validation simple). */
+  public record AvailabilityUpdateRequest(Boolean acceptingWork, String availabilityWindows) {
   }
 
   public record OnMyWayRequest(Integer etaMinutes) {
+  }
+
+  /** Tier 2 (contrato §B.2): franja corta opcional que manda el proveedor al aceptar. */
+  public record AcceptOpportunityRequest(String arrivalWindow) {
   }
 }

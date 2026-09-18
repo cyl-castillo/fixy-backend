@@ -102,6 +102,13 @@ fixy:
     enabled: ${FIXY_CLOSING_ENABLED:true}
     auto-confirm-hours: ${FIXY_CLOSING_AUTO_CONFIRM_HOURS:72}
     scheduler-fixed-delay-ms: ${FIXY_CLOSING_SCHEDULER_FIXED_DELAY_MS:3600000}
+  reviews:
+    # Tier 2 (contrato §C.2): pedido de reseña a las after-hours (24) del
+    # pago del cargo de servicio, o del COMPLETED si no pagó.
+    request:
+      enabled: ${FIXY_REVIEWS_REQUEST_ENABLED:true}
+      after-hours: ${FIXY_REVIEWS_REQUEST_AFTER_HOURS:24}
+      scheduler-fixed-delay-ms: ${FIXY_REVIEWS_REQUEST_SCHEDULER_FIXED_DELAY_MS:3600000}
   collections:
     enabled: ${FIXY_COLLECTIONS_ENABLED:true}
     overdue-days: ${FIXY_COLLECTIONS_OVERDUE_DAYS:7}
@@ -153,6 +160,19 @@ fixy:
       release-hours-remote-care: ${FIXY_MATCHING_WATCHDOG_RELEASE_HOURS_REMOTE_CARE:4}
       orphan-max-age-days: ${FIXY_MATCHING_WATCHDOG_ORPHAN_MAX_AGE_DAYS:14}
       orphan-retry-minutes: ${FIXY_MATCHING_WATCHDOG_ORPHAN_RETRY_MINUTES:60}
+    # Tier 2 (contrato §A.3): score de respuesta del ranking — mediana de
+    # minutos sobre la muestra en ventana, con prior para el que recién
+    # arranca (ni premio ni castigo) y tope para no dejar que un solo
+    # TIMEOUT lejano rompa el promedio.
+    response:
+      sample-size: ${FIXY_MATCHING_RESPONSE_SAMPLE_SIZE:10}
+      min-sample: ${FIXY_MATCHING_RESPONSE_MIN_SAMPLE:3}
+      prior-minutes: ${FIXY_MATCHING_RESPONSE_PRIOR_MINUTES:30}
+      cap-minutes: ${FIXY_MATCHING_RESPONSE_CAP_MINUTES:240}
+    # Tier 2 (contrato §B.3): hora límite de búsqueda que Fixy le promete al
+    # vecino ("sigo buscando hasta las HH:mm"). Arranca al quedar
+    # readyForMatching, se reinicia al cambiar la franja o volver al pozo.
+    search-deadline-minutes: ${FIXY_MATCHING_SEARCH_DEADLINE_MINUTES:120}
   offers:
     # Refundación fase 1 (contrato §6): congela ofertas y comercios —
     # default false. Con false, los 5 schedulers de esta sección no procesan

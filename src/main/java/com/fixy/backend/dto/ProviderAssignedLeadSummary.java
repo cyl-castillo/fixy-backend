@@ -24,7 +24,12 @@ public record ProviderAssignedLeadSummary(
     OnSiteContact onSiteContact,
     /** Tier 1 (contrato §B.1): mismo campo que {@link com.fixy.backend.dto.LeadResponse#priceChange()},
      * para que el panel del proveedor vea el estado de su propia propuesta. */
-    PriceChange priceChange
+    PriceChange priceChange,
+    /** Tier 2 (contrato §B.2): franja corta ("hoy de 14 a 18"), null si no hay. */
+    String arrivalWindow,
+    /** Tier 2 (contrato §C.3): la reseña de este trabajo (para que el panel
+     * la muestre y el proveedor pueda responder), null si todavía no la dejó. */
+    Rating rating
 ) {
   public record OnSiteContact(String name, String phone) {}
 
@@ -39,7 +44,22 @@ public record ProviderAssignedLeadSummary(
   ) {
   }
 
+  /** Tier 2 (contrato §C.3) — misma forma que {@link com.fixy.backend.dto.LeadResponse.Rating}. */
+  public record Rating(
+      Integer score,
+      String comment,
+      boolean verified,
+      java.time.OffsetDateTime createdAt,
+      String providerReply,
+      java.time.OffsetDateTime providerReplyAt
+  ) {
+  }
+
   public static ProviderAssignedLeadSummary fromEntity(Lead lead) {
+    return fromEntity(lead, null);
+  }
+
+  public static ProviderAssignedLeadSummary fromEntity(Lead lead, com.fixy.backend.model.LeadRating leadRating) {
     boolean remote = lead.isRemote();
     OnSiteContact onSite = remote && (lead.getOnSiteContactName() != null || lead.getOnSiteContactPhone() != null)
         ? new OnSiteContact(lead.getOnSiteContactName(), lead.getOnSiteContactPhone())
@@ -51,6 +71,14 @@ public record ProviderAssignedLeadSummary(
         lead.getAgreedAmount(),
         lead.getAgreedAt(),
         com.fixy.backend.model.PriceChangeStatus.of(lead)
+    );
+    Rating rating = leadRating == null ? null : new Rating(
+        leadRating.getScore(),
+        leadRating.getComment(),
+        leadRating.isVerified(),
+        leadRating.getCreatedAt(),
+        leadRating.getProviderReply(),
+        leadRating.getProviderReplyAt()
     );
     return new ProviderAssignedLeadSummary(
         lead.getId(),
@@ -69,7 +97,9 @@ public record ProviderAssignedLeadSummary(
         lead.getAccessToken(),
         remote,
         onSite,
-        priceChange
+        priceChange,
+        lead.getArrivalWindow(),
+        rating
     );
   }
 }

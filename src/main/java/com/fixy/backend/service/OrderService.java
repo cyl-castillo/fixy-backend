@@ -43,6 +43,7 @@ public class OrderService {
   private final LeadAgentService leadAgentService;
   private final ServiceCatalogService serviceCatalogService;
   private final PublicLeadAbuseProtectionService abuseProtectionService;
+  private final SearchDeadlineService searchDeadlineService;
 
   public OrderService(
       LeadRepository leadRepository,
@@ -50,7 +51,8 @@ public class OrderService {
       LeadMessageService leadMessageService,
       LeadAgentService leadAgentService,
       ServiceCatalogService serviceCatalogService,
-      PublicLeadAbuseProtectionService abuseProtectionService
+      PublicLeadAbuseProtectionService abuseProtectionService,
+      SearchDeadlineService searchDeadlineService
   ) {
     this.leadRepository = leadRepository;
     this.leadTimelineService = leadTimelineService;
@@ -58,6 +60,7 @@ public class OrderService {
     this.leadAgentService = leadAgentService;
     this.serviceCatalogService = serviceCatalogService;
     this.abuseProtectionService = abuseProtectionService;
+    this.searchDeadlineService = searchDeadlineService;
   }
 
   public OrderCreateResponse create(OrderCreateRequest request, String clientIp) {
@@ -152,6 +155,9 @@ public class OrderService {
     lead.setStatus(LeadStatus.NEW);
     lead.setNotes(hasText(notes) ? notes.trim() : "");
     lead.setReadyForMatching(true);
+    // Tier 2 (contrato §B.3): hora límite de búsqueda arranca junto con
+    // readyForMatching — mismo criterio que el intake conversacional.
+    searchDeadlineService.begin(lead);
     lead.setHistory(buildHistoryEntry("Pedido estructurado creado desde %s".formatted(channel)));
     lead.setAccessToken(UUID.randomUUID().toString().replace("-", ""));
 

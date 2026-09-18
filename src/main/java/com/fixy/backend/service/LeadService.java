@@ -31,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class LeadService {
 
+  private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LeadService.class);
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
   /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
   private static final Set<String> MVP_CATEGORIES = Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
@@ -51,6 +52,12 @@ public class LeadService {
   private final ProviderSelfService providerSelfService;
   private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
   private final com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository;
+  private final com.fixy.backend.repository.LeadEventRepository leadEventRepository;
+  private final com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+  private final LeadMessageService leadMessageService;
+  private final SearchDeadlineService searchDeadlineService;
+  private final com.fixy.backend.repository.ProviderLeadDeclineRepository declineRepository;
+  private final com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
 
   public LeadService(
       LeadRepository leadRepository,
@@ -64,7 +71,13 @@ public class LeadService {
       // solo se usa en runtime (ensureAccessToken) y evita ciclo de beans.
       @org.springframework.context.annotation.Lazy ProviderSelfService providerSelfService,
       com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository,
-      com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository
+      com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository,
+      com.fixy.backend.repository.LeadEventRepository leadEventRepository,
+      com.fixy.backend.repository.LeadRatingRepository leadRatingRepository,
+      LeadMessageService leadMessageService,
+      SearchDeadlineService searchDeadlineService,
+      com.fixy.backend.repository.ProviderLeadDeclineRepository declineRepository,
+      com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository
   ) {
     this.leadRepository = leadRepository;
     this.agentService = agentService;
@@ -76,6 +89,12 @@ public class LeadService {
     this.providerSelfService = providerSelfService;
     this.serviceCatalogItemRepository = serviceCatalogItemRepository;
     this.customerPaymentRepository = customerPaymentRepository;
+    this.leadEventRepository = leadEventRepository;
+    this.leadRatingRepository = leadRatingRepository;
+    this.leadMessageService = leadMessageService;
+    this.searchDeadlineService = searchDeadlineService;
+    this.declineRepository = declineRepository;
+    this.providerOfferRepository = providerOfferRepository;
   }
 
   /**
@@ -166,6 +185,71 @@ public class LeadService {
     if (lead.getAccessToken() == null || token == null || !lead.getAccessToken().equals(token)) {
       throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid token");
     }
+  }
+
+  /**
+   * Tier 2 (contrato §B.4): {@code POST /api/public/leads/{id}/time-window}
+   * — el vecino cambia la franja mientras sigue esperando técnico. Solo si
+   * todavía no hay técnico asignado (ASSIGNED+); reinicia la hora límite de
+   * búsqueda y dispara un reintento en el acto (el contactado que no
+   * respondía queda como TIMEOUT y se re-ofrece a otro, vía el mismo camino
+   * del watchdog).
+   */
+  public LeadResponse changeTimeWindow(Long leadId, String token, String timeWindowId) {
+    requirePublicToken(leadId, token);
+    Lead lead = findLead(leadId);
+    if (lead.getAssignedProviderId() != null && lead.getStatus() != LeadStatus.PROVIDER_CONTACTED) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT,
+          "ya hay un técnico asignado, no se puede cambiar la franja desde acá");
+    }
+    var orderTimeWindow = com.fixy.backend.model.OrderTimeWindow.fromId(timeWindowId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "ventana horaria inválida"));
+
+    boolean wasContacted = lead.getStatus() == LeadStatus.PROVIDER_CONTACTED;
+    lead.setTimeWindow(orderTimeWindow.id());
+    lead.setUrgency(orderTimeWindow.urgency());
+    searchDeadlineService.begin(lead);
+    leadRepository.save(lead);
+
+    leadTimelineService.appendEvent(lead, "TIME_WINDOW_CHANGED", "customer",
+        "Cambió la franja a %s".formatted(orderTimeWindow.label()));
+    leadMessageService.postFromOps(lead.getId(), "fixy",
+        "Listo, lo cambié a **%s**. Sigo buscando hasta las %s."
+            .formatted(orderTimeWindow.label(), searchDeadlineService.formatHHmm(lead.getSearchDeadlineAt())));
+
+    if (wasContacted && lead.getAssignedProviderId() != null) {
+      // El contactado que no había respondido queda como TIMEOUT (mismo
+      // criterio que MatchingWatchdogScheduler.handleRelease) y se re-ofrece
+      // a otro en el acto — findMatchesForLead necesita el decline
+      // registrado para no volver a ofrecérselo al mismo.
+      Long unresponsiveProviderId = lead.getAssignedProviderId();
+      if (!declineRepository.existsByLeadIdAndProviderId(lead.getId(), unresponsiveProviderId)) {
+        var decline = new com.fixy.backend.model.ProviderLeadDecline();
+        decline.setLeadId(lead.getId());
+        decline.setProviderId(unresponsiveProviderId);
+        declineRepository.save(decline);
+      }
+      providerOfferRepository
+          .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(lead.getId(), unresponsiveProviderId)
+          .ifPresent(offer -> {
+            offer.setRespondedAt(java.time.OffsetDateTime.now());
+            offer.setResponse(com.fixy.backend.model.ProviderOfferResponse.TIMEOUT);
+            providerOfferRepository.save(offer);
+          });
+      try {
+        leadAgentService.reofferAfterDecline(lead.getId());
+      } catch (Exception ex) {
+        log.warn("changeTimeWindow: re-oferta falló para el lead {}: {}", lead.getId(), ex.getMessage());
+      }
+    } else {
+      try {
+        leadAgentService.retryAutoMatch(lead.getId());
+      } catch (Exception ex) {
+        log.warn("changeTimeWindow: reintento de matching falló para el lead {}: {}", lead.getId(), ex.getMessage());
+      }
+    }
+
+    return toResponse(leadRepository.findById(leadId).orElseThrow(), null, null);
   }
 
   public LeadMatchResponse generateMatches(Long id) {
@@ -647,6 +731,19 @@ public class LeadService {
         com.fixy.backend.model.PriceChangeStatus.of(lead)
     );
 
+    // Tier 2 (contrato §B.3): null en cuanto hay técnico asignado — la
+    // promesa "sigo buscando hasta las HH:mm" deja de tener sentido.
+    java.util.Set<com.fixy.backend.model.LeadStatus> hasProviderStatuses = java.util.Set.of(
+        com.fixy.backend.model.LeadStatus.ASSIGNED, com.fixy.backend.model.LeadStatus.IN_PROGRESS,
+        com.fixy.backend.model.LeadStatus.COMPLETED, com.fixy.backend.model.LeadStatus.CANCELLED);
+    OffsetDateTime searchDeadlineAt = hasProviderStatuses.contains(lead.getStatus()) ? null : lead.getSearchDeadlineAt();
+    String matchingState = matchingStateFor(lead, hasProviderStatuses);
+
+    LeadResponse.Rating rating = leadRatingRepository.findByLeadId(lead.getId())
+        .map(r -> new LeadResponse.Rating(
+            r.getScore(), r.getComment(), r.isVerified(), r.getCreatedAt(), r.getProviderReply(), r.getProviderReplyAt()))
+        .orElse(null);
+
     return new LeadResponse(
         lead.getId(),
         lead.getName(),
@@ -680,8 +777,51 @@ public class LeadService {
         lead.isRemote(),
         onSiteContact,
         serviceFee,
-        priceChange
+        priceChange,
+        searchDeadlineAt,
+        matchingState,
+        rating
     );
+  }
+
+  /**
+   * Tier 2 (contrato §B.3): {@code SEARCHING} (listo, sin contactar aún),
+   * {@code CONTACTED} (status {@code PROVIDER_CONTACTED}), {@code
+   * NO_PROVIDER} (hubo un {@code MATCH_BLOCKED} posterior al último {@code
+   * PROVIDER_CONTACTED} — o directamente sin contacto — o venció la hora
+   * límite), {@code null} en el resto (todavía no listo, o ya hay técnico).
+   */
+  private String matchingStateFor(Lead lead, java.util.Set<LeadStatus> hasProviderStatuses) {
+    if (lead.getId() == null || hasProviderStatuses.contains(lead.getStatus()) || !lead.isReadyForMatching()) {
+      return null;
+    }
+    OffsetDateTime lastContacted = lastEventAt(lead.getId(), "PROVIDER_CONTACTED");
+    OffsetDateTime lastMatchBlocked = lastEventAt(lead.getId(), "MATCH_BLOCKED");
+    boolean matchBlockedIsRecent = lastMatchBlocked != null
+        && (lastContacted == null || lastMatchBlocked.isAfter(lastContacted));
+    // Igual que MATCH_BLOCKED: la hora límite vencida solo cuenta si es
+    // POSTERIOR al último contacto y el deadline vigente ya venció. Si el
+    // vecino cambió la franja (deadline nuevo, futuro) o se re-ofreció a otro
+    // técnico después del aviso, el estado vuelve a CONTACTED/SEARCHING.
+    OffsetDateTime lastDeadlineMissed = lastEventAt(lead.getId(), "SEARCH_DEADLINE_MISSED");
+    boolean deadlineStillMissed = lastDeadlineMissed != null
+        && (lastContacted == null || lastDeadlineMissed.isAfter(lastContacted))
+        && (lead.getSearchDeadlineAt() == null || !lead.getSearchDeadlineAt().isAfter(OffsetDateTime.now()));
+    if (matchBlockedIsRecent || deadlineStillMissed) {
+      return "NO_PROVIDER";
+    }
+    if (lead.getStatus() == LeadStatus.PROVIDER_CONTACTED) {
+      return "CONTACTED";
+    }
+    return "SEARCHING";
+  }
+
+  private OffsetDateTime lastEventAt(Long leadId, String type) {
+    return leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, type).stream()
+        .map(com.fixy.backend.model.LeadEvent::getCreatedAt)
+        .filter(java.util.Objects::nonNull)
+        .findFirst()
+        .orElse(null);
   }
 
   private boolean equalsNormalized(String left, String right) {

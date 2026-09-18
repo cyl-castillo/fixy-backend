@@ -67,6 +67,8 @@ public class LeadAgentService {
   private final TelegramNotifyService telegramNotifyService;
   private final PushNotificationService pushNotificationService;
   private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
+  private final com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
+  private final SearchDeadlineService searchDeadlineService;
 
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -82,6 +84,8 @@ public class LeadAgentService {
       TelegramNotifyService telegramNotifyService,
       PushNotificationService pushNotificationService,
       com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository,
+      com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository,
+      SearchDeadlineService searchDeadlineService,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
       @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
       @Value("${fixy.agent.enabled:true}") boolean enabled,
@@ -103,6 +107,8 @@ public class LeadAgentService {
     this.telegramNotifyService = telegramNotifyService;
     this.pushNotificationService = pushNotificationService;
     this.serviceCatalogItemRepository = serviceCatalogItemRepository;
+    this.providerOfferRepository = providerOfferRepository;
+    this.searchDeadlineService = searchDeadlineService;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
@@ -1889,6 +1895,10 @@ public class LeadAgentService {
         // la verificación en prod: pastelería→decoración nunca contactó a
         // la proveedora de decoración).
         if (nowReady && (!wasReady || corrected)) {
+          // Tier 2 (contrato §B.3): arranca la hora límite de búsqueda justo
+          // antes de intentar el matching — mismo instante en el que el
+          // pedido "queda listo" (o se re-dispara por corrección).
+          searchDeadlineService.begin(lead);
           tryAutoMatch(lead);
           return true;
         }
@@ -1936,8 +1946,7 @@ public class LeadAgentService {
         // (verificación post-deploy 2026-07-28: el flujo de pedido completo
         // saltea la respuesta conversacional y entra directo acá).
         leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
-            "Por ahora no tengo proveedores libres en %s para %s. Te aviso por acá apenas alguien levante el pedido."
-                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
+            noProviderMessage(lead)));
         shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
         return false;
@@ -2015,8 +2024,7 @@ public class LeadAgentService {
           leadId, lead.getDetectedCategory(), lead.getLocation());
       if (matches == null || matches.isEmpty()) {
         leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
-            "El primer técnico no pudo tomar tu pedido y por ahora no tengo otro libre en %s para %s. Te aviso por acá apenas alguien lo levante."
-                .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()))));
+            noProviderMessage(lead)));
         shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
         return false;
@@ -2027,6 +2035,26 @@ public class LeadAgentService {
       log.warn("reofferAfterDecline failed for lead {}: {}", leadId, ex.getMessage());
       return false;
     }
+  }
+
+  /**
+   * Tier 2 (contrato §B.3): mensaje honesto "no hay técnico todavía", con la
+   * hora límite hasta la que Fixy promete seguir buscando. Compartido por
+   * {@link #matchNow} y {@link #reofferAfterDecline} cuando no hay
+   * candidatos — el lead ya tiene {@code searchDeadlineAt} seteado por
+   * {@link SearchDeadlineService#begin} al quedar listo para matching.
+   */
+  private String noProviderMessage(Lead lead) {
+    String deadline = searchDeadlineService.formatHHmm(lead.getSearchDeadlineAt());
+    if (deadline.isBlank()) {
+      // Defensivo: no debería pasar (todo lead readyForMatching pasa por
+      // begin() antes de llegar acá), pero sin deadline no se puede prometer
+      // una hora — cae al copy sin hora en vez de mostrar "las ".
+      return "Por ahora no tengo técnico libre en %s para %s. Sigo buscando y te aviso por acá apenas consiga."
+          .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()));
+    }
+    return "Por ahora no tengo técnico libre en %s para %s. Sigo buscando hasta las %s; si a esa hora no conseguí, te aviso y vemos alternativas."
+        .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()), deadline);
   }
 
   /**
@@ -2055,6 +2083,29 @@ public class LeadAgentService {
     safeTelegramNotifyOpportunity(lead, matches);
     ProviderCatalogItem top = matches.get(0);
     com.fixy.backend.model.Provider providerEntity = providerRepository.findById(top.id()).orElse(null);
+
+    // Tier 2 (contrato §A.2): registro de la oferta uno-a-uno (offeredAt=now,
+    // inWindow=ventana declarada, context=por qué se contacta). lastContactedAt
+    // deja de ser columna muerta.
+    java.time.OffsetDateTime now = searchDeadlineService.now();
+    if (providerEntity != null) {
+      boolean inWindow = com.fixy.backend.model.AvailabilityWindows
+          .parse(providerEntity.getAvailabilityWindows())
+          .isOpenAt(now.atZoneSameInstant(java.time.ZoneId.of("America/Montevideo")));
+      com.fixy.backend.model.ProviderOffer offer = new com.fixy.backend.model.ProviderOffer();
+      offer.setLeadId(lead.getId());
+      offer.setProviderId(providerEntity.getId());
+      offer.setContext(switch (context) {
+        case INITIAL -> com.fixy.backend.model.ProviderOfferContext.INITIAL;
+        case SCHEDULED_RETRY -> com.fixy.backend.model.ProviderOfferContext.SCHEDULED_RETRY;
+        case DECLINE_REOFFER -> com.fixy.backend.model.ProviderOfferContext.DECLINE_REOFFER;
+      });
+      offer.setOfferedAt(now);
+      offer.setInWindow(inWindow);
+      providerOfferRepository.save(offer);
+      providerEntity.setLastContactedAt(now);
+      providerRepository.save(providerEntity);
+    }
 
     // Push al proveedor matcheado (si se suscribió): el camino AUTOMÁTICO
     // también avisa, no solo el manual de generateMatches. Async y no-op

@@ -5,11 +5,14 @@ import com.fixy.backend.dto.ProviderOpportunitySummary;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderOfferResponse;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadPhotoRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
+import com.fixy.backend.repository.ProviderOfferRepository;
+import java.time.OffsetDateTime;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -46,6 +49,7 @@ public class ProviderOpportunityService {
   private final ProviderCatalogService catalogService;
   private final LeadAssignmentService leadAssignmentService;
   private final LeadTimelineService timelineService;
+  private final ProviderOfferRepository providerOfferRepository;
 
   public ProviderOpportunityService(
       LeadRepository leadRepository,
@@ -53,7 +57,8 @@ public class ProviderOpportunityService {
       LeadPhotoRepository photoRepository,
       ProviderCatalogService catalogService,
       LeadAssignmentService leadAssignmentService,
-      LeadTimelineService timelineService
+      LeadTimelineService timelineService,
+      ProviderOfferRepository providerOfferRepository
   ) {
     this.leadRepository = leadRepository;
     this.declineRepository = declineRepository;
@@ -61,6 +66,7 @@ public class ProviderOpportunityService {
     this.catalogService = catalogService;
     this.leadAssignmentService = leadAssignmentService;
     this.timelineService = timelineService;
+    this.providerOfferRepository = providerOfferRepository;
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
@@ -102,9 +108,15 @@ public class ProviderOpportunityService {
    * para operar el chat, igual que en {@code assignedLeads}.
    */
   public ProviderAssignedLeadSummary accept(Provider provider, Long leadId) {
+    return accept(provider, leadId, null);
+  }
+
+  /** @param arrivalWindow Tier 2 (contrato §B.2): franja corta opcional que
+   *  el proveedor manda al aceptar desde la bandeja. */
+  public ProviderAssignedLeadSummary accept(Provider provider, Long leadId, String arrivalWindow) {
     requireVisibleOpportunity(provider, leadId);
     Lead assigned = leadAssignmentService.acceptForProvider(leadId, provider,
-        provider.getName() + " tomó el trabajo desde su panel");
+        provider.getName() + " tomó el trabajo desde su panel", arrivalWindow);
     return ProviderAssignedLeadSummary.fromEntity(assigned);
   }
 
@@ -120,12 +132,24 @@ public class ProviderOpportunityService {
     decline.setLeadId(leadId);
     decline.setProviderId(provider.getId());
     declineRepository.save(decline);
+    // Tier 2 (contrato §A.2): cierra la oferta abierta del par como DECLINED.
+    closeOpenOfferAsDeclined(leadId, provider.getId());
 
     Lead lead = leadRepository.findById(leadId).orElse(null);
     if (lead != null) {
       timelineService.appendEvent(lead, "PROVIDER_DECLINED", "provider",
           provider.getName() + " rechazó la oportunidad");
     }
+  }
+
+  private void closeOpenOfferAsDeclined(Long leadId, Long providerId) {
+    providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, providerId)
+        .ifPresent(offer -> {
+          offer.setRespondedAt(OffsetDateTime.now());
+          offer.setResponse(ProviderOfferResponse.DECLINED);
+          providerOfferRepository.save(offer);
+        });
   }
 
   /**

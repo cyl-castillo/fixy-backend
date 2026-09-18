@@ -62,6 +62,7 @@ class ProviderCancelReleasesLeadTest {
   @Autowired private LeadMessageRepository leadMessageRepository;
   @Autowired private ProviderRepository providerRepository;
   @Autowired private ProviderLeadDeclineRepository declineRepository;
+  @Autowired private com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
   @Autowired private LeadAgentService leadAgentService;
   @Autowired private ProviderCatalogService providerCatalogService;
   @Autowired private ProviderSelfService providerSelfService;
@@ -69,14 +70,15 @@ class ProviderCancelReleasesLeadTest {
   @Autowired private LeadMessageService leadMessageService;
   @Autowired private PushNotificationService pushNotificationService;
   @Autowired private TelegramNotifyService telegramNotifyService;
+  @Autowired private com.fixy.backend.service.SearchDeadlineService searchDeadlineService;
 
   /** Instancia propia: mismo motivo que antes (scheduler del contexto apagado
    * a propósito, ver src/test/resources/application.yml). */
   private MatchingWatchdogScheduler scheduler() {
     return new MatchingWatchdogScheduler(
-        leadRepository, leadEventRepository, providerRepository, declineRepository,
-        providerCatalogService, providerSelfService, leadAgentService, timelineService,
-        leadMessageService, pushNotificationService, telegramNotifyService,
+        leadRepository, leadEventRepository, leadMessageRepository, providerRepository, declineRepository,
+        providerOfferRepository, providerCatalogService, providerSelfService, leadAgentService, timelineService,
+        leadMessageService, pushNotificationService, telegramNotifyService, searchDeadlineService,
         true, 45, 20, 12, 4, MAX_AGE_DAYS, 60, Clock.systemUTC());
   }
 

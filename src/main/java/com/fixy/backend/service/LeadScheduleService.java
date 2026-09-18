@@ -71,6 +71,11 @@ public class LeadScheduleService {
 
     String label = proposal.getMessage();
     if (accept) {
+      // Tier 2 (contrato §B.2.b): el texto de la propuesta confirmada pasa a
+      // ser la franja del lead — misma columna que pisan la aceptación con
+      // franja y "voy en camino" con ETA.
+      lead.setArrivalWindow(label);
+      leadRepository.save(lead);
       timelineService.appendEvent(lead, SCHEDULE_CONFIRMED_EVENT_TYPE, "customer", label);
       messageService.postFromOps(leadId, "fixy", "✅ Horario confirmado: %s.".formatted(label));
       notifyProvider(lead, "El cliente confirmó el horario", "%s — quedó agendado.".formatted(label));

@@ -119,6 +119,22 @@ public class PublicLeadController {
   public record ScheduleResponseRequest(@jakarta.validation.constraints.NotNull Boolean accept) {
   }
 
+  /**
+   * Tier 2 (contrato §B.4): el vecino cambia la franja mientras sigue
+   * esperando técnico — solo antes de tener uno asignado.
+   */
+  @PostMapping("/leads/{id}/time-window")
+  public LeadResponse changeTimeWindow(
+      @PathVariable Long id,
+      @RequestParam("token") String token,
+      @Valid @RequestBody TimeWindowChangeRequest request
+  ) {
+    return leadService.changeTimeWindow(id, token, request.timeWindow());
+  }
+
+  public record TimeWindowChangeRequest(@jakarta.validation.constraints.NotBlank String timeWindow) {
+  }
+
   @PostMapping("/leads/{id}/matches")
   public LeadMatchResponse generateMatches(@PathVariable Long id, @RequestParam("token") String token) {
     leadService.requirePublicToken(id, token);

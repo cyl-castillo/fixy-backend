@@ -75,20 +75,22 @@ class ProviderDeclineWithoutSupplyTest {
   @Autowired private ProviderRepository providerRepository;
   @Autowired private LeadAgentService leadAgentService;
   @Autowired private ProviderLeadDeclineRepository declineRepository;
+  @Autowired private com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
   @Autowired private ProviderCatalogService providerCatalogService;
   @Autowired private ProviderSelfService providerSelfService;
   @Autowired private LeadTimelineService timelineService;
   @Autowired private LeadMessageService leadMessageService;
   @Autowired private PushNotificationService pushNotificationService;
+  @Autowired private com.fixy.backend.service.SearchDeadlineService searchDeadlineService;
 
   @MockitoBean private TelegramNotifyService telegramNotifyService;
 
   /** Instancia propia: el scheduler del contexto está apagado a propósito. */
   private MatchingWatchdogScheduler scheduler() {
     return new MatchingWatchdogScheduler(
-        leadRepository, leadEventRepository, providerRepository, declineRepository,
-        providerCatalogService, providerSelfService, leadAgentService, timelineService,
-        leadMessageService, pushNotificationService, telegramNotifyService,
+        leadRepository, leadEventRepository, leadMessageRepository, providerRepository, declineRepository,
+        providerOfferRepository, providerCatalogService, providerSelfService, leadAgentService, timelineService,
+        leadMessageService, pushNotificationService, telegramNotifyService, searchDeadlineService,
         true, 45, 20, 12, 4, 14, 60, Clock.systemUTC());
   }
 

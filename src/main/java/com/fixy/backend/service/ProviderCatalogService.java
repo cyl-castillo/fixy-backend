@@ -4,20 +4,31 @@ import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.dto.ProviderCreateRequest;
 import com.fixy.backend.dto.ProviderResponse;
 import com.fixy.backend.dto.ProviderUpdateRequest;
+import com.fixy.backend.model.AvailabilityWindows;
 import com.fixy.backend.model.CommissionStatus;
 import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
+import com.fixy.backend.model.ProviderOffer;
+import com.fixy.backend.model.ProviderOfferResponse;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.repository.LeadPaymentRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
+import com.fixy.backend.repository.ProviderOfferRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -25,21 +36,48 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class ProviderCatalogService {
 
+  private static final ZoneId MONTEVIDEO = ZoneId.of("America/Montevideo");
+
   private final ProviderRepository providerRepository;
   private final LeadPaymentRepository leadPaymentRepository;
   private final ProviderLeadDeclineRepository declineRepository;
 
   private final com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+  private final ProviderOfferRepository providerOfferRepository;
+
+  /** Tier 2 (contrato §A.3): tamaño de la muestra de ofertas en ventana
+   * usada para el score de respuesta (mediana de minutos). */
+  private final int responseSampleSize;
+  /** Con menos ofertas en ventana que esto, el proveedor usa el prior
+   * ({@link #responsePriorMinutes}) — ni premio ni castigo al nuevo. */
+  private final int responseMinSample;
+  /** Minutos que usa un proveedor sin muestra suficiente (cold-start del
+   * score de respuesta, análogo a {@code NEW_PROVIDER_RATING_PRIOR}). */
+  private final int responsePriorMinutes;
+  /** Tope de minutos: un TIMEOUT, una no-respuesta o una respuesta muy
+   * lenta valen como máximo esto — un proveedor que tarda 10h no debe
+   * pesar 100x más que uno que tarda 1h en el promedio. */
+  private final int responseCapMinutes;
 
   public ProviderCatalogService(
       ProviderRepository providerRepository,
       LeadPaymentRepository leadPaymentRepository,
       ProviderLeadDeclineRepository declineRepository,
-      com.fixy.backend.repository.LeadRatingRepository leadRatingRepository) {
+      com.fixy.backend.repository.LeadRatingRepository leadRatingRepository,
+      ProviderOfferRepository providerOfferRepository,
+      @Value("${fixy.matching.response.sample-size:10}") int responseSampleSize,
+      @Value("${fixy.matching.response.min-sample:3}") int responseMinSample,
+      @Value("${fixy.matching.response.prior-minutes:30}") int responsePriorMinutes,
+      @Value("${fixy.matching.response.cap-minutes:240}") int responseCapMinutes) {
     this.providerRepository = providerRepository;
     this.leadPaymentRepository = leadPaymentRepository;
     this.declineRepository = declineRepository;
     this.leadRatingRepository = leadRatingRepository;
+    this.providerOfferRepository = providerOfferRepository;
+    this.responseSampleSize = responseSampleSize;
+    this.responseMinSample = responseMinSample;
+    this.responsePriorMinutes = responsePriorMinutes;
+    this.responseCapMinutes = responseCapMinutes;
   }
 
   /**
@@ -53,7 +91,8 @@ public class ProviderCatalogService {
         .sorted(java.util.Comparator.comparing(com.fixy.backend.model.LeadRating::getCreatedAt,
             java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
         .limit(2)
-        .map(r -> new com.fixy.backend.dto.LeadResponse.ReviewSnippet(r.getScore(), r.getComment().trim()))
+        .map(r -> new com.fixy.backend.dto.LeadResponse.ReviewSnippet(
+            r.getScore(), r.getComment().trim(), r.isVerified(), r.getProviderReply()))
         .toList();
   }
 
@@ -196,9 +235,18 @@ public class ProviderCatalogService {
         .sorted((a, b) -> {
           int byZoneSpecificity = Boolean.compare(
               declaresZoneExactly(b, normalizedLocation), declaresZoneExactly(a, normalizedLocation));
-          return byZoneSpecificity != 0
-              ? byZoneSpecificity
-              : Double.compare(rankingScore(b), rankingScore(a));
+          if (byZoneSpecificity != 0) {
+            return byZoneSpecificity;
+          }
+          // Tier 2 (contrato §A.3): dentro de ventana ahora antes que fuera
+          // — fuera NO se excluye (fill rate manda), solo se ordena después.
+          int byWindow = Boolean.compare(isOpenNow(b), isOpenNow(a));
+          if (byWindow != 0) {
+            return byWindow;
+          }
+          // Puntaje de respuesta: menor es mejor.
+          int byResponse = Integer.compare(responseScoreMinutes(a), responseScoreMinutes(b));
+          return byResponse != 0 ? byResponse : Double.compare(rankingScore(b), rankingScore(a));
         })
         .map(provider -> toCatalogItem(provider, normalizedCategory))
         .toList();
@@ -216,6 +264,123 @@ public class ProviderCatalogService {
       return NEW_PROVIDER_RATING_PRIOR;
     }
     return provider.getRatingAverage();
+  }
+
+  /** Tier 2 (contrato §A.3): ¿este proveedor está dentro de su ventana
+   * declarada AHORA (hora de Montevideo)? Sin ventana declarada = siempre. */
+  public boolean isOpenNow(Provider provider) {
+    return AvailabilityWindows.parse(provider.getAvailabilityWindows()).isOpenAt(ZonedDateTime.now(MONTEVIDEO));
+  }
+
+  /**
+   * Tier 2 (contrato §A.3): mediana de minutos de respuesta sobre las
+   * últimas {@link #responseSampleSize} ofertas EN VENTANA del proveedor.
+   * {@code TIMEOUT} y las ofertas sin responder valen {@link
+   * #responseCapMinutes}; cualquier respuesta se capea también a ese tope.
+   * Con menos de {@link #responseMinSample} ofertas en ventana, usa {@link
+   * #responsePriorMinutes} (ni premio ni castigo al proveedor nuevo). Menor
+   * es mejor.
+   */
+  public int responseScoreMinutes(Provider provider) {
+    List<Integer> sample = responseSampleMinutes(provider);
+    if (sample.size() < responseMinSample) {
+      return responsePriorMinutes;
+    }
+    return median(sample);
+  }
+
+  /** Cantidad real de ofertas en ventana consideradas por {@link
+   * #responseScoreMinutes} (0..{@link #responseSampleSize}). Distinto de
+   * {@link #responseScoreMinutes}: expone el tamaño de muestra crudo para
+   * "Mis números", sin la sustitución por el prior. */
+  public int responseSampleSizeFor(Provider provider) {
+    return responseSampleMinutes(provider).size();
+  }
+
+  /** Minutos de respuesta (ya capeados) de la muestra en ventana, más
+   * reciente primero — sin aplicar el prior. Lista vacía = sin muestra. */
+  private List<Integer> responseSampleMinutes(Provider provider) {
+    if (provider.getId() == null) {
+      return List.of();
+    }
+    List<ProviderOffer> offers = providerOfferRepository
+        .findByProviderIdAndInWindowTrueOrderByOfferedAtDesc(provider.getId());
+    List<Integer> minutes = new ArrayList<>();
+    for (int i = 0; i < offers.size() && i < responseSampleSize; i++) {
+      minutes.add(minutesFor(offers.get(i)));
+    }
+    return minutes;
+  }
+
+  private int minutesFor(ProviderOffer offer) {
+    if (offer.getResponse() == ProviderOfferResponse.TIMEOUT || offer.getRespondedAt() == null) {
+      return responseCapMinutes;
+    }
+    long minutes = java.time.Duration.between(offer.getOfferedAt(), offer.getRespondedAt()).toMinutes();
+    return (int) Math.min(Math.max(minutes, 0), responseCapMinutes);
+  }
+
+  /** "Mis números" (contrato §A.4): posición 1..N entre los pares del
+   * proveedor (misma categoría, activos) según {@link #responseScoreMinutes}
+   * — null si el proveedor todavía no tiene muestra propia. {@code peers}
+   * es N (incluye al propio proveedor) y se devuelve siempre, tenga o no
+   * muestra, para que el front pueda decir "con 3 pedidos contestados
+   * aparece tu posición" con el universo ya conocido.
+   *
+   * Desvío del contrato: el contrato dice "proveedores ACTIVE/AVAILABLE",
+   * pero {@link ProviderStatus} no tiene {@code ACTIVE} — se usa {@link
+   * #canReceiveNewWork(Provider)} (misma fuente de verdad que el matching)
+   * como filtro de pares en su lugar. Ver TIER2_CONTRATO.md, "Cambios
+   * durante implementación".
+   */
+  public ResponseStanding responseStandingFor(Provider provider) {
+    LinkedHashMap<Long, Provider> peers = new LinkedHashMap<>();
+    if (provider.getId() != null) {
+      peers.put(provider.getId(), provider);
+    }
+    providerRepository.findAll().stream()
+        .filter(p -> p.getId() != null && !p.getId().equals(provider.getId()))
+        .filter(this::canReceiveNewWork)
+        .filter(p -> sharesAnyCategory(p, provider))
+        .forEach(p -> peers.put(p.getId(), p));
+
+    List<Provider> ordered = peers.values().stream()
+        .sorted(Comparator.<Provider>comparingInt(this::responseScoreMinutes)
+            .thenComparing(p -> p.getId() == null ? Long.MAX_VALUE : p.getId()))
+        .toList();
+    int peerCount = ordered.size();
+
+    if (responseSampleSizeFor(provider) < responseMinSample) {
+      return new ResponseStanding(null, peerCount);
+    }
+    int rank = 1;
+    for (Provider p : ordered) {
+      if (Objects.equals(p.getId(), provider.getId())) {
+        break;
+      }
+      rank++;
+    }
+    return new ResponseStanding(rank, peerCount);
+  }
+
+  private boolean sharesAnyCategory(Provider a, Provider b) {
+    Set<String> categoriesOfA = splitCsv(a.getCategories()).stream().map(this::normalize)
+        .collect(Collectors.toSet());
+    return splitCsv(b.getCategories()).stream().map(this::normalize).anyMatch(categoriesOfA::contains);
+  }
+
+  public record ResponseStanding(Integer rank, int peers) {
+  }
+
+  private int median(List<Integer> values) {
+    List<Integer> sorted = new ArrayList<>(values);
+    Collections.sort(sorted);
+    int size = sorted.size();
+    int mid = size / 2;
+    if (size % 2 == 0) {
+      return (sorted.get(mid - 1) + sorted.get(mid)) / 2;
+    }
+    return sorted.get(mid);
   }
 
   /**

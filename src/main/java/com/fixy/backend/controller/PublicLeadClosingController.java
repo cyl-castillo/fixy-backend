@@ -2,6 +2,8 @@ package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.LeadCompletionConfirmRequest;
 import com.fixy.backend.dto.LeadCompletionConfirmResponse;
+import com.fixy.backend.dto.LeadRatingSubmitRequest;
+import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.service.LeadClosingService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -35,5 +37,18 @@ public class PublicLeadClosingController {
       @Valid @RequestBody LeadCompletionConfirmRequest request
   ) {
     return leadClosingService.confirmCompletion(leadId, token, request);
+  }
+
+  /**
+   * Tier 2 (contrato §C.3): rating propio del lead cuando el cliente no lo
+   * dejó al confirmar (score opcional desde §C.1).
+   */
+  @PostMapping("/rating")
+  public LeadResponse.Rating submitRating(
+      @PathVariable Long leadId,
+      @RequestParam("token") String token,
+      @Valid @RequestBody LeadRatingSubmitRequest request
+  ) {
+    return leadClosingService.submitRating(leadId, token, request);
   }
 }

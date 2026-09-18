@@ -37,6 +37,16 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
    * LeadEvent, no es expresable acá sin un join manual). */
   List<Lead> findByStatusAndDisputedFalseAndClosingAutoConfirmedAtIsNull(LeadStatus status);
 
+  /** Tier 2 (contrato §B.3): candidatos al frente "deadline" del watchdog —
+   * el filtro fino (deadline vencido, sin evento SEARCH_DEADLINE_MISSED
+   * posterior, sin smoke) se aplica en el servicio, igual que el resto de
+   * MatchingWatchdogScheduler. */
+  /** Tier 2 (contrato §B.3): candidatos a "hora límite vencida" — por ESTADO,
+   * no por assignedProviderId: un lead PROVIDER_CONTACTED tiene el id del
+   * técnico contactado aunque nadie haya aceptado (es justo el caso del
+   * técnico que no contesta). */
+  List<Lead> findBySearchDeadlineAtIsNotNullAndDisputedFalseAndStatusIn(java.util.Collection<LeadStatus> statuses);
+
   /**
    * Transición atómica al aceptar una oportunidad: solo asigna si el lead
    * SIGUE sin proveedor asignado y en un status matcheable. Devuelve cuántas

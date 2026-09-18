@@ -50,8 +50,30 @@ public record LeadResponse(
     /** Tier 1 (contrato §B.1): propuesta de precio nuevo del proveedor
      * ("protocolo al llegar"), null si nunca se propuso ninguna en este
      * lead. */
-    PriceChange priceChange
+    PriceChange priceChange,
+    /** Tier 2 (contrato §B.3): hora límite hasta la que Fixy promete seguir
+     * buscando técnico. Null si ya hay técnico asignado (ASSIGNED+) o si el
+     * lead nunca quedó listo para matching. */
+    OffsetDateTime searchDeadlineAt,
+    /** Tier 2 (contrato §B.3): {@code SEARCHING}|{@code CONTACTED}|
+     * {@code NO_PROVIDER}|null — ver {@link com.fixy.backend.service.LeadService}
+     * para el cálculo exacto. */
+    String matchingState,
+    /** Tier 2 (contrato §C.3): la reseña propia de este lead, null si
+     * todavía no la dejó. */
+    Rating rating
 ) {
+  /** Tier 2 (contrato §C.3): reseña propia del lead (distinta de {@link
+   * ReviewSnippet}, que es la de OTROS leads del mismo proveedor). */
+  public record Rating(
+      Integer score,
+      String comment,
+      boolean verified,
+      OffsetDateTime createdAt,
+      String providerReply,
+      OffsetDateTime providerReplyAt
+  ) {
+  }
   /** Contacto que abre la puerta cuando el cliente no va a estar (contrato §3). */
   public record OnSiteContact(String name, String phone) {
   }
@@ -84,12 +106,24 @@ public record LeadResponse(
       /** Teléfono del proveedor asignado — botón Llamar del cliente (mejoras UX 2026-08). */
       String phone,
       /** Últimas reseñas CON TEXTO de este proveedor (máx 2, anónimas). */
-      java.util.List<ReviewSnippet> recentReviews
+      java.util.List<ReviewSnippet> recentReviews,
+      /** Tier 2 (contrato §B.1): foto del proveedor, null si no subió ninguna. */
+      String photoUrl,
+      /** Tier 2 (contrato §B.2): franja corta ("hoy de 14 a 18"), null si no hay. */
+      String arrivalWindow
   ) {
   }
 
   /** Reseña pública anónima: solo estrella y texto (mejoras UX 2026-08). */
-  public record ReviewSnippet(Integer score, String comment) {
+  public record ReviewSnippet(
+      Integer score,
+      String comment,
+      /** Tier 2 (contrato §C.3): sello "reseña verificada" — el cargo de
+       * servicio de ese lead estaba pagado al momento de calificar. */
+      boolean verified,
+      /** Tier 2 (contrato §C.3): respuesta pública del proveedor, null si no respondió. */
+      String providerReply
+  ) {
   }
 
   /** Tier 1 (contrato §B.1): estado público de la propuesta de precio

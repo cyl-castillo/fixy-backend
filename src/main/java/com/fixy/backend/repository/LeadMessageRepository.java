@@ -10,6 +10,11 @@ public interface LeadMessageRepository extends JpaRepository<LeadMessage, Long> 
 
   List<LeadMessage> findByLeadIdOrderByCreatedAtAsc(Long leadId);
 
+  /** Tier 2 (contrato §B.3, "pedido mudo"): último mensaje visible primero,
+   * para encontrar el último mensaje con audiencia visible al vecino sin
+   * traer y ordenar todo el hilo en memoria en cada corrida del watchdog. */
+  List<LeadMessage> findByLeadIdOrderByCreatedAtDesc(Long leadId);
+
   /** Mensajes de varios leads a la vez (evita N+1) — usado por
    * OpsMetricsService para distinguir pedidos reales de chats vacíos. */
   List<LeadMessage> findByLeadIdInAndSender(Collection<Long> leadIds, String sender);

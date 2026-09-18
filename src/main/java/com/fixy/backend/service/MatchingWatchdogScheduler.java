@@ -3,14 +3,19 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
+import com.fixy.backend.model.LeadMessage;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
+import com.fixy.backend.model.ProviderOffer;
+import com.fixy.backend.model.ProviderOfferResponse;
 import com.fixy.backend.model.ServiceCategory;
 import com.fixy.backend.model.SmokeTraffic;
 import com.fixy.backend.repository.LeadEventRepository;
+import com.fixy.backend.repository.LeadMessageRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
+import com.fixy.backend.repository.ProviderOfferRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.time.Clock;
 import java.time.Duration;
@@ -74,15 +79,31 @@ public class MatchingWatchdogScheduler {
   private static final Set<LeadStatus> ORPHAN_WAITING_STATUSES = Set.of(LeadStatus.NEW, LeadStatus.IN_REVIEW);
   private static final int MAX_PROVIDER_PUSHES = 5;
   private static final int MAX_ORPHANS_PER_RUN = 10;
+  private static final int MAX_DEADLINE_PER_RUN = 20;
+  private static final int MAX_MUTE_PER_RUN = 20;
 
   static final String CUSTOMER_STALE_MESSAGE =
       "Tu pedido está demorando más de lo normal en conseguir proveedor. Lo seguimos moviendo y ya "
           + "avisamos a una persona de Fixy para que lo mire — te escribimos apenas haya novedades.";
 
+  /** Tier 2 (contrato §B.3): frente "deadline" — se agotó la hora límite de
+   * búsqueda sin técnico asignado. Gatea la eligibilidad Y el aviso de
+   * Telegram (idempotente, una sola vez por deadline vigente). */
+  static final String SEARCH_DEADLINE_MISSED_EVENT_TYPE = "SEARCH_DEADLINE_MISSED";
+  /** Tier 2 (contrato §B.3): frente "pedido mudo" — >=4h sin un solo mensaje
+   * visible para el vecino en un lead real todavía en curso. Solo ops. */
+  static final String MUTE_LEAD_NOTIFIED_EVENT_TYPE = "MUTE_LEAD_NOTIFIED";
+  private static final long MUTE_HOURS = 4;
+  private static final Set<LeadStatus> MUTE_CANDIDATE_STATUSES =
+      Set.of(LeadStatus.NEW, LeadStatus.IN_REVIEW, LeadStatus.PROVIDER_CONTACTED);
+  private static final Set<String> VISIBLE_TO_CUSTOMER_AUDIENCES = Set.of("all", "customer_only");
+
   private final LeadRepository leadRepository;
   private final LeadEventRepository leadEventRepository;
+  private final LeadMessageRepository leadMessageRepository;
   private final ProviderRepository providerRepository;
   private final ProviderLeadDeclineRepository declineRepository;
+  private final ProviderOfferRepository providerOfferRepository;
   private final ProviderCatalogService providerCatalogService;
   private final ProviderSelfService providerSelfService;
   private final LeadAgentService leadAgentService;
@@ -90,6 +111,7 @@ public class MatchingWatchdogScheduler {
   private final LeadMessageService messageService;
   private final PushNotificationService pushNotificationService;
   private final TelegramNotifyService telegramNotifyService;
+  private final SearchDeadlineService searchDeadlineService;
 
   private final boolean enabled;
   private final long staleMinutes;
@@ -103,8 +125,10 @@ public class MatchingWatchdogScheduler {
   public MatchingWatchdogScheduler(
       LeadRepository leadRepository,
       LeadEventRepository leadEventRepository,
+      LeadMessageRepository leadMessageRepository,
       ProviderRepository providerRepository,
       ProviderLeadDeclineRepository declineRepository,
+      ProviderOfferRepository providerOfferRepository,
       ProviderCatalogService providerCatalogService,
       ProviderSelfService providerSelfService,
       LeadAgentService leadAgentService,
@@ -112,6 +136,7 @@ public class MatchingWatchdogScheduler {
       LeadMessageService messageService,
       PushNotificationService pushNotificationService,
       TelegramNotifyService telegramNotifyService,
+      SearchDeadlineService searchDeadlineService,
       @Value("${fixy.matching.watchdog.enabled:true}") boolean enabled,
       @Value("${fixy.matching.watchdog.stale-minutes:45}") long staleMinutes,
       @Value("${fixy.matching.watchdog.stale-minutes-remote-care:20}") long staleMinutesRemoteCare,
@@ -123,8 +148,10 @@ public class MatchingWatchdogScheduler {
   ) {
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
+    this.leadMessageRepository = leadMessageRepository;
     this.providerRepository = providerRepository;
     this.declineRepository = declineRepository;
+    this.providerOfferRepository = providerOfferRepository;
     this.providerCatalogService = providerCatalogService;
     this.providerSelfService = providerSelfService;
     this.leadAgentService = leadAgentService;
@@ -132,6 +159,7 @@ public class MatchingWatchdogScheduler {
     this.messageService = messageService;
     this.pushNotificationService = pushNotificationService;
     this.telegramNotifyService = telegramNotifyService;
+    this.searchDeadlineService = searchDeadlineService;
     this.enabled = enabled;
     this.staleMinutes = staleMinutes;
     this.staleMinutesRemoteCare = staleMinutesRemoteCare;
@@ -158,6 +186,8 @@ public class MatchingWatchdogScheduler {
     OffsetDateTime now = OffsetDateTime.now(clock);
     int actions = processContactedWithoutResponse(now);
     actions += processOrphans(now);
+    actions += processSearchDeadlines(now);
+    actions += processMuteLeads(now);
     return actions;
   }
 
@@ -182,7 +212,7 @@ public class MatchingWatchdogScheduler {
       Duration sinceContact = Duration.between(lastContactedAt, now);
 
       if (sinceContact.toHours() >= releaseThreshold) {
-        if (handleRelease(lead, releaseThreshold, releasedToPool)) {
+        if (handleRelease(lead, releaseThreshold, releasedToPool, now)) {
           actions++;
         }
       } else {
@@ -191,8 +221,14 @@ public class MatchingWatchdogScheduler {
           handleStale(lead, staleThreshold);
           actions++;
         }
+        // Tier 2 (contrato §A.3): el aviso de "proveedor lento" a ops no
+        // dispara para ofertas fuera de la ventana declarada — no cuenta
+        // como NO, así que tampoco es "lento" en ese sentido. El aviso de
+        // stale al cliente (arriba) sigue igual: al vecino no le cambia
+        // quién tiene la culpa.
         if (sinceContact.toMinutes() >= SLOW_MINUTES
-            && !timelineService.hasEvent(lead.getId(), SLOW_EVENT_TYPE)) {
+            && !timelineService.hasEvent(lead.getId(), SLOW_EVENT_TYPE)
+            && isOpenOfferInWindow(lead)) {
           handleSlow(lead, sinceContact.toMinutes());
           actions++;
         }
@@ -239,6 +275,21 @@ public class MatchingWatchdogScheduler {
         "%s sin contestar tras %d min: se avisó a ops".formatted(name, minutes));
   }
 
+  /** Tier 2 (contrato §A.3): ¿la oferta abierta de este lead con su
+   * proveedor contactado nació dentro de la ventana declarada? true por
+   * default si no hay oferta registrada (leads viejos previos a esta
+   * feature) — no penalizar por falta de dato. */
+  private boolean isOpenOfferInWindow(Lead lead) {
+    if (lead.getAssignedProviderId() == null) {
+      return true;
+    }
+    return providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(
+            lead.getId(), lead.getAssignedProviderId())
+        .map(ProviderOffer::isInWindow)
+        .orElse(true);
+  }
+
   private void remindContactedProvider(Lead lead) {
     Provider contacted = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
     if (contacted == null) {
@@ -254,7 +305,7 @@ public class MatchingWatchdogScheduler {
    * @return true si esta corrida tomó una acción sobre el lead (decline +
    *         re-oferta exitosa, o liberación al pozo abierto).
    */
-  private boolean handleRelease(Lead lead, long thresholdHours, List<Lead> releasedToPool) {
+  private boolean handleRelease(Lead lead, long thresholdHours, List<Lead> releasedToPool, OffsetDateTime now) {
     Provider unresponsive = providerRepository.findById(lead.getAssignedProviderId()).orElse(null);
     if (unresponsive == null) {
       log.warn("watchdog: lead {} con assignedProviderId {} sin provider en base, se omite",
@@ -265,6 +316,8 @@ public class MatchingWatchdogScheduler {
     // Contrato §C.1.1.b: decline implícito del contactado ANTES de mirar
     // alternativas — findMatchesForLead ya lo excluye después de esto.
     registerImplicitDecline(lead.getId(), unresponsive.getId());
+    // Tier 2 (contrato §A.2): la oferta abierta de este par se cierra TIMEOUT.
+    closeOpenOfferAsTimeout(lead.getId(), unresponsive.getId(), now);
 
     List<ProviderCatalogItem> alternatives;
     try {
@@ -312,6 +365,19 @@ public class MatchingWatchdogScheduler {
       decline.setProviderId(providerId);
       declineRepository.save(decline);
     }
+  }
+
+  /** Tier 2 (contrato §A.2): cierra como TIMEOUT la oferta abierta del par
+   * (lead, proveedor) — el proveedor contactado nunca respondió. No-op si
+   * no hay oferta registrada (leads viejos, o ya cerrada por otra vía). */
+  private void closeOpenOfferAsTimeout(Long leadId, Long providerId, OffsetDateTime now) {
+    providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, providerId)
+        .ifPresent(offer -> {
+          offer.setRespondedAt(now);
+          offer.setResponse(ProviderOfferResponse.TIMEOUT);
+          providerOfferRepository.save(offer);
+        });
   }
 
   private void remindCandidates(Lead lead) {
@@ -418,6 +484,148 @@ public class MatchingWatchdogScheduler {
     if (a == null) return b;
     if (b == null) return a;
     return a.isAfter(b) ? a : b;
+  }
+
+  // --- 3. Hora límite de búsqueda (contrato §B.3) --------------------------
+
+  private int processSearchDeadlines(OffsetDateTime now) {
+    // Por estado (NEW/IN_REVIEW/PROVIDER_CONTACTED), no por assignedProviderId:
+    // en PROVIDER_CONTACTED el id del técnico ya está seteado aunque no haya
+    // aceptado — y ese (el que no contesta) es el caso que más importa.
+    List<Lead> candidates = leadRepository
+        .findBySearchDeadlineAtIsNotNullAndDisputedFalseAndStatusIn(MUTE_CANDIDATE_STATUSES);
+    int actions = 0;
+    int processed = 0;
+    for (Lead lead : candidates) {
+      if (processed >= MAX_DEADLINE_PER_RUN) {
+        break;
+      }
+      if (!isDeadlineEligible(lead, now)) {
+        continue;
+      }
+      processed++;
+      handleSearchDeadlineMissed(lead, now);
+      actions++;
+    }
+    return actions;
+  }
+
+  private boolean isDeadlineEligible(Lead lead, OffsetDateTime now) {
+    if (lead.getId() == null) {
+      return false;
+    }
+    if (SmokeTraffic.marks(lead.getProblem())) {
+      return false;
+    }
+    if (lead.getSearchDeadlineAt() == null || lead.getSearchDeadlineAt().isAfter(now)) {
+      return false;
+    }
+    // "Sin evento SEARCH_DEADLINE_MISSED posterior al deadline vigente": si
+    // ya se avisó para ESTE deadline (el evento nació después de que se
+    // seteó), no se repite. Si el deadline se reinició después (franja
+    // cambiada, vuelta al pozo), el evento viejo queda ANTES del nuevo
+    // deadline y vuelve a ser elegible.
+    OffsetDateTime lastMissed = lastEventAt(lead.getId(), SEARCH_DEADLINE_MISSED_EVENT_TYPE);
+    return lastMissed == null || lastMissed.isBefore(lead.getSearchDeadlineAt());
+  }
+
+  private void handleSearchDeadlineMissed(Lead lead, OffsetDateTime now) {
+    // Nunca "0 horas": si el reloj dice menos de una (deadline corto en dev,
+    // o el watchdog corrió justo al vencer), se redondea a 1.
+    long hoursWaiting = lead.getCreatedAt() == null ? 1 : Math.max(1, Duration.between(lead.getCreatedAt(), now).toHours());
+    String requestedWindow = com.fixy.backend.model.OrderTimeWindow.labelForId(lead.getTimeWindow());
+    String what = requestedWindow.isBlank()
+        ? "%s en %s".formatted(ServiceCategory.humanLabel(lead.getDetectedCategory()), safe(lead.getLocation()))
+        : requestedWindow;
+    String message = ("Pasaron %d horas y no conseguimos técnico para %s. Podés: **dejarlo abierto** (te aviso "
+        + "apenas uno confirme), **cambiarlo a otro momento** desde el pedido, o **hablar con una persona** de Fixy.")
+        .formatted(hoursWaiting, what);
+    try {
+      messageService.postFromOps(lead.getId(), "fixy", message);
+    } catch (Exception ex) {
+      log.warn("watchdog: no se pudo avisar deadline vencido al cliente del lead {}: {}", lead.getId(), ex.getMessage());
+    }
+    timelineService.appendEvent(lead, SEARCH_DEADLINE_MISSED_EVENT_TYPE, "system",
+        "Hora límite de búsqueda vencida (%s) sin técnico asignado".formatted(
+            searchDeadlineService.formatHHmm(lead.getSearchDeadlineAt())));
+    try {
+      pushNotificationService.notifyLeadHasNews(lead.getId(), "Seguimos buscando técnico", message);
+    } catch (Exception ex) {
+      log.warn("watchdog: push de deadline vencido falló para el lead {}: {}", lead.getId(), ex.getMessage());
+    }
+    try {
+      telegramNotifyService.notifySearchDeadlineMissed(lead);
+    } catch (Exception ex) {
+      log.warn("watchdog: aviso a ops de deadline vencido falló para el lead {}: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  // --- 4. Pedido mudo (contrato §B.3) ---------------------------------------
+
+  private int processMuteLeads(OffsetDateTime now) {
+    OffsetDateTime cutoff = now.minusHours(MUTE_HOURS);
+    List<Lead> candidates = new ArrayList<>();
+    for (LeadStatus status : MUTE_CANDIDATE_STATUSES) {
+      candidates.addAll(leadRepository.findByStatusOrderByCreatedAtDesc(status));
+    }
+    // Más nuevo primero entre TODOS los estados: el tope por corrida no puede
+    // dejar afuera al pedido de hoy porque haya viejos de otro estado.
+    candidates.sort(Comparator.comparing(Lead::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())));
+    int actions = 0;
+    int processed = 0;
+    for (Lead lead : candidates) {
+      if (processed >= MAX_MUTE_PER_RUN) {
+        break;
+      }
+      OffsetDateTime lastVisible = lastVisibleMessageAt(lead);
+      if (!isMuteEligible(lead, lastVisible, cutoff)) {
+        continue;
+      }
+      processed++;
+      long hoursSilent = Math.max(0, Duration.between(lastVisible, now).toHours());
+      try {
+        telegramNotifyService.notifyMuteLead(lead, hoursSilent);
+      } catch (Exception ex) {
+        log.warn("watchdog: aviso de pedido mudo falló para el lead {}: {}", lead.getId(), ex.getMessage());
+      }
+      // El evento lo escribe el watchdog (igual que PROVIDER_SLOW_NOTIFIED):
+      // una sola vez por lead, aunque Telegram esté apagado o falle.
+      timelineService.appendEvent(lead, MUTE_LEAD_NOTIFIED_EVENT_TYPE, "system",
+          "%d h sin mensaje visible para el vecino: se avisó a ops".formatted(hoursSilent));
+      actions++;
+    }
+    return actions;
+  }
+
+  private boolean isMuteEligible(Lead lead, OffsetDateTime lastVisible, OffsetDateTime cutoff) {
+    if (lead.getId() == null || lead.isDisputed()) {
+      return false;
+    }
+    if (SmokeTraffic.marks(lead.getProblem())) {
+      return false;
+    }
+    if (!lead.isReadyForMatching()) {
+      return false;
+    }
+    if (lastVisible == null || !lastVisible.isBefore(cutoff)) {
+      return false;
+    }
+    return !timelineService.hasEvent(lead.getId(), MUTE_LEAD_NOTIFIED_EVENT_TYPE);
+  }
+
+  /** Último mensaje con audiencia visible para el vecino (all/customer_only)
+   * de alguien que no sea el propio cliente — "de qué se dio cuenta (o no)
+   * el vecino último", no el último mensaje del hilo sea de quien sea. */
+  private OffsetDateTime lastVisibleMessageAt(Lead lead) {
+    if (lead.getId() == null) {
+      return null;
+    }
+    return leadMessageRepository.findByLeadIdOrderByCreatedAtDesc(lead.getId()).stream()
+        .filter(m -> VISIBLE_TO_CUSTOMER_AUDIENCES.contains(m.getAudience()) && !"customer".equals(m.getSender()))
+        .map(LeadMessage::getCreatedAt)
+        .filter(Objects::nonNull)
+        .findFirst()
+        .orElse(null);
   }
 
   // --- Compartido ------------------------------------------------------------

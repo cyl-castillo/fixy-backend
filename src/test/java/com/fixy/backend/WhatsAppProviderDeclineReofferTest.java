@@ -128,8 +128,11 @@ class WhatsAppProviderDeclineReofferTest {
     Lead updated = leadRepository.findById(lead.getId()).orElseThrow();
     assertThat(updated.getAssignedProviderId()).isNull();
 
+    // Tier 2 (contrato §B.3): "no hay técnico" pasa a un único mensaje
+    // compartido por matchNow y reofferAfterDecline (con la hora límite si
+    // el lead la tiene) — reemplaza al copy viejo "no tengo otro libre".
     List<LeadMessage> messages = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId());
     assertThat(messages).extracting(LeadMessage::getText)
-        .anyMatch(t -> t.contains("no tengo otro libre"));
+        .anyMatch(t -> t.contains("no tengo técnico libre"));
   }
 }

@@ -53,16 +53,18 @@ class ProviderApprovalGatesMatchingTest {
   @Mock private LeadAssignmentService leadAssignmentService;
   @Mock private LeadTimelineService timelineService;
   @Mock private com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+  @Mock private com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
 
   private ProviderCatalogService catalogService;
   private ProviderOpportunityService opportunityService;
 
   @BeforeEach
   void setUp() {
-    catalogService = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository, leadRatingRepository);
+    catalogService = new ProviderCatalogService(providerRepository, leadPaymentRepository, declineRepository,
+        leadRatingRepository, providerOfferRepository, 10, 3, 30, 240);
     opportunityService = new ProviderOpportunityService(
         leadRepository, declineRepository, photoRepository, catalogService,
-        leadAssignmentService, timelineService);
+        leadAssignmentService, timelineService, providerOfferRepository);
     // Sin deudas y sin pausa: aísla el estado del padrón como única causa.
     lenient().when(leadPaymentRepository.findProviderIdsByCommissionStatus(CommissionStatus.OVERDUE))
         .thenReturn(Set.of());

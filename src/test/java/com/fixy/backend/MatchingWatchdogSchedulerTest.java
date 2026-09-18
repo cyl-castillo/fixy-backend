@@ -71,6 +71,7 @@ class MatchingWatchdogSchedulerTest {
   @Autowired private LeadMessageRepository leadMessageRepository;
   @Autowired private ProviderRepository providerRepository;
   @Autowired private ProviderLeadDeclineRepository declineRepository;
+  @Autowired private com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
   @Autowired private ProviderCatalogService providerCatalogService;
   @Autowired private ProviderSelfService providerSelfService;
   @Autowired private LeadAgentService leadAgentService;
@@ -78,6 +79,7 @@ class MatchingWatchdogSchedulerTest {
   @Autowired private LeadMessageService messageService;
   @Autowired private PushNotificationService pushNotificationService;
   @Autowired private TelegramNotifyService telegramNotifyService;
+  @Autowired private com.fixy.backend.service.SearchDeadlineService searchDeadlineService;
 
   private MatchingWatchdogScheduler schedulerWithClock(Clock clock) {
     return schedulerWithClockAndTelegram(clock, telegramNotifyService);
@@ -85,9 +87,9 @@ class MatchingWatchdogSchedulerTest {
 
   private MatchingWatchdogScheduler schedulerWithClockAndTelegram(Clock clock, TelegramNotifyService telegram) {
     return new MatchingWatchdogScheduler(
-        leadRepository, leadEventRepository, providerRepository, declineRepository,
-        providerCatalogService, providerSelfService, leadAgentService, timelineService,
-        messageService, pushNotificationService, telegram,
+        leadRepository, leadEventRepository, leadMessageRepository, providerRepository, declineRepository,
+        providerOfferRepository, providerCatalogService, providerSelfService, leadAgentService, timelineService,
+        messageService, pushNotificationService, telegram, searchDeadlineService,
         true, STALE_MINUTES, STALE_MINUTES_REMOTE_CARE, RELEASE_HOURS, RELEASE_HOURS_REMOTE_CARE,
         ORPHAN_MAX_AGE_DAYS, ORPHAN_RETRY_MINUTES, clock);
   }
@@ -537,5 +539,147 @@ class MatchingWatchdogSchedulerTest {
     provider.setPrimaryZone(zone);
     provider.setStatus(ProviderStatus.AVAILABLE);
     return providerRepository.save(provider);
+  }
+
+  // ---- 3. Hora límite de búsqueda (contrato §B.3) --------------------------
+
+  @Test
+  void avisaUnaSolaVezCuandoVenceLaHoraLimiteDeBusqueda() throws Exception {
+    String zone = "Solymar Watchdog Deadline Uno";
+    Lead lead = makeOrphanWaiting(zone);
+    lead.setSearchDeadlineAt(java.time.OffsetDateTime.now());
+    leadRepository.save(lead);
+
+    com.fixy.backend.service.TelegramNotifyService telegramMock =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    MatchingWatchdogScheduler scheduler = schedulerWithClockAndTelegram(inFuture(Duration.ofMinutes(1)), telegramMock);
+    scheduler.processOnce();
+
+    Lead reloaded = leadRepository.findById(lead.getId()).orElseThrow();
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(
+            reloaded.getId(), "SEARCH_DEADLINE_MISSED"))
+        .hasSize(1);
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.times(1))
+        .notifySearchDeadlineMissed(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())));
+    boolean deadlineMessagePosted = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(lead.getId()).stream()
+        .anyMatch(m -> m.getText() != null && m.getText().contains("dejarlo abierto"));
+    assertThat(deadlineMessagePosted).isTrue();
+
+    // Idempotencia: un segundo ciclo no vuelve a avisar.
+    scheduler.processOnce();
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(
+            reloaded.getId(), "SEARCH_DEADLINE_MISSED"))
+        .hasSize(1);
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.times(1))
+        .notifySearchDeadlineMissed(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())));
+  }
+
+  @Test
+  void avisaDeadlineParaElTecnicoContactadoQueNoContesta() throws Exception {
+    // El caso que más importa: PROVIDER_CONTACTED con assignedProviderId
+    // seteado (el contactado) pero sin aceptación. Antes el frontier lo
+    // salteaba por filtrar assignedProviderId IS NULL.
+    String zone = "Solymar Watchdog Deadline Contactado";
+    Provider provider = createProvider("Plomero Deadline Contactado", zone);
+    Lead lead = contactProvider(createChatLead(), provider, zone);
+    lead.setSearchDeadlineAt(java.time.OffsetDateTime.now());
+    leadRepository.save(lead);
+    assertThat(leadRepository.findById(lead.getId()).orElseThrow().getStatus()).isEqualTo(LeadStatus.PROVIDER_CONTACTED);
+
+    com.fixy.backend.service.TelegramNotifyService telegramMock =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    schedulerWithClockAndTelegram(inFuture(Duration.ofMinutes(1)), telegramMock).processOnce();
+
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "SEARCH_DEADLINE_MISSED"))
+        .hasSize(1);
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.times(1))
+        .notifySearchDeadlineMissed(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())));
+  }
+
+  @Test
+  void noAvisaDeadlineParaLeadsConTecnicoAsignado() throws Exception {
+    String zone = "Solymar Watchdog Deadline Asignado";
+    Provider provider = createProvider("Plomero Deadline Asignado", zone);
+    Lead lead = contactProvider(createChatLead(), provider, zone);
+    lead.setSearchDeadlineAt(java.time.OffsetDateTime.now());
+    lead.setAssignedProviderId(provider.getId());
+    lead.setStatus(LeadStatus.ASSIGNED);
+    leadRepository.save(lead);
+
+    schedulerWithClock(inFuture(Duration.ofMinutes(1))).processOnce();
+
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "SEARCH_DEADLINE_MISSED"))
+        .isEmpty();
+  }
+
+  // ---- 4. Pedido mudo (contrato §B.3) ---------------------------------------
+
+  @Test
+  void avisaUnaSolaVezDePedidoMudoSinMensajeVisibleEnCuatroHoras() throws Exception {
+    String zone = "Solymar Watchdog Mudo Uno";
+    Lead lead = makeReadyBroadcast(createChatLead());
+    lead.setLocation(zone);
+    leadRepository.save(lead);
+    messageService.postFromAgent(lead.getId(), "Estoy contactando a alguien para tu pedido.");
+
+    com.fixy.backend.service.TelegramNotifyService telegramMock =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    MatchingWatchdogScheduler scheduler = schedulerWithClockAndTelegram(inFuture(Duration.ofHours(5)), telegramMock);
+    scheduler.processOnce();
+
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "MUTE_LEAD_NOTIFIED"))
+        .hasSize(1);
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.times(1))
+        .notifyMuteLead(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.longThat(h -> h >= 4 && h <= 6));
+
+    // Idempotencia: nunca un segundo aviso para el mismo lead.
+    scheduler.processOnce();
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "MUTE_LEAD_NOTIFIED"))
+        .hasSize(1);
+  }
+
+  @Test
+  void noAvisaPedidoMudoSiHayUnMensajeVisibleReciente() throws Exception {
+    String zone = "Solymar Watchdog Mudo Dos";
+    Lead lead = makeReadyBroadcast(createChatLead());
+    lead.setLocation(zone);
+    leadRepository.save(lead);
+    messageService.postFromAgent(lead.getId(), "Estoy contactando a alguien para tu pedido.");
+
+    // Solo 1h de antigüedad: por debajo del umbral de 4h.
+    schedulerWithClock(inFuture(Duration.ofHours(1))).processOnce();
+
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "MUTE_LEAD_NOTIFIED"))
+        .isEmpty();
+  }
+
+  // ---- Tier 2 §A.3: no avisar "proveedor lento" fuera de ventana ----------
+
+  @Test
+  void noAvisaProveedorLentoParaUnaOfertaFueraDeVentana() throws Exception {
+    String zone = "Zona Watchdog Slow Fuera De Ventana";
+    Provider provider = createProvider("Plomero Fuera De Ventana", zone);
+    Lead lead = contactProvider(createChatLead(), provider, zone);
+
+    com.fixy.backend.model.ProviderOffer offer = new com.fixy.backend.model.ProviderOffer();
+    offer.setLeadId(lead.getId());
+    offer.setProviderId(provider.getId());
+    offer.setContext(com.fixy.backend.model.ProviderOfferContext.INITIAL);
+    offer.setOfferedAt(java.time.OffsetDateTime.now());
+    offer.setInWindow(false);
+    providerOfferRepository.save(offer);
+
+    com.fixy.backend.service.TelegramNotifyService telegramMock =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    schedulerWithClockAndTelegram(inFuture(Duration.ofMinutes(16)), telegramMock).processOnce();
+
+    // Filtrado por lead: la H2 es compartida y otros leads del contexto sí
+    // pueden disparar el aviso en la misma corrida.
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.never())
+        .notifyProviderSlow(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyLong());
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "PROVIDER_SLOW_NOTIFIED"))
+        .isEmpty();
   }
 }

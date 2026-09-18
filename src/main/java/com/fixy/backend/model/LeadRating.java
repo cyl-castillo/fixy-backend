@@ -58,6 +58,13 @@ public class LeadRating {
   @Column(nullable = false)
   private boolean verified;
 
+  /** Tier 2 (contrato §C.3): respuesta pública del proveedor asignado a
+   * esta reseña — una sola vez (409 en el servicio si ya respondió). */
+  @Column(length = 500)
+  private String providerReply;
+
+  private OffsetDateTime providerReplyAt;
+
   @PrePersist
   void prePersist() {
     createdAt = OffsetDateTime.now();
@@ -76,4 +83,8 @@ public class LeadRating {
   public OffsetDateTime getCreatedAt() { return createdAt; }
   public boolean isVerified() { return verified; }
   public void setVerified(boolean verified) { this.verified = verified; }
+  public String getProviderReply() { return providerReply; }
+  public void setProviderReply(String providerReply) { this.providerReply = providerReply; }
+  public OffsetDateTime getProviderReplyAt() { return providerReplyAt; }
+  public void setProviderReplyAt(OffsetDateTime providerReplyAt) { this.providerReplyAt = providerReplyAt; }
 }

@@ -12,8 +12,6 @@ import java.nio.file.StandardCopyOption;
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,9 +23,6 @@ public class LeadPhotoService {
 
   private static final long MAX_BYTES = 6 * 1024 * 1024; // 6 MB
   private static final int MAX_PER_LEAD = 12;
-  private static final Set<String> ALLOWED_CT = Set.of(
-      "image/jpeg", "image/jpg", "image/png", "image/webp"
-  );
 
   private final LeadPhotoRepository photoRepository;
   private final LeadRepository leadRepository;
@@ -127,30 +122,11 @@ public class LeadPhotoService {
   }
 
   private void validate(MultipartFile file) {
-    if (file == null || file.isEmpty()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "archivo vacio");
-    }
-    if (file.getSize() > MAX_BYTES) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "archivo demasiado grande (max 6 MB)");
-    }
-    String ct = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
-    if (!ALLOWED_CT.contains(ct)) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "formato no permitido (usa jpg, png o webp)");
-    }
+    ImageUploadValidator.validate(file, MAX_BYTES);
   }
 
   private String extensionFor(String contentType, String original) {
-    String ct = contentType == null ? "" : contentType.toLowerCase(Locale.ROOT);
-    return switch (ct) {
-      case "image/jpeg", "image/jpg" -> ".jpg";
-      case "image/png" -> ".png";
-      case "image/webp" -> ".webp";
-      default -> {
-        if (original == null) yield "";
-        int dot = original.lastIndexOf('.');
-        yield dot >= 0 ? original.substring(dot).toLowerCase(Locale.ROOT) : "";
-      }
-    };
+    return ImageUploadValidator.extensionFor(contentType, original);
   }
 
   private String randomHex(int bytes) {

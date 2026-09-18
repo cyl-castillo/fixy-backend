@@ -3,6 +3,9 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.DisputeResolutionResponse;
 import com.fixy.backend.dto.LeadCompletionConfirmRequest;
 import com.fixy.backend.dto.LeadCompletionConfirmResponse;
+import com.fixy.backend.dto.LeadRatingReplyRequest;
+import com.fixy.backend.dto.LeadRatingSubmitRequest;
+import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadRating;
 import com.fixy.backend.model.LeadStatus;
@@ -37,6 +40,7 @@ public class LeadClosingService {
   private final LeadMessageService leadMessageService;
   private final TelegramNotifyService telegramNotifyService;
   private final CustomerPaymentService customerPaymentService;
+  private final PushNotificationService pushNotificationService;
 
   public LeadClosingService(
       LeadRepository leadRepository,
@@ -45,7 +49,8 @@ public class LeadClosingService {
       LeadTimelineService timelineService,
       LeadMessageService leadMessageService,
       TelegramNotifyService telegramNotifyService,
-      CustomerPaymentService customerPaymentService
+      CustomerPaymentService customerPaymentService,
+      PushNotificationService pushNotificationService
   ) {
     this.leadRepository = leadRepository;
     this.providerRepository = providerRepository;
@@ -54,6 +59,7 @@ public class LeadClosingService {
     this.leadMessageService = leadMessageService;
     this.telegramNotifyService = telegramNotifyService;
     this.customerPaymentService = customerPaymentService;
+    this.pushNotificationService = pushNotificationService;
   }
 
   /**
@@ -65,9 +71,12 @@ public class LeadClosingService {
    * before != COMPLETED.
    */
   public void notifyCustomerOfCompletion(Lead lead) {
+    // Tier 2 (contrato §C.1): el score deja de ser obligatorio en la
+    // confirmación — el cierre ya no promete "calificalo del 1 al 5 acá
+    // arriba" (eso pasa a pedirse aparte, 24h después, ver
+    // ReviewRequestScheduler).
     leadMessageService.postFromOps(lead.getId(), "fixy",
-        "El proveedor marcó el trabajo como terminado. ¿Confirmás que quedó todo bien? "
-            + "Podés calificarlo del 1 al 5 acá arriba.");
+        "El proveedor marcó el trabajo como terminado. Confirmá acá arriba si quedó todo bien.");
   }
 
   /**
@@ -84,7 +93,11 @@ public class LeadClosingService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "el lead todavía no fue marcado como completado por el proveedor");
     }
-    if (leadRatingRepository.existsByLeadId(leadId) || lead.isDisputed()) {
+    if (leadRatingRepository.existsByLeadId(leadId) || lead.isDisputed()
+        || timelineService.hasEvent(leadId, "CUSTOMER_CONFIRMED_COMPLETION")) {
+      // Tier 2: la confirmación sin nota también cuenta como "ya confirmado"
+      // — sin este guard, un segundo toque (u otro dispositivo) duplicaba el
+      // evento y el mensaje. El 409 lo interpreta el front como 'already-done'.
       throw new ResponseStatusException(HttpStatus.CONFLICT,
           "este trabajo ya fue confirmado o reportado antes");
     }
@@ -97,34 +110,150 @@ public class LeadClosingService {
 
   private LeadCompletionConfirmResponse confirmWithRating(Lead lead, LeadCompletionConfirmRequest request) {
     Integer score = request.score();
-    if (score == null || score < 1 || score > 5) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-          "score es obligatorio y debe estar entre 1 y 5 para confirmar");
+    if (score != null && (score < 1 || score > 5)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "score debe estar entre 1 y 5");
     }
-    Long providerId = requireAssignedProviderId(lead);
-    Provider provider = providerRepository.findById(providerId)
-        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));
+    timelineService.appendEvent(lead, "CUSTOMER_CONFIRMED_COMPLETION", "user",
+        "Cliente confirmó el trabajo completado");
 
+    // Tier 2 (contrato §C.1): score pasa a opcional. Sin score: sin
+    // LeadRating, mensaje que anticipa el pedido de reseña de mañana (ver
+    // ReviewRequestScheduler) — el pedido de reseña de C.2 no se manda
+    // porque ya hay confirmación (aunque sin nota todavía).
+    if (score == null) {
+      Provider provider = resolveAssignedProvider(lead).orElse(null);
+      String technicianName = provider != null && hasText(provider.getName()) ? provider.getName() : "el técnico";
+      leadMessageService.postFromOps(lead.getId(), "fixy",
+          "Gracias por confirmar. Mañana te pedimos una reseña de %s: dura 30 segundos y ayuda a que otros vecinos lo elijan."
+              .formatted(technicianName));
+      return new LeadCompletionConfirmResponse(lead.getId(), true, false, null);
+    }
+
+    Provider provider = resolveAssignedProvider(lead)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+            "este lead no tiene proveedor asignado, no se puede calificar"));
+    createAndNotifyRating(lead, provider, score, request.comment());
+    return new LeadCompletionConfirmResponse(lead.getId(), true, false, score);
+  }
+
+  /**
+   * Tier 2 (contrato §C.3): {@code POST /api/public/leads/{id}/rating} — el
+   * rating "propio" del cliente cuando NO lo dejó en el momento de
+   * confirmar (C.1, score opcional). 400 si el lead no está COMPLETED, 409
+   * si ya hay rating (mismo lead nunca dos reseñas, sin importar el canal).
+   */
+  public LeadResponse.Rating submitRating(Long leadId, String token, LeadRatingSubmitRequest request) {
+    Lead lead = requireLeadAndToken(leadId, token);
+    if (lead.getStatus() != LeadStatus.COMPLETED) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "el trabajo todavía no fue marcado como terminado");
+    }
+    if (leadRatingRepository.existsByLeadId(leadId)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "este pedido ya tiene una reseña");
+    }
+    if (request.score() == null || request.score() < 1 || request.score() > 5) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "score es obligatorio y debe estar entre 1 y 5");
+    }
+    Provider provider = resolveAssignedProvider(lead)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+            "este lead no tiene proveedor asignado, no se puede calificar"));
+
+    LeadRating rating = createAndNotifyRating(lead, provider, request.score(), request.comment());
+
+    String technicianName = hasText(provider.getName()) ? provider.getName() : "el técnico";
+    String verifiedSuffix = rating.isVerified() ? " verificada" : "";
+    leadMessageService.postFromOps(lead.getId(), "fixy",
+        "Gracias por tu reseña%s. %s la va a ver en su panel.".formatted(verifiedSuffix, technicianName));
+
+    return new LeadResponse.Rating(rating.getScore(), rating.getComment(), rating.isVerified(),
+        rating.getCreatedAt(), rating.getProviderReply(), rating.getProviderReplyAt());
+  }
+
+  /**
+   * Creación compartida del rating (contrato §C.3: "extraer la creación del
+   * rating a un método compartido con confirmWithRating, misma regla de
+   * detractores") — agregados del proveedor, evento de timeline, aviso a
+   * ops de TODA reseña nueva, y el escalamiento a un humano + aviso extra
+   * al vecino cuando es detractor (score <=3). El score NUNCA se modifica
+   * ni se oculta.
+   */
+  private LeadRating createAndNotifyRating(Lead lead, Provider provider, int score, String comment) {
     LeadRating rating = new LeadRating();
     rating.setLeadId(lead.getId());
-    rating.setProviderId(providerId);
+    rating.setProviderId(provider.getId());
     rating.setScore(score);
-    rating.setComment(request.comment());
+    rating.setComment(comment);
     // Refundación fase 2 (contrato §A.4.4): "verificada" cuando el cargo de
     // servicio de este lead ya está PAID en el momento de calificar. Si el
     // pago llega DESPUÉS, CustomerPaymentService.markPaid la verifica ahí.
     rating.setVerified(customerPaymentService.hasServiceFeePaid(lead.getId()));
-    leadRatingRepository.save(rating);
+    rating = leadRatingRepository.save(rating);
 
     recalculateProviderAggregates(provider);
 
-    timelineService.appendEvent(lead, "CUSTOMER_CONFIRMED_COMPLETION", "user",
-        "Cliente confirmó el trabajo completado");
     timelineService.appendEvent(lead, "RATING_SUBMITTED", "user",
-        "Calificación: %d/5%s".formatted(score,
-            (request.comment() == null || request.comment().isBlank()) ? "" : " — " + request.comment()));
+        "Calificación: %d/5%s".formatted(score, (comment == null || comment.isBlank()) ? "" : " — " + comment));
 
-    return new LeadCompletionConfirmResponse(lead.getId(), true, false, score);
+    try {
+      pushNotificationService.notifyProvider(provider.getId(), provider.getAccessToken(),
+          "Nueva reseña", "Nueva reseña: ★%d".formatted(score));
+    } catch (Exception ex) {
+      // best-effort, mismo patrón que el resto de los push
+    }
+    try {
+      telegramNotifyService.notifyRatingSubmitted(lead, rating);
+    } catch (Exception ex) {
+      // best-effort: un aviso a ops que falla no debe romper la reseña
+    }
+
+    if (score <= 3) {
+      try {
+        telegramNotifyService.notifyLowRating(lead, score, comment);
+      } catch (Exception ex) {
+        // best-effort
+      }
+      leadMessageService.postFromOps(lead.getId(), "fixy",
+          "Gracias por contarlo con franqueza. Una persona de Fixy te escribe hoy para ver cómo lo arreglamos.");
+    }
+
+    return rating;
+  }
+
+  /**
+   * Tier 2 (contrato §C.3): {@code POST
+   * /api/public/providers/{id}/leads/{leadId}/rating-reply} — respuesta
+   * pública del proveedor asignado a la reseña de ESTE trabajo. Solo el
+   * asignado, solo si hay rating, una sola vez (409 si ya respondió).
+   */
+  public LeadResponse.Rating replyToRating(Provider provider, Long leadId, LeadRatingReplyRequest request) {
+    Lead lead = leadRepository.findById(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    if (lead.getAssignedProviderId() == null || !lead.getAssignedProviderId().equals(provider.getId())) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "lead not assigned to this provider");
+    }
+    LeadRating rating = leadRatingRepository.findByLeadId(leadId)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "este pedido todavía no tiene reseña"));
+    if (rating.getProviderReply() != null) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "ya respondiste esta reseña");
+    }
+    String text = request.text() == null ? "" : request.text().trim();
+    if (text.isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "la respuesta no puede estar vacía");
+    }
+    rating.setProviderReply(text);
+    rating.setProviderReplyAt(OffsetDateTime.now());
+    leadRatingRepository.save(rating);
+
+    timelineService.appendEvent(lead, "RATING_REPLIED", "provider", text);
+    String providerName = hasText(provider.getName()) ? provider.getName() : "El técnico";
+    leadMessageService.postFromOps(lead.getId(), "fixy",
+        "%s respondió a tu reseña: “%s”".formatted(providerName, text));
+
+    return new LeadResponse.Rating(rating.getScore(), rating.getComment(), rating.isVerified(),
+        rating.getCreatedAt(), rating.getProviderReply(), rating.getProviderReplyAt());
+  }
+
+  private boolean hasText(String value) {
+    return value != null && !value.trim().isBlank();
   }
 
   private LeadCompletionConfirmResponse dispute(Lead lead, LeadCompletionConfirmRequest request) {
@@ -198,21 +327,19 @@ public class LeadClosingService {
     providerRepository.save(provider);
   }
 
-  private Long requireAssignedProviderId(Lead lead) {
+  /** Resuelve el proveedor asignado por id o, para leads legacy, por
+   * nombre. Vacío si el lead no tiene proveedor asignado. */
+  private java.util.Optional<Provider> resolveAssignedProvider(Lead lead) {
     if (lead.getAssignedProviderId() != null) {
-      return lead.getAssignedProviderId();
+      return providerRepository.findById(lead.getAssignedProviderId());
     }
     String assignedName = lead.getAssignedProvider();
     if (assignedName != null && !assignedName.isBlank()) {
       return providerRepository.findAllByOrderByCreatedAtDesc().stream()
           .filter(p -> assignedName.equalsIgnoreCase(p.getName()))
-          .map(Provider::getId)
-          .findFirst()
-          .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
-              "no se pudo resolver el proveedor asignado para calcular el rating"));
+          .findFirst();
     }
-    throw new ResponseStatusException(HttpStatus.CONFLICT,
-        "este lead no tiene proveedor asignado, no se puede calificar");
+    return java.util.Optional.empty();
   }
 
   /** Mismo patrón que LeadMessageService: token del LEAD, no del proveedor. */

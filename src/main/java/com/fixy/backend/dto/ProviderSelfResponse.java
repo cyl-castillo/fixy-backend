@@ -1,7 +1,10 @@
 package com.fixy.backend.dto;
 
+import com.fixy.backend.model.AvailabilityWindows;
 import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Provider;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
 
 public record ProviderSelfResponse(
@@ -31,8 +34,17 @@ public record ProviderSelfResponse(
      * — el panel las muestra para que se entere él y no las descubra ops seis
      * semanas después mirando por qué no le llega trabajo.
      */
-    List<String> unrecognizedZones
+    List<String> unrecognizedZones,
+    /** Tier 2 (contrato §A.4): string crudo tal como lo cargó el proveedor
+     * (o null si nunca cargó ninguno = siempre disponible). */
+    String availabilityWindows,
+    /** Tier 2 (contrato §A.4): ¿está dentro de su ventana declarada AHORA? */
+    boolean openNow,
+    /** Tier 2 (contrato §B.1): foto de perfil, null si no subió ninguna. */
+    String photoUrl
 ) {
+  private static final ZoneId MONTEVIDEO = ZoneId.of("America/Montevideo");
+
   public static ProviderSelfResponse fromEntity(Provider provider, List<ProviderAssignedLeadSummary> leads) {
     return fromEntity(provider, leads, List.of());
   }
@@ -45,6 +57,8 @@ public record ProviderSelfResponse(
     // Sin calificaciones todavía: no forzar 0.0, que el front distinga
     // "nuevo en Fixy" de una nota real de 0.
     Double ratingAverage = ratingCount == 0 ? null : provider.getRatingAverage();
+    boolean openNow = AvailabilityWindows.parse(provider.getAvailabilityWindows())
+        .isOpenAt(ZonedDateTime.now(MONTEVIDEO));
     return new ProviderSelfResponse(
         provider.getId(),
         provider.getName(),
@@ -64,7 +78,10 @@ public record ProviderSelfResponse(
         provider.getGoogleEmail(),
         leads,
         declinedLeads,
-        CoverageZone.unrecognized(provider.getPrimaryZone(), provider.getCoverageZones())
+        CoverageZone.unrecognized(provider.getPrimaryZone(), provider.getCoverageZones()),
+        provider.getAvailabilityWindows(),
+        openNow,
+        provider.getPhotoUrl()
     );
   }
 }

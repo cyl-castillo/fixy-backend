@@ -16,7 +16,19 @@ public record ProviderStatsResponse(
     Integer rejectedCount,
     Double ratingAverage,
     Integer ratingCount,
-    List<WeeklyCompleted> completedByWeek
+    List<WeeklyCompleted> completedByWeek,
+    /** Tier 2 (contrato §A.4): mediana de minutos de respuesta sobre la
+     * muestra en ventana — null con menos de 3 ofertas (todavía no hay
+     * números, nunca un valor dramático para el que recién arranca). */
+    Integer responseMedianMinutes,
+    /** Tamaño real de la muestra usada (0..sample-size), aunque
+     * {@code responseMedianMinutes} sea null. */
+    Integer responseSampleSize,
+    /** Posición 1..N entre los pares (misma categoría, activos) — null sin
+     * muestra propia. */
+    Integer responseRank,
+    /** N: cuántos pares se usaron para calcular {@code responseRank}. */
+    Integer responsePeers
 ) {
   /**
    * Un balde semanal para las mini-barras del panel. {@code weekStart} es

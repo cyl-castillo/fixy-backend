@@ -110,6 +110,14 @@ fixy:
     enabled: false
     auto-confirm-hours: 72
     scheduler-fixed-delay-ms: 3600000
+  # Tier 2 (contrato §C.2): mismo motivo que el resto — @Scheduled sin
+  # initialDelay dispara al arrancar CADA contexto. Los tests que lo prueban
+  # lo instancian a mano con enabled=true (ver ReviewRequestSchedulerTest).
+  reviews:
+    request:
+      enabled: false
+      after-hours: 24
+      scheduler-fixed-delay-ms: 3600000
   collections:
     enabled: false
     overdue-days: 7

@@ -1,5 +1,6 @@
 package com.fixy.backend;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.httpBasic;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -32,6 +33,12 @@ class LeadClosingServiceTest {
 
   @Autowired
   private MockMvc mockMvc;
+
+  @Autowired
+  private com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+
+  @Autowired
+  private com.fixy.backend.repository.LeadMessageRepository leadMessageRepository;
 
   private record ProviderAndLead(
       Integer providerId, String providerToken, Integer leadId, String leadToken
@@ -134,15 +141,28 @@ class LeadClosingServiceTest {
         .andExpect(status().isBadRequest());
   }
 
+  /**
+   * Tier 2 (contrato §C.1): el score pasa a ser opcional también con
+   * confirmed=true — antes de este contrato era obligatorio (400 sin él).
+   * Ahora confirma sin calificar, no crea LeadRating, y avisa que la
+   * reseña se pide mañana (ver ReviewRequestScheduler).
+   */
   @Test
-  void shouldRejectMissingScoreWhenConfirmed() throws Exception {
+  void shouldConfirmWithoutScoreAndAskForReviewTomorrow() throws Exception {
     ProviderAndLead ctx = createCompletedLead("099800004", "099800104");
 
     mockMvc.perform(post("/api/public/leads/{id}/confirm-completion", ctx.leadId())
             .param("token", ctx.leadToken())
             .contentType(MediaType.APPLICATION_JSON)
             .content("{\"confirmed\": true}"))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.confirmed").value(true))
+        .andExpect(jsonPath("$.score").doesNotExist());
+
+    assertThat(leadRatingRepository.existsByLeadId(ctx.leadId().longValue())).isFalse();
+    boolean tomorrowMessagePosted = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(ctx.leadId().longValue()).stream()
+        .anyMatch(m -> m.getText() != null && m.getText().contains("Mañana te pedimos una reseña"));
+    assertThat(tomorrowMessagePosted).isTrue();
   }
 
   @Test

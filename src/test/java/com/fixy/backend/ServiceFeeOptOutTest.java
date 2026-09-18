@@ -154,7 +154,10 @@ class ServiceFeeOptOutTest {
 
     boolean optOutMessagePosted = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(leadId).stream()
         .anyMatch(m -> m.getText() != null
-            && m.getText().contains("Elegiste sin garantía Fixy: no hay nada más que pagar. ¿Quedó todo bien?"));
+            // Tier 2 (contrato §C.1): "Confirmá acá arriba si quedó todo
+            // bien" reemplaza a "¿Quedó todo bien?" — el score deja de
+            // pedirse en el cierre.
+            && m.getText().contains("Elegiste sin garantía Fixy: no hay nada más que pagar. Confirmá acá arriba si quedó todo bien."));
     assertThat(optOutMessagePosted).isTrue();
 
     // La reseña nace SIN verificar (no hay pago posible para este lead).

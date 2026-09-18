@@ -68,6 +68,21 @@ public class TelegramNotifyService {
   static final String PRICE_CHANGE_REJECTED_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_PRICE_CHANGE_REJECTED";
   /** Aviso a ops de pedido listo que nadie acepta (MatchingStaleScheduler) — una vez por lead. */
   static final String STALE_MATCHING_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_STALE_MATCHING";
+  /** Tier 2 (contrato §B.3): aviso a ops de hora límite de búsqueda vencida
+   * — evento propio (distinto del que ve el vecino) para no colisionar con
+   * la idempotencia del mensaje al cliente, mismo criterio que
+   * {@link #STALE_MATCHING_NOTIFIED_EVENT_TYPE} vs {@code STALE_EVENT_TYPE}
+   * de {@link MatchingWatchdogScheduler}. */
+  static final String SEARCH_DEADLINE_MISSED_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_SEARCH_DEADLINE_MISSED";
+  /** Tier 2 (contrato §C.3): aviso a ops de reseña baja (detractor) — una vez por lead. */
+  static final String LOW_RATING_ESCALATED_EVENT_TYPE = "LOW_RATING_ESCALATED";
+  /** Tier 2 (contrato §C.3): aviso a ops de CUALQUIER reseña nueva (no solo
+   * detractores) — evento propio distinto del RATING_SUBMITTED de dominio
+   * (que ya escribe {@code LeadClosingService}/rating service con actor
+   * "user"): reusar ese mismo tipo haría que {@code shouldNotify} viera el
+   * evento recién escrito y nunca mandara el aviso. Ver TIER2_CONTRATO.md,
+   * "Cambios durante implementación". */
+  static final String RATING_SUBMITTED_NOTIFIED_EVENT_TYPE = "OPS_NOTIFIED_RATING_SUBMITTED";
 
   private final WebClient client;
   private final LeadEventRepository leadEventRepository;
@@ -712,6 +727,56 @@ public class TelegramNotifyService {
             minutes
         );
     send(lead, STALE_MATCHING_NOTIFIED_EVENT_TYPE, text, "Aviso de matching estancado enviado a ops");
+  }
+
+  /** Tier 2 (contrato §B.3): se venció la hora límite de búsqueda sin
+   * técnico asignado — el vecino ya recibió su propio aviso con las tres
+   * opciones; esto es solo para que ops se entere. Una vez por deadline
+   * vigente (mismo criterio de reinicio que {@code SEARCH_DEADLINE_MISSED}
+   * en el timeline, ver {@link MatchingWatchdogScheduler}). */
+  public void notifySearchDeadlineMissed(Lead lead) {
+    if (!shouldNotify(lead, SEARCH_DEADLINE_MISSED_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⏰ Pedido #%d (%s en %s) llegó a la hora límite de búsqueda sin técnico. Ya se le avisó al vecino con las opciones."
+        .formatted(lead.getId(), humanCategory(lead.getDetectedCategory()), safe(lead.getLocation()));
+    send(lead, SEARCH_DEADLINE_MISSED_NOTIFIED_EVENT_TYPE, text, "Aviso de hora límite vencida enviado a ops");
+  }
+
+  /** Tier 2 (contrato §B.3, "pedido mudo"): un pedido real sigue en curso
+   * sin un solo mensaje visible para el vecino en {@code hoursSilent}
+   * horas — señal de bug, no de negocio. Solo ops; al vecino no se le manda
+   * nada automático acá. Una vez por lead (no se reinicia). */
+  public void notifyMuteLead(Lead lead, long hoursSilent) {
+    if (!shouldNotify(lead, MatchingWatchdogScheduler.MUTE_LEAD_NOTIFIED_EVENT_TYPE)) return;
+    String text = "🔇 Pedido #%d (%s en %s) lleva %d h sin un mensaje visible para el vecino — huele a bug, no a que nadie tenga la culpa."
+        .formatted(lead.getId(), humanCategory(lead.getDetectedCategory()), safe(lead.getLocation()), hoursSilent);
+    // Mismo reparto que notifyProviderSlow: el evento de idempotencia lo
+    // escribe el watchdog (es quien decide), acá solo se manda.
+    try {
+      post(text);
+    } catch (Exception ex) {
+      log.warn("telegram notify (mute lead) lead={} failed: {}", lead.getId(), ex.getMessage());
+    }
+  }
+
+  /** Tier 2 (contrato §C.3): detractor (score <=3) — una persona de Fixy
+   * tiene que enterarse hoy. Nunca se modifica ni oculta el score. */
+  public void notifyLowRating(Lead lead, int score, String comment) {
+    if (!shouldNotify(lead, LOW_RATING_ESCALATED_EVENT_TYPE)) return;
+    String commentSuffix = comment == null || comment.isBlank() ? "" : " — \"" + truncate(comment, 200) + "\"";
+    String text = "⚠️ Reseña baja: ★%d en el pedido #%d (%s en %s)%s. Escribile hoy."
+        .formatted(score, lead.getId(), humanCategory(lead.getDetectedCategory()), safe(lead.getLocation()), commentSuffix);
+    send(lead, LOW_RATING_ESCALATED_EVENT_TYPE, text, "Aviso de reseña baja enviado a ops");
+  }
+
+  /** Tier 2 (contrato §C.3): TODAS las reseñas avisan a ops (no solo las
+   * bajas) — una línea con link al panel del proveedor para que ops
+   * responda públicamente o le pida al técnico que responda. */
+  public void notifyRatingSubmitted(Lead lead, com.fixy.backend.model.LeadRating rating) {
+    if (!shouldNotify(lead, RATING_SUBMITTED_NOTIFIED_EVENT_TYPE)) return;
+    String text = "⭐ Nueva reseña ★%d en el pedido #%d (%s en %s). Panel del proveedor: %s"
+        .formatted(rating.getScore(), lead.getId(), humanCategory(lead.getDetectedCategory()),
+            safe(lead.getLocation()), panelUrl(rating.getProviderId()));
+    send(lead, RATING_SUBMITTED_NOTIFIED_EVENT_TYPE, text, "Aviso de reseña nueva enviado a ops");
   }
 
   /**

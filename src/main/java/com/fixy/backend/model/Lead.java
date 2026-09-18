@@ -176,6 +176,21 @@ public class Lead {
   @Column(nullable = false, columnDefinition = "boolean default false")
   private boolean serviceFeeOptOut;
 
+  /** Tier 2 (contrato §B.2): franja corta del técnico ("hoy de 14 a 18",
+   * "mañana temprano") que ve el vecino en la tarjeta de asignado. Se pisa
+   * en cada actualización (aceptación con franja, confirmación de horario,
+   * "voy en camino" con ETA) — no acumula historial, igual que
+   * {@link #proposedAmount}. */
+  @Column(length = 120)
+  private String arrivalWindow;
+
+  /** Tier 2 (contrato §B.3): hora límite hasta la que Fixy promete seguir
+   * buscando técnico para este pedido. Se setea al quedar
+   * {@code readyForMatching=true} y se reinicia al cambiar la franja
+   * ({@code POST /time-window}) o al volver al pozo (AUTO_RELEASED /
+   * PROVIDER_RELEASED). Null una vez que hay técnico asignado. */
+  private OffsetDateTime searchDeadlineAt;
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -263,4 +278,8 @@ public class Lead {
   public void setPriceChangeRejectedAt(OffsetDateTime priceChangeRejectedAt) { this.priceChangeRejectedAt = priceChangeRejectedAt; }
   public boolean isServiceFeeOptOut() { return serviceFeeOptOut; }
   public void setServiceFeeOptOut(boolean serviceFeeOptOut) { this.serviceFeeOptOut = serviceFeeOptOut; }
+  public String getArrivalWindow() { return arrivalWindow; }
+  public void setArrivalWindow(String arrivalWindow) { this.arrivalWindow = arrivalWindow; }
+  public OffsetDateTime getSearchDeadlineAt() { return searchDeadlineAt; }
+  public void setSearchDeadlineAt(OffsetDateTime searchDeadlineAt) { this.searchDeadlineAt = searchDeadlineAt; }
 }

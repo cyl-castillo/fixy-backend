@@ -71,6 +71,18 @@ public class Provider {
   private Boolean acceptingWork;
 
   /** Google Sign-In del proveedor (login-google): sub estable de la cuenta vinculada, null si nunca vinculó. */
+  /** Tier 2 (contrato §A.1): ventanas de disponibilidad declaradas por el
+   * proveedor, formato plano (ver {@link AvailabilityWindows}). Null/vacío =
+   * siempre disponible — compatibilidad con los proveedores existentes. */
+  @Column(length = 200)
+  private String availabilityWindows;
+
+  /** Tier 2 (contrato §B.1): foto del proveedor que ve el vecino cuando
+   * acepta su pedido. URL absoluta (mismo criterio que las fotos de lead,
+   * fixy.uploads.url-prefix + path). Null hasta que el proveedor la suba. */
+  @Column(length = 500)
+  private String photoUrl;
+
   @Column(unique = true)
   private String googleSub;
 
@@ -175,6 +187,10 @@ public class Provider {
   public void setRatingCount(Integer ratingCount) { this.ratingCount = ratingCount; }
   public Integer getInternalScore() { return internalScore; }
   public void setInternalScore(Integer internalScore) { this.internalScore = internalScore; }
+  public String getAvailabilityWindows() { return availabilityWindows; }
+  public void setAvailabilityWindows(String availabilityWindows) { this.availabilityWindows = availabilityWindows; }
+  public String getPhotoUrl() { return photoUrl; }
+  public void setPhotoUrl(String photoUrl) { this.photoUrl = photoUrl; }
   public String getGoogleSub() { return googleSub; }
   public void setGoogleSub(String googleSub) { this.googleSub = googleSub; }
   public String getGoogleEmail() { return googleEmail; }

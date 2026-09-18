@@ -106,9 +106,11 @@ class PublicOrderControllerTest {
     assertThat(lead.getStatus()).isEqualTo(LeadStatus.NEW);
     assertThat(lead.getUrgency()).isEqualTo("alta"); // timeWindow=hoy
 
+    // Tier 2 (contrato §B.3): el mensaje honesto de "no hay técnico" ahora
+    // incluye la hora límite de búsqueda ("Sigo buscando hasta las HH:mm").
     java.util.List<LeadMessage> messages = leadMessageRepository.findByLeadIdOrderByCreatedAtAsc(leadId);
     assertThat(messages).extracting(LeadMessage::getText)
-        .anyMatch(t -> t.contains("no tengo proveedores libres"));
+        .anyMatch(t -> t.contains("no tengo técnico libre"));
   }
 
   @Test

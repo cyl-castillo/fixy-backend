@@ -47,6 +47,16 @@ public class LeadAssignmentService {
    *     lead ya estaba asignado o cambió de status antes de esta llamada.
    */
   public Lead acceptForProvider(Long leadId, Provider provider, String eventDetail) {
+    return acceptForProvider(leadId, provider, eventDetail, null);
+  }
+
+  /**
+   * @param arrivalWindow Tier 2 (contrato §B.2): franja corta que el
+   *                        proveedor manda al aceptar ("hoy de 14 a 18"),
+   *                        opcional. Null/blank = sin franja, el cliente
+   *                        recibe el mensaje genérico de siempre.
+   */
+  public Lead acceptForProvider(Long leadId, Provider provider, String eventDetail, String arrivalWindow) {
     int updated = leadRepository.assignIfUnclaimed(
         leadId, provider.getId(), provider.getName(), MATCHABLE_STATUSES);
     if (updated == 0) {
@@ -59,9 +69,25 @@ public class LeadAssignmentService {
 
     Lead lead = leadRepository.findById(leadId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
+    String trimmedWindow = arrivalWindow == null ? null : arrivalWindow.trim();
+    if (trimmedWindow != null && !trimmedWindow.isEmpty()) {
+      lead.setArrivalWindow(trimmedWindow);
+      leadRepository.save(lead);
+    }
     timelineService.appendEvent(lead, "PROVIDER_ACCEPTED", "provider", eventDetail);
-    messageService.postFromOps(lead.getId(), "fixy",
-        "¡Buenas noticias! %s tomó tu pedido y te va a contactar en breve.".formatted(provider.getName()));
+    // Tier 2 (contrato §B.2): mensaje de aceptación con franja si el
+    // proveedor la mandó, mismo copy que la otra ruta de aceptación
+    // (ProviderSelfService.updateLeadStatus ASSIGNED desde PROVIDER_CONTACTED).
+    messageService.postFromOps(lead.getId(), "fixy", acceptedMessage(provider, lead.getArrivalWindow()));
     return lead;
+  }
+
+  static String acceptedMessage(Provider provider, String arrivalWindow) {
+    if (arrivalWindow != null && !arrivalWindow.isBlank()) {
+      return "¡Buenas noticias! **%s** tomó tu pedido y pasa **%s**. Desde acá hablan directo."
+          .formatted(provider.getName(), arrivalWindow);
+    }
+    return "¡Buenas noticias! **%s** tomó tu pedido. Te confirma día y hora por acá."
+        .formatted(provider.getName());
   }
 }

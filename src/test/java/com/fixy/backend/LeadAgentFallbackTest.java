@@ -135,11 +135,13 @@ class LeadAgentFallbackTest {
             .content("{\"text\": \"se me tapo la camara septica, estoy en Lagomar\"}"))
         .andExpect(status().isCreated());
 
-    String fixyReply = awaitFixyReplyMentioning(leadId, token, "no tengo proveedores libres");
+    // Tier 2 (contrato §B.3): el copy pasó de "no tengo proveedores libres"
+    // a "no tengo técnico libre ... Sigo buscando hasta las HH:mm".
+    String fixyReply = awaitFixyReplyMentioning(leadId, token, "no tengo técnico libre");
 
     // El lead cruzó a readyForMatching (categoría+zona MVP) y tryAutoMatch ya
     // avisó honestamente que no hay proveedores — sin prometer contacto falso.
-    assertThat(fixyReply.toLowerCase()).contains("no tengo proveedores libres");
+    assertThat(fixyReply.toLowerCase()).contains("no tengo técnico libre");
     assertThat(fixyReply.toLowerCase()).contains("lagomar");
     assertThat(fixyReply.toLowerCase()).contains("barométrica");
     // Nunca prometer contacto/asignación inmediata sin proveedor real.

@@ -2,15 +2,18 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.LeadResponse;
 import com.fixy.backend.dto.ProviderStatsResponse;
+import com.fixy.backend.model.AvailabilityWindows;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadEvent;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderLeadDecline;
+import com.fixy.backend.model.ProviderOfferResponse;
 import com.fixy.backend.repository.LeadEventRepository;
 import com.fixy.backend.repository.LeadPhotoRepository;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
+import com.fixy.backend.repository.ProviderOfferRepository;
 import com.fixy.backend.repository.ProviderRepository;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -93,6 +96,7 @@ public class ProviderSelfService {
   private final LeadEventRepository leadEventRepository;
   private final LeadPhotoRepository leadPhotoRepository;
   private final ProviderLeadDeclineRepository declineRepository;
+  private final ProviderOfferRepository providerOfferRepository;
   private final LeadTimelineService timelineService;
   private final CommissionService commissionService;
   private final CustomerPaymentService customerPaymentService;
@@ -100,6 +104,7 @@ public class ProviderSelfService {
   private final LeadMessageService leadMessageService;
   private final PushNotificationService pushNotificationService;
   private final ProviderCatalogService providerCatalogService;
+  private final SearchDeadlineService searchDeadlineService;
   // @Lazy: TelegramNotifyService ya depende de ProviderSelfService (@Lazy del
   // otro lado, ver su constructor) para armar el link de panel — sin @Lazy
   // acá también se reintroduce el ciclo de beans en la creación.
@@ -119,6 +124,7 @@ public class ProviderSelfService {
       LeadEventRepository leadEventRepository,
       LeadPhotoRepository leadPhotoRepository,
       ProviderLeadDeclineRepository declineRepository,
+      ProviderOfferRepository providerOfferRepository,
       LeadTimelineService timelineService,
       CommissionService commissionService,
       CustomerPaymentService customerPaymentService,
@@ -126,6 +132,7 @@ public class ProviderSelfService {
       LeadMessageService leadMessageService,
       PushNotificationService pushNotificationService,
       ProviderCatalogService providerCatalogService,
+      SearchDeadlineService searchDeadlineService,
       @org.springframework.context.annotation.Lazy TelegramNotifyService telegramNotifyService,
       @Value("${fixy.payments.provider-commission-enabled:false}") boolean providerCommissionEnabled,
       @Value("${fixy.orders.service-fee-enabled:true}") boolean serviceFeeEnabled
@@ -135,6 +142,7 @@ public class ProviderSelfService {
     this.leadEventRepository = leadEventRepository;
     this.leadPhotoRepository = leadPhotoRepository;
     this.declineRepository = declineRepository;
+    this.providerOfferRepository = providerOfferRepository;
     this.timelineService = timelineService;
     this.commissionService = commissionService;
     this.customerPaymentService = customerPaymentService;
@@ -142,6 +150,7 @@ public class ProviderSelfService {
     this.leadMessageService = leadMessageService;
     this.pushNotificationService = pushNotificationService;
     this.providerCatalogService = providerCatalogService;
+    this.searchDeadlineService = searchDeadlineService;
     this.telegramNotifyService = telegramNotifyService;
     this.providerCommissionEnabled = providerCommissionEnabled;
     this.serviceFeeEnabled = serviceFeeEnabled;
@@ -226,6 +235,19 @@ public class ProviderSelfService {
       Provider provider, Long leadId, LeadStatus newStatus, BigDecimal amountCharged,
       String cancelReason, String cancelReasonDetail
   ) {
+    return updateLeadStatus(provider, leadId, newStatus, amountCharged, cancelReason, cancelReasonDetail, null);
+  }
+
+  /**
+   * @param arrivalWindow Tier 2 (contrato §B.2): franja corta opcional que
+   *                        el proveedor manda al aceptar ({@code newStatus
+   *                        == ASSIGNED} desde {@code PROVIDER_CONTACTED});
+   *                        se ignora para cualquier otra transición.
+   */
+  public Lead updateLeadStatus(
+      Provider provider, Long leadId, LeadStatus newStatus, BigDecimal amountCharged,
+      String cancelReason, String cancelReasonDetail, String arrivalWindow
+  ) {
     if (!PROVIDER_TRANSITIONS.contains(newStatus)) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
           "status not allowed for provider self-service");
@@ -292,20 +314,33 @@ public class ProviderSelfService {
       switch (newStatus) {
         case ASSIGNED -> {
           provider.setAcceptedJobsCount(safeInc(provider.getAcceptedJobsCount()));
+          // Tier 2 (contrato §B.2): franja opcional que manda el proveedor
+          // al aceptar — misma columna que pisan la confirmación de
+          // horario (LeadScheduleService) y "voy en camino" con ETA.
+          String trimmedArrivalWindow = arrivalWindow == null ? null : arrivalWindow.trim();
+          if (trimmedArrivalWindow != null && !trimmedArrivalWindow.isEmpty()) {
+            lead.setArrivalWindow(trimmedArrivalWindow);
+          }
           // Momento Uber (equipo de Carlos 2026-08-06): la ACEPTACIÓN es la
           // noticia que el cliente espera — antes este camino (automatch →
           // "Aceptar el trabajo" en el panel) no le decía nada y el pase de
           // manos era invisible. El camino de la bandeja ya lo hacía
-          // (LeadAssignmentService.acceptForProvider); ahora los dos.
+          // (LeadAssignmentService.acceptForProvider); ahora los dos, con el
+          // mismo copy (contrato §B.2, ver LeadAssignmentService.acceptedMessage).
           if (before == LeadStatus.PROVIDER_CONTACTED || before == LeadStatus.NEW) {
-            String news = "¡Buenas noticias! %s aceptó tu pedido ✅ Desde acá hablan directo — cualquier cosa, el equipo de Fixy sigue cerca."
-                .formatted(provider.getName());
+            String news = LeadAssignmentService.acceptedMessage(provider, lead.getArrivalWindow());
             leadMessageService.postFromOps(lead.getId(), "fixy", news);
             try {
               pushNotificationService.notifyLeadHasNews(lead.getId(), "¡Aceptaron tu pedido!", news);
             } catch (Exception ex) {
               // best-effort, como el resto de los push
             }
+          }
+          if (before == LeadStatus.PROVIDER_CONTACTED) {
+            // Tier 2 (contrato §A.2): cierra la oferta abierta del par como
+            // ACCEPTED — solo existe oferta cuando el camino fue el
+            // auto-match (PROVIDER_CONTACTED), no el pozo abierto (NEW).
+            closeOpenOfferAsAccepted(lead.getId(), provider.getId());
           }
         }
         case CANCELLED -> provider.setRejectedJobsCount(safeInc(provider.getRejectedJobsCount()));
@@ -351,9 +386,12 @@ public class ProviderSelfService {
           // servicio pendiente, así que no tiene sentido pedir "confirmá
           // que quedó todo bien para activar la garantía" (no hay garantía).
           String technicianName = hasText(provider.getName()) ? provider.getName() : "El técnico";
+          // Tier 2 (contrato §C.1): mismo cierre que notifyCustomerOfCompletion
+          // — "Confirmá acá arriba si quedó todo bien" en vez de mencionar
+          // estrellas (el score ahora es opcional en la confirmación).
           leadMessageService.postFromOps(lead.getId(), "fixy",
               ("%s marcó el trabajo como terminado. Elegiste sin garantía Fixy: no hay nada más que pagar. "
-                  + "¿Quedó todo bien?").formatted(technicianName));
+                  + "Confirmá acá arriba si quedó todo bien.").formatted(technicianName));
         } else {
           // Un solo mensaje: si algún cobro está ON, ya mandó su propio
           // aviso (provider_only para la comisión, al cliente para el cargo
@@ -449,10 +487,17 @@ public class ProviderSelfService {
       decline.setProviderId(provider.getId());
       declineRepository.save(decline);
     }
+    // Tier 2 (contrato §A.2): release explícito del proveedor cierra la
+    // oferta abierta del par como DECLINED.
+    closeOpenOfferAsDeclined(lead.getId(), provider.getId());
 
     boolean wasCommitted = COMMITTED_STATUSES_BEFORE_CANCEL.contains(before);
     String providerName = hasText(provider.getName()) ? provider.getName() : "El proveedor";
     clearAssignment(lead);
+    // Tier 2 (contrato §B.3): vuelve al pozo → se reinicia la hora límite de
+    // búsqueda (el pedido sigue vivo, la promesa de "hasta las HH:mm" tiene
+    // que arrancar de nuevo desde este momento).
+    searchDeadlineService.begin(lead);
 
     // Motivo + detalle en el evento existente (sin tabla nueva): el timeline
     // es el registro crudo, sin traducir el código de motivo. cancelReason
@@ -546,6 +591,32 @@ public class ProviderSelfService {
     lead.setStatus(LeadStatus.NEW);
   }
 
+  /** Tier 2 (contrato §A.2): cierra como ACCEPTED la oferta abierta del par
+   * (lead, proveedor). No-op si no hay oferta registrada. */
+  private void closeOpenOfferAsAccepted(Long leadId, Long providerId) {
+    providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, providerId)
+        .ifPresent(offer -> {
+          offer.setRespondedAt(OffsetDateTime.now());
+          offer.setResponse(ProviderOfferResponse.ACCEPTED);
+          providerOfferRepository.save(offer);
+        });
+  }
+
+  /** Tier 2 (contrato §A.2): cierra como DECLINED la oferta abierta del par
+   * (lead, proveedor) — release explícito del proveedor. No-op si no hay
+   * oferta registrada (ej. cancelación de un lead tomado desde el pozo,
+   * donde nunca hubo oferta). */
+  private void closeOpenOfferAsDeclined(Long leadId, Long providerId) {
+    providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, providerId)
+        .ifPresent(offer -> {
+          offer.setRespondedAt(OffsetDateTime.now());
+          offer.setResponse(ProviderOfferResponse.DECLINED);
+          providerOfferRepository.save(offer);
+        });
+  }
+
   /**
    * Auto-liberación (mejora "nunca más camino muerto" v2, 2026-08-19): el
    * proveedor contactado no aceptó NI rechazó tras el umbral de
@@ -559,6 +630,8 @@ public class ProviderSelfService {
     String providerName = hasText(unresponsiveProvider.getName())
         ? unresponsiveProvider.getName() : "El proveedor contactado";
     clearAssignment(lead);
+    // Tier 2 (contrato §B.3): vuelve al pozo → se reinicia la hora límite.
+    searchDeadlineService.begin(lead);
 
     timelineService.appendEvent(lead, AUTO_RELEASED_EVENT_TYPE, "system",
         "%s (id %d) no respondió a tiempo: el pedido vuelve a búsqueda abierta"
@@ -608,6 +681,13 @@ public class ProviderSelfService {
         ? " — llega en ~%d min".formatted(etaMinutes)
         : "";
     String message = "🚛 %s avisó que va en camino%s".formatted(providerName, etaSuffix);
+
+    // Tier 2 (contrato §B.2.c): con ETA, pisa la franja — "hoy, llega en
+    // ~N min" es más preciso que cualquier franja anterior.
+    if (etaMinutes != null && etaMinutes > 0) {
+      lead.setArrivalWindow("hoy, llega en ~%d min".formatted(etaMinutes));
+      leadRepository.save(lead);
+    }
 
     timelineService.appendEvent(lead, ON_THE_WAY_EVENT_TYPE, "provider", message);
     leadMessageService.postFromOps(lead.getId(), "provider", message, "all");
@@ -679,6 +759,29 @@ public class ProviderSelfService {
     return providerRepository.save(provider);
   }
 
+  /**
+   * Tier 2 (contrato §A.4): {@code PATCH /availability} ahora acepta
+   * {@code acceptingWork} y/o {@code availabilityWindows} — al menos uno
+   * presente (400 si ninguno, validado en el controller). {@code
+   * availabilityWindows} vacío borra la ventana (vuelve a "siempre
+   * disponible"); se valida el formato con {@link AvailabilityWindows#parse}
+   * antes de persistir (400 con mensaje claro si está mal escrito).
+   */
+  public Provider updateAvailability(Provider provider, Boolean acceptingWork, String availabilityWindows) {
+    if (acceptingWork != null) {
+      provider.setAcceptingWork(acceptingWork);
+    }
+    if (availabilityWindows != null) {
+      // Solo para validar — tira 400 si el formato es inválido; lo que se
+      // persiste es el string crudo (tal como lo mandó el proveedor), no
+      // format() de vuelta, para no reordenar/normalizar de más lo que
+      // escribió.
+      AvailabilityWindows.parse(availabilityWindows);
+      provider.setAvailabilityWindows(availabilityWindows.isBlank() ? null : availabilityWindows.trim());
+    }
+    return providerRepository.save(provider);
+  }
+
   public Provider regenerateAccessToken(Long providerId) {
     Provider provider = providerRepository.findById(providerId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "provider not found"));
@@ -719,7 +822,9 @@ public class ProviderSelfService {
         // Teléfono para el botón Llamar del cliente (UX 2026-08): recién
         // post-asignación — nuestro modelo no castiga el contacto directo.
         provider.getPhone(),
-        providerCatalogService.reviewSnippetsFor(provider.getId())
+        providerCatalogService.reviewSnippetsFor(provider.getId()),
+        provider.getPhotoUrl(),
+        lead.getArrivalWindow()
     );
   }
 
@@ -803,13 +908,28 @@ public class ProviderSelfService {
 
     List<ProviderStatsResponse.WeeklyCompleted> completedByWeek = completedByWeek(provider);
 
+    // Tier 2 (contrato §A.4): velocidad de respuesta — null con menos de 3
+    // ofertas en ventana (mismo criterio de honestidad que acceptanceRate/
+    // ratingAverage null: nunca un "0" o un "lento" dramático para quien
+    // recién arranca).
+    int responseSampleSize = providerCatalogService.responseSampleSizeFor(provider);
+    ProviderCatalogService.ResponseStanding standing = providerCatalogService.responseStandingFor(provider);
+    // standing.rank() ya es null exactamente cuando la muestra no alcanza
+    // (misma fuente de verdad que responseScoreMinutes) — no duplicar el
+    // umbral acá.
+    Integer responseMedianMinutes = standing.rank() == null ? null : providerCatalogService.responseScoreMinutes(provider);
+
     return new ProviderStatsResponse(
         acceptanceRate,
         acceptedCount,
         rejectedCount,
         ratingAverage,
         ratingCount,
-        completedByWeek
+        completedByWeek,
+        responseMedianMinutes,
+        responseSampleSize,
+        standing.rank(),
+        standing.peers()
     );
   }
 
