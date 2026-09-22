@@ -3,11 +3,15 @@ package com.fixy.backend.controller;
 import com.fixy.backend.dto.ProviderAccessTokenResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.dto.ProviderCreateRequest;
+import com.fixy.backend.dto.ProviderNotifyRequest;
 import com.fixy.backend.dto.ProviderResponse;
 import com.fixy.backend.dto.ProviderUpdateRequest;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.service.ProviderCatalogService;
 import com.fixy.backend.service.ProviderSelfService;
+import com.fixy.backend.service.PushNotificationService;
+import com.fixy.backend.repository.PushSubscriptionRepository;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -28,16 +32,43 @@ public class ProviderCatalogController {
 
   private final ProviderCatalogService providerCatalogService;
   private final ProviderSelfService selfService;
+  private final PushNotificationService pushNotificationService;
+  private final PushSubscriptionRepository pushSubscriptionRepository;
   private final String publicAppBaseUrl;
 
   public ProviderCatalogController(
       ProviderCatalogService providerCatalogService,
       ProviderSelfService selfService,
+      PushNotificationService pushNotificationService,
+      PushSubscriptionRepository pushSubscriptionRepository,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.providerCatalogService = providerCatalogService;
     this.selfService = selfService;
+    this.pushNotificationService = pushNotificationService;
+    this.pushSubscriptionRepository = pushSubscriptionRepository;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
+  }
+
+  /**
+   * Aviso push suelto de ops a un proveedor (abre su panel al tocarlo).
+   * Devuelve cuántas suscripciones tiene el proveedor: con 0 el push no
+   * llega a nadie y ops tiene que ir por WhatsApp — se dice, no se esconde.
+   * Usa el token existente sin rotarlo (mismo criterio que access-token).
+   */
+  @PostMapping("/{id}/notify")
+  public Map<String, Object> notify(@PathVariable Long id, @Valid @RequestBody ProviderNotifyRequest request) {
+    Provider provider = selfService.ensureAccessToken(id);
+    int subscriptions = pushSubscriptionRepository.findByProviderId(provider.getId()).size();
+    if (subscriptions > 0) {
+      pushNotificationService.notifyProvider(provider.getId(), provider.getAccessToken(),
+          request.title().trim(), request.body().trim());
+    }
+    return Map.of(
+        "providerId", provider.getId(),
+        "name", provider.getName(),
+        "subscriptions", subscriptions,
+        "sent", subscriptions > 0);
   }
 
   @GetMapping("/catalog")
