@@ -39,6 +39,21 @@ class OpsMetricsServiceTest {
   private com.fixy.backend.repository.CustomerPaymentRepository customerPaymentRepository;
 
   @Autowired
+  private com.fixy.backend.repository.LeadRatingRepository leadRatingRepository;
+
+  @Autowired
+  private com.fixy.backend.repository.ProviderRepository providerRepository;
+
+  @Autowired
+  private com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
+
+  @Autowired
+  private com.fixy.backend.service.ProviderCatalogService providerCatalogService;
+
+  @Autowired
+  private com.fixy.backend.service.ServiceCatalogService serviceCatalogService;
+
+  @Autowired
   private EntityManager entityManager;
 
   private static final OffsetDateTime WINDOW_FROM = OffsetDateTime.of(2026, 6, 1, 0, 0, 0, 0, ZoneOffset.UTC);
@@ -110,11 +125,14 @@ class OpsMetricsServiceTest {
     // Lead B: múltiples PROVIDER_CONTACTED secuenciales (proveedor 1 no responde,
     // se contacta proveedor 2). El tiempo de respuesta debe medirse desde el
     // PRIMER contacto (t=0) hasta la PRIMERA respuesta posterior a ese primer
-    // contacto (el reject a los 20 min), NO desde el segundo contacto.
+    // contacto (el decline a los 20 min), NO desde el segundo contacto.
+    // Tier 3 (contrato §A.3): PROVIDER_DECLINED es el tipo real que emite
+    // ProviderOpportunityService.decline — PROVIDER_REJECTED nunca existió
+    // como tipo de evento en ningún camino real.
     Lead leadB = createLead("099222002", LeadStatus.ASSIGNED, base);
     appendEvent(leadB, "PROVIDER_CONTACTED", base.plusMinutes(0));  // primer contacto
     appendEvent(leadB, "PROVIDER_CONTACTED", base.plusMinutes(10)); // segundo proveedor contactado
-    appendEvent(leadB, "PROVIDER_REJECTED", base.plusMinutes(20));  // primera respuesta tras el primer contacto
+    appendEvent(leadB, "PROVIDER_DECLINED", base.plusMinutes(20));  // primera respuesta tras el primer contacto
     // Tiempo esperado para B: 20 min = 1200s (desde primer contacto en t=0, no desde t=10min).
 
     OpsDailyMetricsResponse metrics = opsMetricsService.dailyMetrics(WINDOW_FROM, WINDOW_TO);
@@ -210,7 +228,8 @@ class OpsMetricsServiceTest {
         WINDOW_TO.plusDays(30).toInstant(), ZoneOffset.UTC);
     OpsMetricsService serviceWithFrozenClock =
         new OpsMetricsService(leadRepository, leadEventRepository, leadMessageRepository,
-            customerPaymentRepository, frozenNow);
+            customerPaymentRepository, leadRatingRepository, providerRepository, providerOfferRepository,
+            providerCatalogService, serviceCatalogService, frozenNow);
     java.time.OffsetDateTime now = java.time.OffsetDateTime.now(frozenNow);
 
     // Colgado real: NEW, creado hace 49h (>48h) -> cuenta.

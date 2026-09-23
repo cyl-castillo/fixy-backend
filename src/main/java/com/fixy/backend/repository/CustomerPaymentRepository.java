@@ -1,8 +1,10 @@
 package com.fixy.backend.repository;
 
 import com.fixy.backend.model.CustomerPayment;
+import com.fixy.backend.model.CustomerPaymentKind;
 import com.fixy.backend.model.CustomerPaymentStatus;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -14,6 +16,11 @@ import org.springframework.transaction.annotation.Transactional;
 public interface CustomerPaymentRepository extends JpaRepository<CustomerPayment, Long> {
 
   Optional<CustomerPayment> findByLeadId(Long leadId);
+
+  /** Tier 3 (contrato §A.1, "paid"): leads del rango con un cargo
+   * SERVICE_FEE ya cobrado, sin importar cuándo se pagó. */
+  List<CustomerPayment> findByLeadIdInAndKindAndStatus(
+      Collection<Long> leadIds, CustomerPaymentKind kind, CustomerPaymentStatus status);
 
   List<CustomerPayment> findByRemoteCarePlanIdOrderByCreatedAtDesc(Long remoteCarePlanId);
 
