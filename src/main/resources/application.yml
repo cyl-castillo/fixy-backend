@@ -108,6 +108,8 @@ fixy:
     request:
       enabled: ${FIXY_REVIEWS_REQUEST_ENABLED:true}
       after-hours: ${FIXY_REVIEWS_REQUEST_AFTER_HOURS:24}
+      # Ancla (pago o COMPLETED) más vieja que esto: no se pide y queda REVIEW_REQUEST_SKIPPED.
+      max-age-days: ${FIXY_REVIEWS_REQUEST_MAX_AGE_DAYS:7}
       scheduler-fixed-delay-ms: ${FIXY_REVIEWS_REQUEST_SCHEDULER_FIXED_DELAY_MS:3600000}
   collections:
     enabled: ${FIXY_COLLECTIONS_ENABLED:true}

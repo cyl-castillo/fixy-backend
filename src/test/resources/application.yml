@@ -117,6 +117,7 @@ fixy:
     request:
       enabled: false
       after-hours: 24
+      max-age-days: 7
       scheduler-fixed-delay-ms: 3600000
   collections:
     enabled: false

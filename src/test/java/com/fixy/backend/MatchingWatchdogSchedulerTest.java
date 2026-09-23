@@ -640,6 +640,28 @@ class MatchingWatchdogSchedulerTest {
   }
 
   @Test
+  void noAvisaPedidoMudoParaUnLeadHistoricoFueraDeLaVentanaDeHuerfanos() throws Exception {
+    // Lead creado "hoy" visto desde un reloj 15 días en el futuro = backlog
+    // histórico (más viejo que orphan-max-age-days=14). El bug del arranque
+    // del 2026-09-21: 18 avisos de leads de julio-septiembre de una sola vez.
+    String zone = "Solymar Watchdog Mudo Historico";
+    Lead lead = makeReadyBroadcast(createChatLead());
+    lead.setLocation(zone);
+    leadRepository.save(lead);
+    messageService.postFromAgent(lead.getId(), "Estoy contactando a alguien para tu pedido.");
+
+    com.fixy.backend.service.TelegramNotifyService telegramMock =
+        org.mockito.Mockito.mock(com.fixy.backend.service.TelegramNotifyService.class);
+    schedulerWithClockAndTelegram(inFuture(Duration.ofDays(15)), telegramMock).processOnce();
+
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(lead.getId(), "MUTE_LEAD_NOTIFIED"))
+        .isEmpty();
+    org.mockito.Mockito.verify(telegramMock, org.mockito.Mockito.never())
+        .notifyMuteLead(org.mockito.ArgumentMatchers.argThat(l -> l.getId().equals(lead.getId())),
+            org.mockito.ArgumentMatchers.anyLong());
+  }
+
+  @Test
   void noAvisaPedidoMudoSiHayUnMensajeVisibleReciente() throws Exception {
     String zone = "Solymar Watchdog Mudo Dos";
     Lead lead = makeReadyBroadcast(createChatLead());

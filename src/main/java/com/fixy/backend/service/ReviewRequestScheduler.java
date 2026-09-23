@@ -36,6 +36,8 @@ public class ReviewRequestScheduler {
 
   private static final Logger log = LoggerFactory.getLogger(ReviewRequestScheduler.class);
   static final String REVIEW_REQUESTED_EVENT_TYPE = "REVIEW_REQUESTED";
+  /** Ancla demasiado vieja: se marca y no se pide (una reseña un mes tarde no sirve y molesta). */
+  static final String REVIEW_REQUEST_SKIPPED_EVENT_TYPE = "REVIEW_REQUEST_SKIPPED";
   private static final String STATUS_CHANGE_EVENT_TYPE = "PROVIDER_STATUS_CHANGE";
   private static final String COMPLETED_SUFFIX = "→ " + LeadStatus.COMPLETED;
 
@@ -50,6 +52,7 @@ public class ReviewRequestScheduler {
 
   private final boolean enabled;
   private final long afterHours;
+  private final long maxAgeDays;
   private final String publicAppBaseUrl;
   private final Clock clock;
 
@@ -64,6 +67,7 @@ public class ReviewRequestScheduler {
       PushNotificationService pushNotificationService,
       @Value("${fixy.reviews.request.enabled:true}") boolean enabled,
       @Value("${fixy.reviews.request.after-hours:24}") long afterHours,
+      @Value("${fixy.reviews.request.max-age-days:7}") long maxAgeDays,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
       Clock clock
   ) {
@@ -77,6 +81,7 @@ public class ReviewRequestScheduler {
     this.pushNotificationService = pushNotificationService;
     this.enabled = enabled;
     this.afterHours = afterHours;
+    this.maxAgeDays = maxAgeDays;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
     this.clock = clock;
   }
@@ -105,6 +110,13 @@ public class ReviewRequestScheduler {
       if (anchor == null || Duration.between(anchor, now).toHours() < afterHours) {
         continue;
       }
+      if (Duration.between(anchor, now).toDays() > maxAgeDays) {
+        // Trabajo viejo (backlog previo al Tier 2, o el job estuvo apagado):
+        // no se pide, y queda marcado para no re-evaluarlo cada hora.
+        timelineService.appendEvent(lead, REVIEW_REQUEST_SKIPPED_EVENT_TYPE, "system",
+            "Reseña no pedida: el trabajo terminó hace más de %d días".formatted(maxAgeDays));
+        continue;
+      }
       sendReviewRequest(lead);
       actions++;
     }
@@ -121,7 +133,8 @@ public class ReviewRequestScheduler {
     if (leadRatingRepository.existsByLeadId(lead.getId())) {
       return false;
     }
-    return !timelineService.hasEvent(lead.getId(), REVIEW_REQUESTED_EVENT_TYPE);
+    return !timelineService.hasEvent(lead.getId(), REVIEW_REQUESTED_EVENT_TYPE)
+        && !timelineService.hasEvent(lead.getId(), REVIEW_REQUEST_SKIPPED_EVENT_TYPE);
   }
 
   /** Ancla: {@code paidAt} del cargo de servicio PAID si existe; si no, la

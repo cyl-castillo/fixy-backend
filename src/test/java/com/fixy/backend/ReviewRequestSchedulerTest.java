@@ -49,6 +49,18 @@ class ReviewRequestSchedulerTest {
   @Autowired private LeadMessageRepository leadMessageRepository;
   @Autowired private LeadRatingRepository leadRatingRepository;
   @Autowired private CustomerPaymentRepository customerPaymentRepository;
+  @Autowired private com.fixy.backend.repository.LeadEventRepository leadEventRepository;
+  @Autowired private com.fixy.backend.repository.ProviderRepository providerRepository;
+  @Autowired private com.fixy.backend.service.LeadTimelineService timelineService;
+  @Autowired private com.fixy.backend.service.LeadMessageService messageService;
+  @Autowired private com.fixy.backend.service.PushNotificationService pushNotificationService;
+
+  /** Scheduler a mano con reloj corrido (mismo truco que MatchingWatchdogSchedulerTest). */
+  private ReviewRequestScheduler schedulerWithClock(java.time.Clock clock, long afterHours, long maxAgeDays) {
+    return new ReviewRequestScheduler(leadRepository, leadEventRepository, leadRatingRepository,
+        customerPaymentRepository, providerRepository, timelineService, messageService, pushNotificationService,
+        true, afterHours, maxAgeDays, "https://www.fixy.com.uy", clock);
+  }
 
   private record ProviderAndLead(Integer providerId, String providerToken, Integer leadId, String leadToken) {
   }
@@ -156,6 +168,28 @@ class ReviewRequestSchedulerTest {
 
     int processed = scheduler.processOnce();
     assertThat(processed).isEqualTo(0);
+    assertThat(messagesFor(ctx.leadId())).extracting(LeadMessage::getText)
+        .noneMatch(t -> t.contains("Dejá tu reseña"));
+  }
+
+  @Test
+  void noPideResenaDeUnTrabajoViejoYLoMarcaComoSalteado() throws Exception {
+    // El bug del arranque del 2026-09-21: pidió reseña a trabajos de agosto.
+    // Reloj 8 días en el futuro con max-age-days=7 → REVIEW_REQUEST_SKIPPED,
+    // sin mensaje, y no se vuelve a evaluar.
+    ProviderAndLead ctx = createCompletedLead("099850005", "099850105", "Trabajo viejo para test de reseña");
+    java.time.Clock future = java.time.Clock.fixed(java.time.Instant.now().plus(java.time.Duration.ofDays(8)),
+        java.time.ZoneOffset.UTC);
+    ReviewRequestScheduler old = schedulerWithClock(future, 0, 7);
+
+    assertThat(old.processOnce()).isEqualTo(0);
+    assertThat(leadEventRepository.findByLeadIdAndTypeOrderByCreatedAtDesc(ctx.leadId().longValue(), "REVIEW_REQUEST_SKIPPED"))
+        .hasSize(1);
+    assertThat(messagesFor(ctx.leadId())).extracting(LeadMessage::getText)
+        .noneMatch(t -> t.contains("Dejá tu reseña"));
+
+    // Ni el scheduler real (reloj de hoy) lo vuelve a tocar: quedó marcado.
+    scheduler.processOnce();
     assertThat(messagesFor(ctx.leadId())).extracting(LeadMessage::getText)
         .noneMatch(t -> t.contains("Dejá tu reseña"));
   }

@@ -601,6 +601,13 @@ public class MatchingWatchdogScheduler {
     if (lead.getId() == null || lead.isDisputed()) {
       return false;
     }
+    // Solo pedidos recientes (misma ventana que los huérfanos): el backlog
+    // histórico no es "un bug de hoy". Sin esto, el primer arranque del
+    // 2026-09-21 avisó 18 leads de julio-septiembre de una sola vez.
+    OffsetDateTime oldest = cutoff.plusHours(MUTE_HOURS).minusDays(orphanMaxAgeDays);
+    if (lead.getCreatedAt() == null || lead.getCreatedAt().isBefore(oldest)) {
+      return false;
+    }
     if (SmokeTraffic.marks(lead.getProblem())) {
       return false;
     }
