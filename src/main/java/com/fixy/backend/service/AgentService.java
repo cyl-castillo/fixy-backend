@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -12,11 +11,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
-import org.springframework.web.reactive.function.client.WebClient;
 
 @Service
 public class AgentService {
@@ -75,60 +70,56 @@ public class AgentService {
   private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.load("prompts/intake-classifier.md");
 
   private final ObjectMapper objectMapper;
-  private final WebClient webClient;
-  private final WebClient cloudflareClient;
-  private final String openAiApiKey;
-  private final String openAiModel;
-  private final String provider;
-  private final String cloudflareAccountId;
-  private final String cloudflareApiToken;
-  private final String cloudflareModel;
+  private final LlmGateway llmGateway;
 
   /**
    * Constructor legacy (3 args), usado por tests existentes que no necesitan multi-proveedor
    * (siempre cayeron a heurística con apiKey=""). Mantiene compatibilidad binaria: equivale a
-   * provider="openai" sin credenciales de Cloudflare.
+   * provider="openai" sin credenciales de Cloudflare. No es el constructor que usa Spring (ver
+   * {@link #AgentService(ObjectMapper, LlmGateway)}): arma su PROPIO LlmGateway, igual que antes
+   * armaba sus propios WebClients — no comparte el bean con LeadAgentService, pero tampoco lo hacía
+   * antes de este refactor (cada instancia manual seguía siendo independiente).
    */
   public AgentService(ObjectMapper objectMapper, String openAiApiKey, String openAiModel) {
     this(objectMapper, openAiApiKey, openAiModel, "openai", "", "", "");
   }
 
-  @Autowired
+  /**
+   * Constructor legacy (7 args) usado directamente por tests con proveedor explícito
+   * (ver AgentServiceWorkersAiPayloadTest). Mismo motivo que el de 3 args: arma su propio
+   * LlmGateway en vez de recibir el bean compartido.
+   */
   public AgentService(
       ObjectMapper objectMapper,
-      @Value("${fixy.openai.api-key:}") String openAiApiKey,
-      @Value("${fixy.openai.model:gpt-5-mini}") String openAiModel,
-      @Value("${fixy.agent.provider:openai}") String provider,
-      @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
-      @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
-      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel
+      String openAiApiKey,
+      String openAiModel,
+      String provider,
+      String cloudflareAccountId,
+      String cloudflareApiToken,
+      String cloudflareModel
   ) {
+    this(objectMapper, new LlmGateway(
+        objectMapper, openAiApiKey, openAiModel, true, provider,
+        "http://127.0.0.1:11434", "qwen2.5:3b",
+        cloudflareAccountId, cloudflareApiToken, cloudflareModel));
+  }
+
+  /** Constructor real usado por Spring: comparte el único LlmGateway de la app (Core Fase 1,
+   * ver CORE_FASE1_CONTRATO.md) en vez de armar sus propios WebClients. */
+  @Autowired
+  public AgentService(ObjectMapper objectMapper, LlmGateway llmGateway) {
     this.objectMapper = objectMapper;
-    this.openAiApiKey = openAiApiKey;
-    this.openAiModel = openAiModel;
-    this.provider = provider == null ? "openai" : provider.toLowerCase(Locale.ROOT).trim();
-    this.cloudflareAccountId = cloudflareAccountId;
-    this.cloudflareApiToken = cloudflareApiToken;
-    this.cloudflareModel = cloudflareModel;
-    this.webClient = WebClient.builder()
-        .baseUrl("https://api.openai.com/v1")
-        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-        .build();
-    this.cloudflareClient = WebClient.builder()
-        .baseUrl("https://api.cloudflare.com/client/v4")
-        .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-        .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
-        .build();
+    this.llmGateway = llmGateway;
   }
 
   public IntakeResponse classify(IntakeRequest request) {
     IntakeResponse response = null;
-    if ("workersai".equals(provider) && hasCloudflareCredentials()) {
+    if ("workersai".equals(llmGateway.provider()) && llmGateway.hasCloudflareCredentials()) {
       response = classifyWithWorkersAi(request);
       if (response == null) {
         log.warn("workersai classify call failed or returned null, degrading to heuristic");
       }
-    } else if (!openAiApiKey.isBlank()) {
+    } else if (llmGateway.hasOpenAiKey()) {
       response = classifyWithOpenAi(request);
     }
 
@@ -137,11 +128,6 @@ public class AgentService {
     }
 
     return applyStructuredFields(request, response);
-  }
-
-  private boolean hasCloudflareCredentials() {
-    return cloudflareAccountId != null && !cloudflareAccountId.isBlank()
-        && cloudflareApiToken != null && !cloudflareApiToken.isBlank();
   }
 
   private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
@@ -158,29 +144,7 @@ public class AgentService {
     );
 
     try {
-      Map<String, Object> payload = buildResponsesPayload(openAiModel, prompt);
-
-      String raw = webClient.post()
-          .uri("/responses")
-          .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
-          .bodyValue(payload)
-          .retrieve()
-          .bodyToMono(String.class)
-          // 40s + retry: la PRIMera llamada tras el boot paga arranque frío
-          // (pool TLS + colas del proveedor) y con 20s se caía al heurístico
-          // (visto 2026-07-27 evaluando gpt-5-mini). Mismo patrón que el
-          // path de Cloudflare.
-          .timeout(Duration.ofSeconds(40))
-          .retry(1)
-          .block();
-
-      if (raw == null || raw.isBlank()) {
-        return null;
-      }
-
-      JsonNode root = objectMapper.readTree(raw);
-      JsonNode outputText = root.path("output").isArray() ? root.path("output").get(0) : null;
-      String text = extractText(root, outputText);
+      String text = llmGateway.completeTextOpenAi(prompt);
 
       if (text == null || text.isBlank()) {
         return null;
@@ -227,25 +191,11 @@ public class AgentService {
     );
 
     try {
-      Map<String, Object> payload = Map.of(
-          "messages", List.of(Map.of("role", "user", "content", prompt)),
-          "max_tokens", 400,
-          "temperature", 0.3,
-          "response_format", Map.of("type", "json_schema", "json_schema", intakeJsonSchema())
-      );
-      String uri = "/accounts/" + cloudflareAccountId + "/ai/run/" + cloudflareModel;
       // 1 solo retry ante timeout/error transitorio (latencia de CF es variable). Si vuelve a
       // fallar, el catch de abajo degrada a heurística — no vale la pena reintentar más veces
-      // para un intake conversacional de baja latencia.
-      String raw = cloudflareClient.post()
-          .uri(uri)
-          .header(HttpHeaders.AUTHORIZATION, "Bearer " + cloudflareApiToken)
-          .bodyValue(payload)
-          .retrieve()
-          .bodyToMono(String.class)
-          .timeout(Duration.ofSeconds(30))
-          .retry(1)
-          .block();
+      // para un intake conversacional de baja latencia. (timeout 30s, max_tokens 400: ver
+      // LlmGateway.completeJsonWorkersAi).
+      String raw = llmGateway.completeJsonWorkersAi(prompt, intakeJsonSchema());
 
       JsonNode result = parseWorkersAiResult(objectMapper, raw);
       if (result == null) {
@@ -372,23 +322,6 @@ public class AgentService {
         "model", model,
         "input", prompt
     );
-  }
-
-  private String extractText(JsonNode root, JsonNode firstOutput) {
-    JsonNode outputText = root.path("output_text");
-    if (outputText.isTextual()) {
-      return outputText.asText();
-    }
-
-    if (firstOutput != null && firstOutput.has("content") && firstOutput.get("content").isArray()) {
-      for (JsonNode item : firstOutput.get("content")) {
-        if (item.has("text")) {
-          return item.get("text").asText();
-        }
-      }
-    }
-
-    return null;
   }
 
   private List<String> readMissingFields(JsonNode node) {
