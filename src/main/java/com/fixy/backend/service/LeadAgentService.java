@@ -38,6 +38,7 @@ public class LeadAgentService {
 
   private final ObjectMapper objectMapper;
   private final LlmGateway llmGateway;
+  private final TurnPolicy turnPolicy;
   private final String whatsappTemplateName;
   private final String whatsappTemplateLang;
   private final String publicAppBaseUrl;
@@ -73,6 +74,7 @@ public class LeadAgentService {
       com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository,
       SearchDeadlineService searchDeadlineService,
       LlmGateway llmGateway,
+      TurnPolicy turnPolicy,
       @Value("${fixy.whatsapp.template-name:provider_lead_notification}") String whatsappTemplateName,
       @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
@@ -96,6 +98,7 @@ public class LeadAgentService {
     this.userLeadRepository = userLeadRepository;
     this.providerCatalogService = providerCatalogService;
     this.llmGateway = llmGateway;
+    this.turnPolicy = turnPolicy;
   }
 
   /** Mensaje inicial del agente cuando se crea un lead. Async — el POST no espera al LLM. */
@@ -247,7 +250,7 @@ public class LeadAgentService {
       boolean categoryKnown = lead.getDetectedCategory() != null
           && !lead.getDetectedCategory().isBlank()
           && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
-      if (categoryKnown && isPriceQuestion(pendingText)) {
+      if (categoryKnown && HomeServicesPolicy.isPriceQuestion(pendingText)) {
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
@@ -324,7 +327,7 @@ public class LeadAgentService {
       // cliente dice por keywords pisa la extracción; applyExtractedFields
       // decide después si corresponde actualizar (solo pre-matching) y
       // re-dispara el matching.
-      extracted = withMessageSignals(pendingTexts, extracted);
+      extracted = turnPolicy.withMessageSignals(pendingTexts, extracted);
       // Guard determinista de RESPUESTA (lead #138): con categoría conocida y
       // la zona como única traba, el 8B contestó "Dale, aire acondicionado en
       // Lomas. ¿Qué tipo de servicio necesitás?" — zona alucinada en el TEXTO
@@ -428,22 +431,12 @@ public class LeadAgentService {
    * (plomería antes que mandados) y el "agua" del segundo mensaje ganaría
    * sobre el "supermercado" del primero — exactamente el bug del smoke #236.
    * Package-private estático para testear sin contexto, mismo patrón que
-   * shouldForceZoneQuestion.
+   * shouldForceZoneQuestion. Implementación movida a HomeServicesPolicy
+   * (Core Fase 1, ver CORE_FASE1_CONTRATO.md); queda acá como delegador con
+   * la misma firma porque los tests la llaman directo sobre LeadAgentService.
    */
   static String detectCategoryFromMessages(List<String> messages) {
-    String category = null;
-    for (String message : messages) {
-      String detected = com.fixy.backend.model.ServiceCategory.detectFromText(message)
-          .map(com.fixy.backend.model.ServiceCategory::id)
-          .orElse(null);
-      if (detected == null) {
-        continue;
-      }
-      if (category == null || isExplicitCorrection(message)) {
-        category = detected;
-      }
-    }
-    return category;
+    return HomeServicesPolicy.detectCategoryFromMessages(messages);
   }
 
   /**
@@ -521,8 +514,8 @@ public class LeadAgentService {
     }
     // Releer el lead: applyExtractedFields pudo haber actualizado categoría/zona.
     Lead refreshed = leadRepository.findById(leadId).orElse(lead);
-    if (isPriceQuestion(pendingText)) {
-      leadMessageService.postFromAgent(leadId, heuristicPriceReply(refreshed));
+    if (HomeServicesPolicy.isPriceQuestion(pendingText)) {
+      leadMessageService.postFromAgent(leadId, HomeServicesPolicy.priceReply(refreshed));
       return;
     }
     String reply = heuristicFallbackReply(refreshed);
@@ -643,16 +636,12 @@ public class LeadAgentService {
    * escribió "hola" dos veces, y ahí sería mentira. Dice lo único que es
    * cierto en los dos casos —no se entendió— y muestra la carta. La lista
    * sale de {@link ServiceCategory#MVP_LABELS}, fuente única, para que sumar
-   * una categoría no deje este mensaje desactualizado.
+   * una categoría no deje este mensaje desactualizado. Implementación movida
+   * a HomeServicesPolicy (Core Fase 1); queda acá como delegador porque los
+   * tests la llaman directo sobre LeadAgentService.
    */
   static String whatFixyCoversReply() {
-    List<String> labels = com.fixy.backend.model.ServiceCategory.MVP_LABELS;
-    String servicios = labels.size() < 2
-        ? String.join(", ", labels)
-        : String.join(", ", labels.subList(0, labels.size() - 1)) + " y " + labels.get(labels.size() - 1);
-    return "Perdón, no te terminé de entender. Te cuento qué consigo hoy: " + servicios
-        + ". Si lo tuyo es alguno de esos decime cuál y sigo con tu pedido; si es otra cosa, "
-        + "ya lo anoté y se lo pasé al equipo — así decidimos qué servicio sumar.";
+    return HomeServicesPolicy.whatFixyCoversReply();
   }
 
   /**
@@ -660,9 +649,11 @@ public class LeadAgentService {
    * respondWithHeuristicFallback la compara por identidad: es la ÚNICA
    * respuesta del fallback que no reconoce nada de lo que el vecino dijo, y
    * por lo tanto la única que repetida deja la conversación sin salida.
+   * Fuente única: HomeServicesPolicy.ASK_WHAT_HAPPENED (Core Fase 1);
+   * re-exportada acá con el mismo nombre porque los tests existentes la
+   * referencian como LeadAgentService.ASK_WHAT_HAPPENED.
    */
-  static final String ASK_WHAT_HAPPENED =
-      "Contame un poco más: ¿qué te pasa o qué necesitás arreglar en tu casa?";
+  static final String ASK_WHAT_HAPPENED = HomeServicesPolicy.ASK_WHAT_HAPPENED;
 
   /** Largo seguro para Lead.problem (columna VARCHAR(255) por defecto). */
   private static final int PROBLEM_MAX_LENGTH = 240;
@@ -730,13 +721,10 @@ public class LeadAgentService {
    * esperando su confirmación (PROVIDER_CONTACTED) o ya aceptado
    * (ASSIGNED/IN_PROGRESS). En cualquiera de esos estados decir "estoy
    * buscando un proveedor para vos" es falso. Package-private para test.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1).
    */
   static boolean hasProviderOnTheLine(Lead lead) {
-    return lead != null
-        && lead.getAssignedProviderId() != null
-        && (lead.getStatus() == com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED
-            || lead.getStatus() == com.fixy.backend.model.LeadStatus.ASSIGNED
-            || lead.getStatus() == com.fixy.backend.model.LeadStatus.IN_PROGRESS);
+    return HomeServicesPolicy.hasProviderOnTheLine(lead);
   }
 
   /** true si el proveedor ya escribió en el chat del pedido. */
@@ -807,152 +795,34 @@ public class LeadAgentService {
    * con keywords de otras categorías (agua, torta, pasto...). Regla nueva:
    * con categoría ya puesta, cambiarla exige intención explícita de
    * corrección; sin ella, la mención suelta de una keyword no toca nada.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1).
    */
-  private static final java.util.regex.Pattern CORRECTION_PHRASES = java.util.regex.Pattern.compile(
-      "(?i)me\\s+equivoq|\\berror\\b|en\\s+realidad|quise\\s+decir|no\\s+era\\s+eso|no\\s+es\\s+eso"
-          + "|no,?\\s+mejor|cambi[aá]\\w*\\s+(la\\s+)?categor[ií]a|no\\s+es\\s+de\\s|era\\s+de\\s");
-
   static boolean isExplicitCorrection(String message) {
-    return message != null && CORRECTION_PHRASES.matcher(message).find();
+    return HomeServicesPolicy.isExplicitCorrection(message);
   }
 
-  /** Señales de pregunta de confianza/seguridad sobre quién viene a la casa. */
-  private static final List<String> TRUST_QUESTION_KEYWORDS = List.of(
-      "de confianza", "confiable", "quien viene", "quién viene", "quien es el que viene",
-      "es seguro", "son seguros", "verificado", "verificados", "antecedentes");
-
+  /** Señales de pregunta de confianza/seguridad sobre quién viene a la casa.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1). */
   static boolean isTrustQuestion(String message) {
-    if (message == null || message.isBlank()) {
-      return false;
-    }
-    String normalized = message.toLowerCase(Locale.ROOT);
-    return TRUST_QUESTION_KEYWORDS.stream().anyMatch(normalized::contains);
-  }
-
-  private static final List<String> PRICE_QUESTION_KEYWORDS =
-      List.of("cuanto", "cuánto", "precio", "sale", "cuesta", "vale");
-
-  /** Detecta si el mensaje del cliente es una pregunta de precio (fallback sin LLM,
-   * ver PLAN_SUPERAPP_CLIENTE.md Cotización Estimada punto 3). Heurística simple por
-   * keywords, igual de espíritu que el resto de los clasificadores heurísticos del repo. */
-  private boolean isPriceQuestion(String message) {
-    if (message == null || message.isBlank()) {
-      return false;
-    }
-    String normalized = message.toLowerCase(Locale.ROOT);
-    return PRICE_QUESTION_KEYWORDS.stream().anyMatch(normalized::contains);
-  }
-
-  /**
-   * Respuesta del fallback heurístico a una pregunta de precio: si hay categoría
-   * definida y con rango cargado, responde el rango con el disclaimer de siempre.
-   * Si hay categoría pero sin rango cargado, es honesto: el proveedor cotiza.
-   * Si no hay categoría todavía, pide el dato antes de poder ayudar con precio.
-   */
-  private String heuristicPriceReply(Lead lead) {
-    boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
-        && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
-    if (!hasCategory) {
-      return "Para darte una idea de precio primero necesito saber qué necesitás arreglar — ¿de qué se trata?";
-    }
-    String category = humanCategory(lead.getDetectedCategory());
-    String range = com.fixy.backend.model.ServiceCategory.priceRangeLabelForId(lead.getDetectedCategory());
-    if (range == null) {
-      return "El precio de %s lo termina de confirmar el proveedor cuando vea el trabajo, así que no te quiero tirar un número inventado."
-          .formatted(category);
-    }
-    // CTA post-precio (simulación 2026-08-06, persona "pregunta_precio": la
-    // conversación moría después del rango — precio sin próximo paso es un
-    // callejón sin salida).
-    boolean zoneKnown = lead.getLocation() != null && !lead.getLocation().isBlank()
-        && !"sin definir".equalsIgnoreCase(lead.getLocation());
-    String cta = zoneKnown
-        ? " ¿Querés que te busque uno en %s?".formatted(lead.getLocation())
-        : " Si querés te consigo uno: ¿en qué zona estás?";
-    return "Para %s el rango orientativo ronda %s (visita + trabajo simple), pero el precio final te lo confirma el proveedor cuando vea el trabajo.%s"
-        .formatted(category, range, cta);
+    return HomeServicesPolicy.isTrustQuestion(message);
   }
 
   /** Una zona extraída por el LLM solo se acepta si aparece textualmente
    * (case-insensitive, sin acentos) en algún mensaje del CLIENTE de la
    * conversación reciente. Package-private para testear sin LLM real,
-   * mismo patrón que buildContext/parseTurnJson. */
+   * mismo patrón que buildContext/parseTurnJson. Implementación movida a
+   * HomeServicesPolicy (Core Fase 1, vía TurnPolicy — necesita el historial
+   * de mensajes del lead). */
   boolean zoneMentionedByCustomer(Long leadId, String zone) {
-    if (zone == null || zone.isBlank()) {
-      return false;
-    }
-    String needle = stripAccents(zone.toLowerCase(Locale.ROOT)).trim();
-    if (needle.isEmpty()) {
-      return false;
-    }
-    // Matching por TOKENS distintivos, no por frase completa: el cliente
-    // escribe "lomas" y el LLM canonicaliza a "Lomas de Solymar" (correcto) —
-    // la versión anterior exigía la frase entera y rechazaba la zona real
-    // (lead #123). Un token distintivo (>=4 letras, sin conectores) del
-    // nombre canónico alcanza; "hola" sigue sin validar "Ciudad de la Costa".
-    java.util.List<String> tokens = java.util.Arrays.stream(needle.split("\\s+"))
-        .filter(t -> t.length() >= 4 && !ZONE_STOPWORDS.contains(t))
-        .toList();
-    if (tokens.isEmpty()) {
-      return false;
-    }
-    return leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
-        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
-        .map(m -> stripAccents(m.getText().toLowerCase(Locale.ROOT)))
-        .anyMatch(text -> tokens.stream().anyMatch(text::contains));
-  }
-
-  private static final java.util.Set<String> ZONE_STOPWORDS =
-      java.util.Set.of("de", "del", "la", "las", "el", "los", "san", "santa");
-
-  private static String stripAccents(String s) {
-    return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
+    return turnPolicy.isZoneMentionedByCustomer(leadId, zone);
   }
 
   /** Una categoría extraída por el LLM solo se acepta si el CLIENTE dio algún
-   * rastro de ella en sus propios mensajes: o bien
-   * {@link com.fixy.backend.model.ServiceCategory#detectFromText} sobre el
-   * texto del cliente devuelve esa misma categoría, o alguna de sus keywords
-   * (ver {@link com.fixy.backend.model.ServiceCategory#keywords()}) aparece
-   * ahí (sin acentos, case-insensitive). Mismo patrón que
-   * zoneMentionedByCustomer — evita que el LLM le presuma una categoría a un
-   * cliente que solo dijo "hola" (leads #116/#119 en prod). Package-private
-   * para testear sin LLM real. */
+   * rastro de ella en sus propios mensajes. Package-private para testear sin
+   * LLM real. Implementación movida a HomeServicesPolicy (Core Fase 1, vía
+   * TurnPolicy). */
   boolean categoryMentionedByCustomer(Long leadId, String category) {
-    if (category == null || category.isBlank()) {
-      return false;
-    }
-    java.util.Optional<com.fixy.backend.model.ServiceCategory> target =
-        com.fixy.backend.model.ServiceCategory.fromId(category);
-    if (target.isEmpty()) {
-      // Categoría desconocida para el catálogo (no debería pasar dado el enum
-      // del schema, pero si pasa no hay nada que validar contra keywords):
-      // se rechaza, es más seguro que aceptar algo que no podemos verificar.
-      return false;
-    }
-    String customerText = stripAccents(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
-        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
-        .map(m -> m.getText().toLowerCase(Locale.ROOT))
-        .collect(Collectors.joining(" ")));
-    if (customerText.isBlank()) {
-      return false;
-    }
-    // 1) Clasificador heurístico laxo sobre el texto del cliente: si coincide
-    // con la misma categoría, es la validación más fuerte.
-    java.util.Optional<com.fixy.backend.model.ServiceCategory> detected =
-        com.fixy.backend.model.ServiceCategory.detectFromText(customerText);
-    if (detected.isPresent() && detected.get() == target.get()) {
-      return true;
-    }
-    // 2) Si detectFromText matcheó OTRA categoría primero (la búsqueda es
-    // "primer match" en orden del enum), igual aceptamos si alguna keyword
-    // propia de la categoría extraída aparece en el texto del cliente.
-    for (String keyword : target.get().keywords()) {
-      if (customerText.contains(stripAccents(keyword))) {
-        return true;
-      }
-    }
-    return false;
+    return turnPolicy.isCategoryMentionedByCustomer(leadId, category);
   }
 
   /**
@@ -962,6 +832,7 @@ public class LeadAgentService {
    * el LLM debe poder responder libre), y la respuesta generada no pide la
    * zona. En ese estado, cualquier otra repregunta es una respuesta rota
    * (caso real lead #138). Estático y puro para testearlo sin contexto.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1).
    */
   public static boolean shouldForceZoneQuestion(
       boolean categoryKnown,
@@ -970,60 +841,9 @@ public class LeadAgentService {
       String reply,
       boolean zoneArrivedThisTurn
   ) {
-    if (!categoryKnown || zoneArrivedThisTurn) {
-      return false;
-    }
-    boolean zoneMissing = location == null || location.isBlank() || "sin definir".equalsIgnoreCase(location);
-    if (!zoneMissing) {
-      return false;
-    }
-    if (lastCustomerMsg != null && (lastCustomerMsg.contains("?") || lastCustomerMsg.contains("¿"))) {
-      return false;
-    }
-    return !asksForZone(reply);
+    return HomeServicesPolicy.shouldForceZoneQuestion(
+        categoryKnown, location, lastCustomerMsg, reply, zoneArrivedThisTurn);
   }
-
-  /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
-  /**
-   * Señales explícitas de los mensajes del cliente (keywords de categoría y
-   * zona) pisan lo extraído por el LLM — la base determinista de las
-   * correcciones "me equivoqué". Usado por el camino LLM; opera sobre la
-   * tanda de mensajes pendientes del turno con la misma semántica secuencial
-   * que detectCategoryFromMessages.
-   */
-  private Map<String, String> withMessageSignals(List<String> messages, Map<String, String> extracted) {
-    String cat = detectCategoryFromMessages(messages);
-    String zone = null;
-    String phone = null;
-    for (String message : messages) {
-      String z = agentService.areaMentionedIn(message);
-      if (z != null) {
-        zone = z; // la última mención gana, igual que en turnos secuenciales
-      }
-      if (phone == null) {
-        phone = phoneMentionedIn(message);
-      }
-    }
-    if (cat == null && zone == null && phone == null) {
-      return extracted;
-    }
-    Map<String, String> merged = extracted == null
-        ? new java.util.HashMap<>() : new java.util.HashMap<>(extracted);
-    if (cat != null) {
-      merged.put("category", cat);
-    }
-    if (zone != null) {
-      merged.put("zone", zone);
-    }
-    if (phone != null && !merged.containsKey("phone")) {
-      merged.put("phone", phone);
-    }
-    return merged;
-  }
-
-  /** Patrón de celular uruguayo: 09X + 7 dígitos, con o sin +598/espacios/guiones. */
-  private static final java.util.regex.Pattern UY_PHONE = java.util.regex.Pattern.compile(
-      "(?:(?:\\+?598)[\\s.-]?0?|0)(9\\d(?:[\\s.-]?\\d){6})(?!\\d)");
 
   /**
    * Teléfono detectado por REGEX en el texto del cliente (simulación
@@ -1031,17 +851,10 @@ public class LeadAgentService {
    * en el primer mensaje, el lead quedó sin teléfono, y encima el agente le
    * volvió a pedir el WhatsApp — doble vergüenza). Lo crítico va en código:
    * si el cliente YA dio el número, se captura pase lo que pase con el LLM.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1).
    */
   public static String phoneMentionedIn(String message) {
-    if (message == null || message.isBlank()) {
-      return null;
-    }
-    java.util.regex.Matcher m = UY_PHONE.matcher(message);
-    if (!m.find()) {
-      return null;
-    }
-    String digits = "0" + m.group(1).replaceAll("\\D", "");
-    return digits.length() == 9 ? digits : null;
+    return HomeServicesPolicy.phoneMentionedIn(message);
   }
 
   /**
@@ -1086,13 +899,7 @@ public class LeadAgentService {
   }
 
   private boolean customerMentionedSmoke(Long leadId) {
-    try {
-      return leadMessageService.recentForAgent(leadId, 10).stream()
-          .anyMatch(m -> "customer".equals(m.getSender())
-              && com.fixy.backend.model.SmokeTraffic.marks(m.getText()));
-    } catch (Exception ex) {
-      return false;
-    }
+    return turnPolicy.customerMentionedSmoke(leadId);
   }
 
   /**
@@ -1126,28 +933,18 @@ public class LeadAgentService {
   static final String UNCOVERED_SERVICE_PHONE_ASK =
       "¿Me dejás un WhatsApp? Si sumamos ese servicio te aviso yo — si no, no tengo cómo volver a encontrarte.";
 
+  /** Implementación movida a HomeServicesPolicy (Core Fase 1). */
   public static boolean shouldAskContactPhone(
       boolean categoryKnown, boolean zoneKnown, String currentPhone,
       boolean phoneArrivedThisTurn, String reply) {
-    if (!categoryKnown || !zoneKnown) {
-      return false;
-    }
-    if (phoneArrivedThisTurn || (currentPhone != null && !currentPhone.isBlank())) {
-      return false;
-    }
-    return !asksForContactPhone(reply);
+    return HomeServicesPolicy.shouldAskContactPhone(
+        categoryKnown, zoneKnown, currentPhone, phoneArrivedThisTurn, reply);
   }
 
-  /** true si la respuesta ya pide teléfono/WhatsApp (insensible a acentos). */
+  /** true si la respuesta ya pide teléfono/WhatsApp (insensible a acentos).
+   * Implementación movida a HomeServicesPolicy (Core Fase 1). */
   public static boolean asksForContactPhone(String reply) {
-    if (reply == null || reply.isBlank()) {
-      return false;
-    }
-    String normalized = java.text.Normalizer.normalize(reply.toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD)
-        .replaceAll("\\p{M}", "");
-    return normalized.contains("whatsapp")
-        || normalized.contains("telefono")
-        || (normalized.contains("numero") && normalized.contains("contact"));
+    return HomeServicesPolicy.asksForContactPhone(reply);
   }
 
   /**
@@ -1259,84 +1056,26 @@ public class LeadAgentService {
     }
   }
 
-  /** true si la respuesta menciona la zona/ubicación como pregunta o pedido (insensible a acentos). */
+  /** true si la respuesta menciona la zona/ubicación como pregunta o pedido
+   * (insensible a acentos). Implementación movida a HomeServicesPolicy
+   * (Core Fase 1). */
   public static boolean asksForZone(String reply) {
-    if (reply == null || reply.isBlank()) {
-      return false;
-    }
-    String normalized = java.text.Normalizer.normalize(reply.toLowerCase(Locale.ROOT), java.text.Normalizer.Form.NFD)
-        .replaceAll("\\p{M}", "");
-    return normalized.contains("zona")
-        || normalized.contains("barrio")
-        || normalized.contains("donde")
-        || normalized.contains("ubicac")
-        || normalized.contains("direccion");
+    return HomeServicesPolicy.asksForZone(reply);
   }
 
-  /**
-   * Frases con las que una respuesta afirma que la búsqueda de proveedor
-   * sigue abierta. Solo se usan cuando el lead YA tiene proveedor encima:
-   * ahí cualquiera de estas es literalmente falsa (lead #257).
-   */
-  private static final List<String> STILL_SEARCHING_PHRASES = List.of(
-      "estoy buscando", "sigo buscando", "buscando un proveedor", "buscando uno",
-      "buscando a alguien", "voy a buscar", "busco un proveedor",
-      "no tengo proveedor", "no tenemos proveedor", "no tengo un proveedor",
-      "no tenemos un proveedor", "no hay proveedor", "todavia no se sumo nadie");
-
-  /** true si la respuesta afirma que todavía está buscando proveedor (insensible a acentos). */
+  /** true si la respuesta afirma que todavía está buscando proveedor
+   * (insensible a acentos). Implementación movida a HomeServicesPolicy
+   * (Core Fase 1). */
   static boolean claimsStillSearching(String reply) {
-    if (reply == null || reply.isBlank()) {
-      return false;
-    }
-    String normalized = stripAccents(reply.toLowerCase(Locale.ROOT));
-    return STILL_SEARCHING_PHRASES.stream().anyMatch(normalized::contains);
+    return HomeServicesPolicy.claimsStillSearching(reply);
   }
 
   /** true si la respuesta generada es (normalizada) igual al último mensaje
-   * que el agente ya mandó — señal de LLM en loop. Package-private para test. */
+   * que el agente ya mandó — señal de LLM en loop. Package-private para test.
+   * Implementación movida a HomeServicesPolicy (Core Fase 1, vía TurnPolicy —
+   * necesita el historial de mensajes del lead). */
   boolean isStuckRepeatingItself(Long leadId, String reply) {
-    if (reply == null || reply.isBlank()) {
-      return false;
-    }
-    List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
-    // Contra los últimos 3 mensajes del agente, no solo el último: el 8B
-    // también re-hace preguntas VIEJAS ya respondidas (lead #131: volvió a
-    // "¿qué tamaño tiene el jardín?" dos preguntas después del "30 m").
-    int checked = 0;
-    for (int i = recent.size() - 1; i >= 0 && checked < 3; i--) {
-      LeadMessage m = recent.get(i);
-      if ("fixy".equals(m.getSender())) {
-        checked++;
-        if (tokenSimilarity(normalizeForComparison(m.getText()),
-            normalizeForComparison(reply)) >= 0.8) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  private static double tokenSimilarity(String a, String b) {
-    java.util.Set<String> ta = new java.util.HashSet<>(java.util.Arrays.asList(a.split("\\s+")));
-    java.util.Set<String> tb = new java.util.HashSet<>(java.util.Arrays.asList(b.split("\\s+")));
-    ta.remove(""); tb.remove("");
-    if (ta.isEmpty() || tb.isEmpty()) {
-      return 0.0;
-    }
-    java.util.Set<String> inter = new java.util.HashSet<>(ta);
-    inter.retainAll(tb);
-    // Coeficiente de solapamiento (no Jaccard): el repetido típico del 8B es
-    // un SUBCONJUNTO del mensaje anterior (misma pregunta, menos preámbulo) —
-    // Jaccard lo diluye por la diferencia de largo; overlap lo clava en ~1.0.
-    return (double) inter.size() / Math.min(ta.size(), tb.size());
-  }
-
-  private static String normalizeForComparison(String text) {
-    if (text == null) {
-      return "";
-    }
-    return stripAccents(text.toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9 ]", "").trim();
+    return turnPolicy.isStuckRepeatingItself(leadId, reply);
   }
 
   private void recordShortAnswerToLastQuestion(Long leadId, Lead lead) {
@@ -1369,20 +1108,10 @@ public class LeadAgentService {
     }
   }
 
-  private static final java.util.Set<String> ACKNOWLEDGMENTS = java.util.Set.of(
-      "ok", "oka", "okey", "okay", "dale", "gracias", "muchas gracias", "perfecto",
-      "listo", "genial", "buenisimo", "barbaro", "ta", "va", "de acuerdo", "entendido",
-      "joya", "espero", "aguardo", "bueno", "bien");
-
-  /** true si el mensaje es un cierre/asentimiento corto ("ok", "gracias"). */
+  /** true si el mensaje es un cierre/asentimiento corto ("ok", "gracias").
+   * Implementación movida a HomeServicesPolicy (Core Fase 1). */
   static boolean isAcknowledgment(String message) {
-    if (message == null) {
-      return false;
-    }
-    String normalized = stripAccents(message.toLowerCase(Locale.ROOT))
-        .replaceAll("[^a-z ]", "").trim();
-    return !normalized.isEmpty() && normalized.length() <= 20
-        && ACKNOWLEDGMENTS.contains(normalized);
+    return HomeServicesPolicy.isAcknowledgment(message);
   }
 
   private String lastCustomerMessage(Long leadId) {
@@ -1498,10 +1227,11 @@ public class LeadAgentService {
    * ack de la zona ya conocida. El guard de {@code respondWithHeuristicFallback}
    * la comparaba por identidad contra {@link #ASK_WHAT_HAPPENED}, así que el
    * pedido sin categoría PERO con zona (lead #268) no entraba al escalamiento
-   * y terminaba en silencio.
+   * y terminaba en silencio. Implementación movida a HomeServicesPolicy
+   * (Core Fase 1).
    */
   static boolean isAskWhatHappened(String reply) {
-    return reply != null && reply.endsWith(ASK_WHAT_HAPPENED);
+    return HomeServicesPolicy.isAskWhatHappened(reply);
   }
 
   /** Acción opcional que el LLM puede pedir en el turno (Salto 2 del cerebro
@@ -1732,7 +1462,7 @@ public class LeadAgentService {
       // corrección en el mensaje (prueba de Carlos lead #235: "quiero agua
       // en el Tata" en un pedido de mandados lo pasaba a plomería — la
       // lista del mandado siempre nombra productos que son keywords de
-      // otras categorías). Ver CORRECTION_PHRASES.
+      // otras categorías). Ver HomeServicesPolicy.CORRECTION_PHRASES.
       boolean correctionIntent = isExplicitCorrection(lastCustomerText(leadId));
       if (cat != null && !cat.equalsIgnoreCase("otro")
           && (categoryBlank
@@ -2158,8 +1888,7 @@ public class LeadAgentService {
   }
 
   private boolean isSmokeLead(Lead lead) {
-    String problem = lead.getProblem();
-    return com.fixy.backend.model.SmokeTraffic.marks(problem);
+    return HomeServicesPolicy.isSmokeLead(lead);
   }
 
   /** Nunca debe interrumpir tryAutoMatch: TelegramNotifyService ya se protege
