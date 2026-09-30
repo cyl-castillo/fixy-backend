@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.dto.DiscoveredProviderCreateRequest;
 import com.fixy.backend.dto.DiscoveredProviderLinkResponse;
 import com.fixy.backend.dto.IntakeRequest;
@@ -33,8 +34,8 @@ public class LeadService {
 
   private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LeadService.class);
   private static final DateTimeFormatter HISTORY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
-  /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
-  private static final Set<String> MVP_CATEGORIES = Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
+  /** Fuente única: DomainCatalog (domain/home-services.yml). */
+  private static final Set<String> MVP_CATEGORIES = Set.copyOf(DomainCatalog.get().mvpIds());
   // Las zonas cubiertas ya no viven acá: fuente única en
   // com.fixy.backend.model.CoverageZone (se consulta con isCovered, que
   // normaliza acentos). Esta lista estaba escrita a mano y se había quedado
@@ -535,7 +536,7 @@ public class LeadService {
 
     if (location.isBlank() || "sin definir".equals(location)) {
       blockingFields.add("zona");
-    } else if (!com.fixy.backend.model.CoverageZone.isCovered(location)) {
+    } else if (!DomainCatalog.get().isCovered(location)) {
       blockingFields.add("zona_fuera_de_cobertura");
     }
     return blockingFields;

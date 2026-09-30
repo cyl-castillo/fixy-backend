@@ -2,6 +2,8 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import java.time.Duration;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -37,8 +39,9 @@ public class TranscriptionService {
   static final String CONTEXT_PROMPT =
       "Nota de voz en español rioplatense de Uruguay, sobre servicios del hogar o mandados en "
           + "Ciudad de la Costa. Nombres frecuentes: Tata, Abitab, Redpagos, barométrica, "
-          + "Solymar, Lomas de Solymar, Lagomar, El Pinar, Shangrilá, Barra de Carrasco, "
-          + "Parque Miramar, San José de Carrasco, Colinas de Solymar, Aeroparque.";
+          + String.join(", ", DomainCatalog.get().promptZones().stream()
+              .filter(zone -> !zone.isUmbrella()).map(ZoneDef::label).toList())
+          + ".";
 
   private final WebClient webClient;
   private final ObjectMapper objectMapper;

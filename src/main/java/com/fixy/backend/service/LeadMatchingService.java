@@ -1,5 +1,6 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
 import java.util.List;
@@ -77,9 +78,9 @@ public class LeadMatchingService {
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
 
-  /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
+  /** Fuente única: DomainCatalog (domain/home-services.yml). */
   private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
+      java.util.Set.copyOf(DomainCatalog.get().mvpIds());
 
   /** Copia de LeadAgentService.hasMatchingRequirements: categoría MVP conocida
    * y zona cubierta. Duplicado a propósito (ver javadoc de la clase sobre por
@@ -90,7 +91,7 @@ public class LeadMatchingService {
     String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
     if (cat.isBlank() || "otro".equals(cat) || !MVP_CATEGORIES.contains(cat)) return false;
     if (loc.isBlank() || "sin definir".equals(loc)
-        || !com.fixy.backend.model.CoverageZone.isCovered(loc)) return false;
+        || !DomainCatalog.get().isCovered(loc)) return false;
     return true;
   }
 
@@ -452,10 +453,10 @@ public class LeadMatchingService {
     }
   }
 
-  /** Deriva del catálogo único ServiceCategory (ver su javadoc). Copia de
+  /** Deriva del catálogo único DomainCatalog (domain/home-services.yml). Copia de
    * {@code LeadAgentService.humanCategory}. */
   private String humanCategory(String raw) {
-    return com.fixy.backend.model.ServiceCategory.humanLabel(raw);
+    return DomainCatalog.get().humanLabel(raw);
   }
 
   /** Copia de {@code LeadAgentService.safe}. */

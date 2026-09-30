@@ -21,56 +21,13 @@ public class AgentService {
 
   private static final Logger log = LoggerFactory.getLogger(AgentService.class);
 
-  // El catálogo de zonas vive en com.fixy.backend.model.CoverageZone (fuente
-  // única). Acá se consulta con fromLabel, que ya normaliza mayúsculas y tildes.
+  // El catálogo de zonas y categorías vive en domain/home-services.yml (fuente única,
+  // ver DomainCatalog). Acá se consulta con DomainCatalog.get(): zoneByLabel normaliza
+  // mayúsculas y tildes, y detectZone recorre las zonas en el orden de prioridad del YAML
+  // (específicas antes que "solymar" a secas, caso real lead #132: "montes" cayó a
+  // "Ciudad de la Costa").
 
-  /**
-   * Valores canónicos de "area" (display) + "sin definir", usados como enum estricto en el
-   * json_schema de Cloudflare Workers AI para que el modelo no devuelva texto libre.
-   */
-  private static final List<String> CANONICAL_AREAS = List.of(
-      "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar",
-      "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Montes de Solymar", "Aeroparque",
-      "Ciudad de la Costa", "sin definir"
-  );
-
-  /**
-   * Token distintivo por zona MVP (sin acentos, minúscula) usado por
-   * {@link #detectArea} para matchear el nombre completo o solo un fragmento
-   * característico que el cliente escribe en lenguaje natural (ej. "vivo en
-   * los montes" → Montes de Solymar). Orden = prioridad de match: las
-   * entradas de zonas específicas van ANTES que "solymar" a secas, porque
-   * "lomas de solymar"/"colinas de solymar"/"montes de solymar" contienen la
-   * palabra "solymar" y matchearían el genérico primero si el orden fuera al
-   * revés (caso real lead #132: "montes" cayó a "Ciudad de la Costa").
-   * LinkedHashMap: el orden de inserción es el orden de evaluación.
-   */
-  private static final java.util.LinkedHashMap<String, String> ZONE_TOKENS = buildZoneTokens();
-
-  private static java.util.LinkedHashMap<String, String> buildZoneTokens() {
-    java.util.LinkedHashMap<String, String> tokens = new java.util.LinkedHashMap<>();
-    tokens.put("montes de solymar", "montes de solymar");
-    tokens.put("montes", "montes de solymar");
-    tokens.put("lomas de solymar", "lomas de solymar");
-    tokens.put("lomas", "lomas de solymar");
-    tokens.put("colinas de solymar", "colinas de solymar");
-    tokens.put("colinas", "colinas de solymar");
-    tokens.put("shangrila", "shangrilá");
-    tokens.put("shangrilá", "shangrilá");
-    tokens.put("el pinar", "el pinar");
-    tokens.put("pinar", "el pinar");
-    tokens.put("barra de carrasco", "barra de carrasco");
-    tokens.put("parque miramar", "parque miramar");
-    tokens.put("miramar", "parque miramar");
-    tokens.put("san jose de carrasco", "san josé de carrasco");
-    tokens.put("san josé de carrasco", "san josé de carrasco");
-    tokens.put("aeroparque", "aeroparque");
-    tokens.put("lagomar", "lagomar");
-    tokens.put("solymar", "solymar");
-    return tokens;
-  }
-
-  private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.load("prompts/intake-classifier.md");
+  private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.loadFormatTemplate("prompts/intake-classifier.md");
 
   private final ObjectMapper objectMapper;
   private final LlmGateway llmGateway;
@@ -156,7 +113,7 @@ public class AgentService {
       JsonNode result = objectMapper.readTree(text);
       return new IntakeResponse(
           result.path("leadType").asText("cliente"),
-          com.fixy.backend.model.ServiceCategory.refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
+          DomainCatalog.get().refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           result.path("area").asText(detectArea(request.message())),
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),
@@ -207,7 +164,7 @@ public class AgentService {
 
       return new IntakeResponse(
           result.path("leadType").asText("cliente"),
-          com.fixy.backend.model.ServiceCategory.refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
+          DomainCatalog.get().refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           normalizeAreaValue(result.path("area").asText(detectArea(request.message()))),
           result.path("urgency").asText("media"),
           result.path("summary").asText(buildSummary(request, detectService(request.message()))),
@@ -256,15 +213,20 @@ public class AgentService {
    */
   static Map<String, Object> intakeJsonSchema() {
     List<String> leadTypeEnum = List.of("cliente", "proveedor");
-    // Fuente única: com.fixy.backend.model.ServiceCategory (MVP + legacy no-MVP + "otro").
-    List<String> serviceCategoryEnum = com.fixy.backend.model.ServiceCategory.ALL_IDS_INCLUDING_OTRO;
+    // Fuente única: DomainCatalog (MVP + legacy no-MVP + "otro").
+    DomainCatalog catalog = DomainCatalog.get();
+    List<String> serviceCategoryEnum = catalog.allCategoryIds();
+    // Valores canónicos de "area" (display) + "sin definir", usados como enum estricto en el
+    // json_schema de Cloudflare Workers AI para que el modelo no devuelva texto libre.
+    List<String> areaEnum = java.util.stream.Stream.concat(
+        catalog.promptZones().stream().map(ZoneDef::label), java.util.stream.Stream.of(catalog.areaUnknown())).toList();
     List<String> urgencyEnum = List.of("alta", "media", "baja");
     return Map.of(
         "type", "object",
         "properties", Map.of(
             "leadType", Map.of("type", "string", "enum", leadTypeEnum),
             "serviceCategory", Map.of("type", "string", "enum", serviceCategoryEnum),
-            "area", Map.of("type", "string", "enum", CANONICAL_AREAS),
+            "area", Map.of("type", "string", "enum", areaEnum),
             "urgency", Map.of("type", "string", "enum", urgencyEnum),
             "summary", Map.of("type", "string"),
             "missingFields", Map.of("type", "array", "items", Map.of("type", "string")),
@@ -284,20 +246,19 @@ public class AgentService {
    */
   static String normalizeAreaValue(String rawArea) {
     if (rawArea == null || rawArea.isBlank()) {
-      return "sin definir";
+      return DomainCatalog.get().areaUnknown();
     }
     String normalized = stripAccents(rawArea.toLowerCase(Locale.ROOT).trim());
-    if ("sin definir".equals(normalized)) {
-      return "sin definir";
+    DomainCatalog catalog = DomainCatalog.get();
+    if (DomainCatalog.normalize(catalog.areaUnknown()).equals(normalized)) {
+      return catalog.areaUnknown();
     }
-    java.util.Optional<ZoneDef> canonical = DomainCatalog.get().zoneByLabel(normalized);
+    java.util.Optional<ZoneDef> canonical = catalog.zoneByLabel(normalized);
     if (canonical.isPresent()) {
       return canonical.get().label();
     }
-    if ("canelones".equals(normalized)) {
-      return "Ciudad de la Costa";
-    }
-    return "sin definir";
+    // Valor genérico del paraguas sin barrio (ej. "canelones"): tokens de detección del paraguas.
+    return catalog.umbrellaByDetectToken(normalized).map(ZoneDef::label).orElse(catalog.areaUnknown());
   }
 
   private static String stripAccents(String value) {
@@ -387,7 +348,7 @@ public class AgentService {
     return "cliente";
   }
 
-  /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
+  /** Deriva del catálogo único DomainCatalog (domain/home-services.yml). */
   private String detectService(String message) {
     return DomainCatalog.get().detectCategory(message)
         .map(CategoryDef::id)
@@ -402,16 +363,8 @@ public class AgentService {
   }
 
   private String detectArea(String message) {
-    String normalized = stripAccents(message.toLowerCase(Locale.ROOT));
-    for (Map.Entry<String, String> entry : ZONE_TOKENS.entrySet()) {
-      if (normalized.contains(stripAccents(entry.getKey()))) {
-        return toDisplayArea(entry.getValue());
-      }
-    }
-    if (normalized.contains("ciudad de la costa") || normalized.contains("canelones")) {
-      return "Ciudad de la Costa";
-    }
-    return "sin definir";
+    DomainCatalog catalog = DomainCatalog.get();
+    return catalog.detectZone(message).map(ZoneDef::label).orElse(catalog.areaUnknown());
   }
 
   /**
@@ -425,7 +378,7 @@ public class AgentService {
       return null;
     }
     String area = detectArea(message);
-    return "sin definir".equals(area) ? null : area;
+    return DomainCatalog.get().areaUnknown().equals(area) ? null : area;
   }
 
   private String resolvedArea(IntakeRequest request, String message) {
@@ -455,7 +408,7 @@ public class AgentService {
   /** true si el mensaje menciona alguna zona reconocida (misma fuente que
    * {@link #detectArea}, sin duplicar la lista de tokens de zonas). */
   private boolean mentionsAnyZone(String message) {
-    return !"sin definir".equals(detectArea(message));
+    return !DomainCatalog.get().areaUnknown().equals(detectArea(message));
   }
 
   private List<String> detectMissingFields(IntakeRequest request, String message) {
@@ -531,42 +484,18 @@ public class AgentService {
   }
 
   /**
-   * Etiqueta canónica de una zona escrita como venga (mayúsculas, con o sin
-   * tilde). Era un switch con las 11 zonas escritas a mano — la quinta copia
-   * del mismo catálogo; ahora deriva de {@link com.fixy.backend.model.CoverageZone}.
-   * Lo que no reconoce cae al paraguas "Ciudad de la Costa", igual que antes.
+   * Categoría ya declarada por el usuario (no texto libre): usa la lista deliberadamente más
+   * CORTA {@code declaredKeywords} del catálogo — no deriva de {@code keywords} a propósito,
+   * para no ampliar sus matches y arriesgar falsos positivos. Mismo orden de evaluación que
+   * antes (el de declaración del catálogo).
    */
-  private static String toDisplayArea(String zone) {
-    return DomainCatalog.get().zoneByLabel(zone)
-        .map(ZoneDef::label)
-        .orElse("Ciudad de la Costa");
-  }
-
   private String normalizeServiceCategory(String serviceCategory) {
     String normalized = serviceCategory.toLowerCase(Locale.ROOT).trim();
-    if (containsAny(normalized, "plomer", "agua", "caño", "cano")) {
-      return "plomeria";
-    }
-    if (containsAny(normalized, "electric", "luz")) {
-      return "electricidad";
-    }
-    if (containsAny(normalized, "cerraj", "llave", "cerradura")) {
-      return "cerrajeria";
-    }
-    if (containsAny(normalized, "barometr")) {
-      return "barometrica";
-    }
-    if (containsAny(normalized, "jardin", "jardín", "pasto", "cesped", "césped", "jardiner")) {
-      return "jardineria";
-    }
-    if (containsAny(normalized, "aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización", "refrigeracion", "refrigeración")) {
-      return "aires_acondicionados";
-    }
-    if (containsAny(normalized, "torta", "cumpleaños", "cumpleanos", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería")) {
-      return "pasteleria";
-    }
-    if (containsAny(normalized, "decoracion", "decoración", "ambientacion", "ambientación", "globos")) {
-      return "decoracion_fiestas";
+    for (CategoryDef category : DomainCatalog.get().categories()) {
+      if (!category.declaredKeywords().isEmpty()
+          && containsAny(normalized, category.declaredKeywords().toArray(String[]::new))) {
+        return category.id();
+      }
     }
     return normalized.isBlank() ? "otro" : normalized;
   }

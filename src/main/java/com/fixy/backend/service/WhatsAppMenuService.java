@@ -5,7 +5,6 @@ import com.fixy.backend.domain.DomainCatalog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,9 +15,14 @@ import org.springframework.stereotype.Service;
  * categorías MVP de Fixy, equivalente conversacional del formulario guiado
  * de la landing (ver spec "WhatsApp como canal de entrada").
  *
- * No declara qué categorías existen — eso sigue viviendo en ServiceCategory
- * (fuente única, ver su javadoc). Este servicio solo sabe cómo mostrarlas en
- * el formato de interactive list de Cloud API.
+ * No declara qué categorías existen — eso vive en el catálogo de dominio
+ * (domain/home-services.yml, ver DomainCatalog). Este servicio solo sabe cómo
+ * mostrarlas en el formato de interactive list de Cloud API. Las descripciones
+ * cortas por categoría (límite Meta: 72 caracteres) son el campo
+ * {@code menuDescription} del YAML: no derivan de keywords (señales de
+ * clasificación, no lecturas naturales) ni de intakeHint (pregunta completa de
+ * seguimiento, pensada para el agente, no para una fila de menú) — es contenido
+ * curado a mano, y afecta solo cómo se ve el menú, nunca clasificación ni matching.
  */
 @Service
 public class WhatsAppMenuService {
@@ -26,25 +30,8 @@ public class WhatsAppMenuService {
   private static final Logger log = LoggerFactory.getLogger(WhatsAppMenuService.class);
 
   /** Fila de escape para quien prefiere no usar el menú. No es una categoría
-   * de ServiceCategory — es una salida explícita hacia el texto libre. */
+   * del catálogo — es una salida explícita hacia el texto libre. */
   private static final String OTHER_ROW_ID = "otro";
-
-  /**
-   * Descripciones cortas por categoría (límite Meta: 72 caracteres). No
-   * derivan de ServiceCategory.keywords (señales de clasificación, no lecturas
-   * naturales) ni de intakeHint (pregunta completa de seguimiento, pensada
-   * para el agente, no para una fila de menú) — es contenido nuevo, curado a
-   * mano, y afecta solo cómo se ve el menú, nunca clasificación ni matching.
-   */
-  private static final Map<String, String> ROW_DESCRIPTIONS = Map.ofEntries(
-      Map.entry("plomeria", "Pérdidas, canillas tapadas, destapes"),
-      Map.entry("barometrica", "Pozos y cámaras sépticas"),
-      Map.entry("jardineria", "Corte de pasto, poda, mantenimiento"),
-      Map.entry("aires_acondicionados", "Instalación, service, no enfría o no calienta"),
-      Map.entry("pasteleria", "Tortas, cumpleaños, mesa dulce"),
-      Map.entry("decoracion_fiestas", "Globos, ambientación, decoración de eventos"),
-      Map.entry("mandados", "Súper, farmacia, trámites y pagos")
-  );
 
   private final WhatsAppService whatsappService;
   private final boolean enabled;
@@ -82,7 +69,7 @@ public class WhatsAppMenuService {
       rows.add(new WhatsAppService.ListRow(
           category.id(),
           capitalize(category.label()),
-          ROW_DESCRIPTIONS.getOrDefault(category.id(), "")));
+          category.menuDescription() == null ? "" : category.menuDescription()));
     }
     rows.add(new WhatsAppService.ListRow(OTHER_ROW_ID, "Otro / escribir", "Contame con tus palabras"));
 

@@ -538,7 +538,7 @@ public class LeadAgentService {
     // Zona NO RECONOCIDA ≠ zona ausente (guardia diaria 2026-09-02, lead #265).
     // El vecino pidió mantenimiento de aire, dijo "vivo en montevideo", Fixy le
     // preguntó la zona, contestó "pocitos" — y recibió la MISMA frase carácter
-    // por carácter, porque "Pocitos" no está en CoverageZone: fromLabel da
+    // por carácter, porque "Pocitos" no está en el catálogo de zonas: fromLabel da
     // vacío, la zona no se guarda, y el builder del ack reconstruye idéntica
     // la pregunta que el vecino ya contestó. Se fue. Repreguntar lo mismo no
     // se arregla callándose (silencio es peor): se le dice la verdad de hasta
@@ -580,12 +580,12 @@ public class LeadAgentService {
 
   /**
    * Hasta dónde llega Fixy, en una frase. Se arma desde
-   * {@link com.fixy.backend.model.CoverageZone} (fuente única) y no a mano:
+   * {@link DomainCatalog} (fuente única) y no a mano:
    * una zona nueva no puede dejar este mensaje mintiéndole al vecino, que es
    * exactamente el bug que motivó el enum.
    */
   private String realCoverageReply(Lead lead) {
-    List<String> labels = com.fixy.backend.model.CoverageZone.LABELS;
+    List<String> labels = DomainCatalog.get().zoneLabels();
     String areas = labels.size() < 2
         ? String.join(", ", labels)
         : labels.get(0) + " (" + String.join(", ", labels.subList(1, labels.size())) + ")";
@@ -615,7 +615,7 @@ public class LeadAgentService {
    * <p>No afirma "ese servicio no lo cubrimos": por acá también cae el que
    * escribió "hola" dos veces, y ahí sería mentira. Dice lo único que es
    * cierto en los dos casos —no se entendió— y muestra la carta. La lista
-   * sale de {@link ServiceCategory#MVP_LABELS}, fuente única, para que sumar
+   * sale de {@link DomainCatalog#mvpLabels}, fuente única, para que sumar
    * una categoría no deje este mensaje desactualizado. Implementación movida
    * a HomeServicesPolicy (Core Fase 1); queda acá como delegador porque los
    * tests la llaman directo sobre LeadAgentService.
@@ -1188,9 +1188,9 @@ public class LeadAgentService {
   record AgentTurnResult(String reply, Map<String, String> extracted, AgentAction action) {}
 
   private AgentTurnResult respondAndExtractTurn(Lead lead, String context, String history) {
-    // Catálogo derivado de ServiceCategory.MVP_IDS (fuente única) — antes era
+    // Catálogo derivado de DomainCatalog.mvpIds() (fuente única) — antes era
     // una lista "plomeria|barometrica|..." fija a mano acá.
-    String categoryOptions = String.join("|", com.fixy.backend.model.ServiceCategory.MVP_IDS) + "|otro|null";
+    String categoryOptions = String.join("|", DomainCatalog.get().mvpIds()) + "|otro|null";
     String userContent = context + "\n\nConversación reciente:\n" + history + """
 
 
@@ -1258,10 +1258,10 @@ public class LeadAgentService {
    * LlmGateway.
    */
   private Map<String, Object> turnJsonSchema() {
-    // Fuente única: com.fixy.backend.model.ServiceCategory.MVP_IDS. El turno
+    // Fuente única: DomainCatalog.get().mvpIds(). El turno
     // conversacional solo pide categorías MVP (matching real) + "otro".
     List<String> categoryEnum = java.util.stream.Stream.concat(
-        com.fixy.backend.model.ServiceCategory.MVP_IDS.stream(), java.util.stream.Stream.of("otro")).toList();
+        DomainCatalog.get().mvpIds().stream(), java.util.stream.Stream.of("otro")).toList();
     List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
         "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Montes de Solymar", "Colinas de Solymar",
         "Aeroparque", "Ciudad de la Costa", "otro");
@@ -1382,7 +1382,7 @@ public class LeadAgentService {
       // Desempate determinista pastelería/decoración sobre lo que dijo el
       // modelo (banco: mixto_cumple_decoracion; ver ServiceCategory).
       if (cat != null) {
-        cat = com.fixy.backend.model.ServiceCategory.refineCategoryId(lastCustomerText(leadId), cat);
+        cat = DomainCatalog.get().refineCategoryId(lastCustomerText(leadId), cat);
       }
       // "Me equivoqué, no es X" (pedido de Carlos 2026-07-30, pensando en
       // personas mayores): mientras el pedido NO tenga proveedor contactado,
@@ -1577,7 +1577,7 @@ public class LeadAgentService {
   /**
    * Detecta categoría buscando keywords en el último mensaje del cliente y/o
    * en el problema del lead. Fallback cuando el LLM duda y devuelve "otro".
-   * Deriva del catálogo único ServiceCategory (ver su javadoc) — antes esta
+   * Deriva del catálogo único DomainCatalog (domain/home-services.yml) — antes esta
    * lista de keywords estaba duplicada a mano acá y en AgentService.detectService.
    */
   private String heuristicCategory(Lead lead) {
@@ -1679,7 +1679,7 @@ public class LeadAgentService {
     String priceRangeLine = buildPriceRangeLine(rawCategory, categoryKnown);
     String intakeHintLine = "";
     if (categoryKnown) {
-      String hint = com.fixy.backend.model.ServiceCategory.intakeHintForId(rawCategory);
+      String hint = DomainCatalog.get().intakeHintForId(rawCategory);
       if (hint != null) {
         // Guion de intake determinista por categoría: sin esto el 8B inventa
         // preguntas de OTRA categoría (lead #123: "¿cuántas porciones?" para
@@ -1727,7 +1727,7 @@ public class LeadAgentService {
     if (!categoryKnown) {
       return "";
     }
-    String range = com.fixy.backend.model.ServiceCategory.priceRangeLabelForId(rawCategory);
+    String range = DomainCatalog.get().priceRangeLabel(rawCategory);
     if (range == null) {
       return "";
     }
@@ -1801,10 +1801,10 @@ public class LeadAgentService {
     };
   }
 
-  /** Fuente única: com.fixy.backend.model.ServiceCategory (ver su javadoc). */
+  /** Fuente única: DomainCatalog (domain/home-services.yml). */
   private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.copyOf(com.fixy.backend.model.ServiceCategory.MVP_IDS);
-  // Zonas cubiertas: fuente única en com.fixy.backend.model.CoverageZone
+      java.util.Set.copyOf(DomainCatalog.get().mvpIds());
+  // Zonas cubiertas: fuente única en DomainCatalog (domain/home-services.yml)
   // (isCovered normaliza acentos, así que "Shangrilá" y "Shangrila" son la
   // misma zona sin necesidad de listar las dos formas).
 
@@ -1815,7 +1815,7 @@ public class LeadAgentService {
       return "out_of_scope_category";
     }
     if (!loc.isBlank() && !"sin definir".equals(loc)
-        && !com.fixy.backend.model.CoverageZone.isCovered(loc)) {
+        && !DomainCatalog.get().isCovered(loc)) {
       return "out_of_coverage_area";
     }
     return "ok";
@@ -1862,9 +1862,9 @@ public class LeadAgentService {
     return "Hola, soy Fixy. Ya recibí tu pedido de %s en %s. Estoy buscando un proveedor disponible — te aviso por acá apenas alguien acepte.".formatted(category, location);
   }
 
-  /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
+  /** Deriva del catálogo único DomainCatalog (domain/home-services.yml). */
   private String humanCategory(String raw) {
-    return com.fixy.backend.model.ServiceCategory.humanLabel(raw);
+    return DomainCatalog.get().humanLabel(raw);
   }
 
   /**
@@ -1904,7 +1904,7 @@ public class LeadAgentService {
     leadRepository.save(lead);
     leadTimelineService.appendEvent(lead, "MENU_CATEGORY_SELECTED", "user",
         "Eligió " + category.label() + " en el menú de WhatsApp");
-    String hint = com.fixy.backend.model.ServiceCategory.intakeHintForId(category.id());
+    String hint = DomainCatalog.get().intakeHintForId(category.id());
     String reply = hint != null
         ? "Perfecto, %s. Contame %s.".formatted(category.label(), hint)
         : "Perfecto, %s. Contame qué necesitás y en qué zona estás.".formatted(category.label());

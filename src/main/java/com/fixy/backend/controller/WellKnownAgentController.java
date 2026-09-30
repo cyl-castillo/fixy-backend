@@ -1,7 +1,7 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.WellKnownAgentResponse;
-import com.fixy.backend.model.CoverageZone;
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.service.ServiceCatalogService;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
@@ -41,7 +41,7 @@ public class WellKnownAgentController {
         publicAppBaseUrl,
         "Ciudad de la Costa, Canelones, Uruguay",
         List.copyOf(serviceCatalogService.activeCategories()),
-        List.copyOf(CoverageZone.LABELS),
+        List.copyOf(DomainCatalog.get().zoneLabels()),
         publicApiBaseUrl + "/api/public/mcp",
         publicApiBaseUrl + "/api/public/catalog/services",
         "https://wa.me/" + contactWhatsapp
