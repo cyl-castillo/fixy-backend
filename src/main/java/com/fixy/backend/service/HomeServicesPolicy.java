@@ -1,5 +1,7 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.CategoryDef;
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
 import java.util.List;
@@ -79,9 +81,9 @@ public class HomeServicesPolicy implements TurnPolicy {
 
   /** Una categoría extraída por el LLM solo se acepta si el CLIENTE dio algún
    * rastro de ella en sus propios mensajes: o bien
-   * {@link com.fixy.backend.model.ServiceCategory#detectFromText} sobre el
+   * {@link DomainCatalog#detectCategory} sobre el
    * texto del cliente devuelve esa misma categoría, o alguna de sus keywords
-   * (ver {@link com.fixy.backend.model.ServiceCategory#keywords()}) aparece
+   * (ver {@link CategoryDef#keywords()}) aparece
    * ahí (sin acentos, case-insensitive). Mismo patrón que
    * isZoneMentionedByCustomer — evita que el LLM le presuma una categoría a
    * un cliente que solo dijo "hola" (leads #116/#119 en prod). */
@@ -90,8 +92,8 @@ public class HomeServicesPolicy implements TurnPolicy {
     if (category == null || category.isBlank()) {
       return false;
     }
-    java.util.Optional<com.fixy.backend.model.ServiceCategory> target =
-        com.fixy.backend.model.ServiceCategory.fromId(category);
+    java.util.Optional<CategoryDef> target =
+        DomainCatalog.get().categoryById(category);
     if (target.isEmpty()) {
       // Categoría desconocida para el catálogo (no debería pasar dado el enum
       // del schema, pero si pasa no hay nada que validar contra keywords):
@@ -107,13 +109,13 @@ public class HomeServicesPolicy implements TurnPolicy {
     }
     // 1) Clasificador heurístico laxo sobre el texto del cliente: si coincide
     // con la misma categoría, es la validación más fuerte.
-    java.util.Optional<com.fixy.backend.model.ServiceCategory> detected =
-        com.fixy.backend.model.ServiceCategory.detectFromText(customerText);
-    if (detected.isPresent() && detected.get() == target.get()) {
+    java.util.Optional<CategoryDef> detected =
+        DomainCatalog.get().detectCategory(customerText);
+    if (detected.isPresent() && detected.get().id().equals(target.get().id())) {
       return true;
     }
     // 2) Si detectFromText matcheó OTRA categoría primero (la búsqueda es
-    // "primer match" en orden del enum), igual aceptamos si alguna keyword
+    // "primer match" en orden del catálogo), igual aceptamos si alguna keyword
     // propia de la categoría extraída aparece en el texto del cliente.
     for (String keyword : target.get().keywords()) {
       if (customerText.contains(stripAccents(keyword))) {
@@ -244,8 +246,8 @@ public class HomeServicesPolicy implements TurnPolicy {
     if (!hasCategory) {
       return "Para darte una idea de precio primero necesito saber qué necesitás arreglar — ¿de qué se trata?";
     }
-    String category = com.fixy.backend.model.ServiceCategory.humanLabel(lead.getDetectedCategory());
-    String range = com.fixy.backend.model.ServiceCategory.priceRangeLabelForId(lead.getDetectedCategory());
+    String category = DomainCatalog.get().humanLabel(lead.getDetectedCategory());
+    String range = DomainCatalog.get().priceRangeLabel(lead.getDetectedCategory());
     if (range == null) {
       return "El precio de %s lo termina de confirmar el proveedor cuando vea el trabajo, así que no te quiero tirar un número inventado."
           .formatted(category);
@@ -364,8 +366,8 @@ public class HomeServicesPolicy implements TurnPolicy {
   public static String detectCategoryFromMessages(List<String> messages) {
     String category = null;
     for (String message : messages) {
-      String detected = com.fixy.backend.model.ServiceCategory.detectFromText(message)
-          .map(com.fixy.backend.model.ServiceCategory::id)
+      String detected = DomainCatalog.get().detectCategory(message)
+          .map(CategoryDef::id)
           .orElse(null);
       if (detected == null) {
         continue;
@@ -481,11 +483,11 @@ public class HomeServicesPolicy implements TurnPolicy {
    * <p>No afirma "ese servicio no lo cubrimos": por acá también cae el que
    * escribió "hola" dos veces, y ahí sería mentira. Dice lo único que es
    * cierto en los dos casos —no se entendió— y muestra la carta. La lista
-   * sale de {@link com.fixy.backend.model.ServiceCategory#MVP_LABELS}, fuente
+   * sale de {@link DomainCatalog#mvpLabels}, fuente
    * única, para que sumar una categoría no deje este mensaje desactualizado.
    */
   public static String whatFixyCoversReply() {
-    List<String> labels = com.fixy.backend.model.ServiceCategory.MVP_LABELS;
+    List<String> labels = DomainCatalog.get().mvpLabels();
     String servicios = labels.size() < 2
         ? String.join(", ", labels)
         : String.join(", ", labels.subList(0, labels.size() - 1)) + " y " + labels.get(labels.size() - 1);

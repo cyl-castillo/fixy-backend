@@ -2,6 +2,9 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.domain.CategoryDef;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import java.util.ArrayList;
@@ -287,8 +290,7 @@ public class AgentService {
     if ("sin definir".equals(normalized)) {
       return "sin definir";
     }
-    java.util.Optional<com.fixy.backend.model.CoverageZone> canonical =
-        com.fixy.backend.model.CoverageZone.fromLabel(normalized);
+    java.util.Optional<ZoneDef> canonical = DomainCatalog.get().zoneByLabel(normalized);
     if (canonical.isPresent()) {
       return canonical.get().label();
     }
@@ -387,8 +389,8 @@ public class AgentService {
 
   /** Deriva del catálogo único ServiceCategory (ver su javadoc). */
   private String detectService(String message) {
-    return com.fixy.backend.model.ServiceCategory.detectFromText(message)
-        .map(com.fixy.backend.model.ServiceCategory::id)
+    return DomainCatalog.get().detectCategory(message)
+        .map(CategoryDef::id)
         .orElse("otro");
   }
 
@@ -535,8 +537,8 @@ public class AgentService {
    * Lo que no reconoce cae al paraguas "Ciudad de la Costa", igual que antes.
    */
   private static String toDisplayArea(String zone) {
-    return com.fixy.backend.model.CoverageZone.fromLabel(zone)
-        .map(com.fixy.backend.model.CoverageZone::label)
+    return DomainCatalog.get().zoneByLabel(zone)
+        .map(ZoneDef::label)
         .orElse("Ciudad de la Costa");
   }
 

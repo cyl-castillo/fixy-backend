@@ -1,0 +1,693 @@
+{
+  "zones" : [ {
+    "id" : "CIUDAD_DE_LA_COSTA",
+    "label" : "Ciudad de la Costa",
+    "parent" : null,
+    "aliases" : [ "La Costa" ]
+  }, {
+    "id" : "SOLYMAR",
+    "label" : "Solymar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "LAGOMAR",
+    "label" : "Lagomar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "EL_PINAR",
+    "label" : "El Pinar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "SHANGRILA",
+    "label" : "Shangrilá",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "BARRA_DE_CARRASCO",
+    "label" : "Barra de Carrasco",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "PARQUE_MIRAMAR",
+    "label" : "Parque Miramar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "SAN_JOSE_DE_CARRASCO",
+    "label" : "San José de Carrasco",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "LOMAS_DE_SOLYMAR",
+    "label" : "Lomas de Solymar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "COLINAS_DE_SOLYMAR",
+    "label" : "Colinas de Solymar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "MONTES_DE_SOLYMAR",
+    "label" : "Montes de Solymar",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  }, {
+    "id" : "AEROPARQUE",
+    "label" : "Aeroparque",
+    "parent" : "CIUDAD_DE_LA_COSTA",
+    "aliases" : [ ]
+  } ],
+  "LABELS" : [ "Ciudad de la Costa", "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Montes de Solymar", "Aeroparque" ],
+  "NORMALIZED_TOKENS" : [ "aeroparque", "barra de carrasco", "ciudad de la costa", "colinas de solymar", "el pinar", "la costa", "lagomar", "lomas de solymar", "montes de solymar", "parque miramar", "san jose de carrasco", "shangrila", "solymar" ],
+  "categories" : [ {
+    "enumName" : "PLOMERIA",
+    "id" : "plomeria",
+    "label" : "plomería",
+    "mvp" : true,
+    "keywords" : [ "agua", "canilla", "ducha", "caño", "cano", "perdida", "pierde", "perdida de agua", "pierde agua", "plomer", "destap" ],
+    "priceMin" : 800,
+    "priceMax" : 2500,
+    "priceRangeLabel" : "$800–2500",
+    "intakeHint" : "qué pasa exactamente (pérdida, canilla tapada, destape) y si es urgente"
+  }, {
+    "enumName" : "ELECTRICIDAD",
+    "id" : "electricidad",
+    "label" : "electricidad",
+    "mvp" : false,
+    "keywords" : [ "luz", "corriente", "enchufe", "tablero", "corto", "electric" ],
+    "priceMin" : null,
+    "priceMax" : null,
+    "priceRangeLabel" : null,
+    "intakeHint" : "qué falla (sin luz general, un enchufe, el tablero) y si es urgente"
+  }, {
+    "enumName" : "CERRAJERIA",
+    "id" : "cerrajeria",
+    "label" : "cerrajería",
+    "mvp" : false,
+    "keywords" : [ "llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj" ],
+    "priceMin" : null,
+    "priceMax" : null,
+    "priceRangeLabel" : null,
+    "intakeHint" : "si quedó afuera AHORA (urgente) o es cambio/arreglo de cerradura"
+  }, {
+    "enumName" : "BAROMETRICA",
+    "id" : "barometrica",
+    "label" : "barométrica",
+    "mvp" : true,
+    "keywords" : [ "pozo", "barometr", "camara septica", "cámara séptica" ],
+    "priceMin" : 1500,
+    "priceMax" : 4000,
+    "priceRangeLabel" : "$1500–4000",
+    "intakeHint" : "si el pozo está desbordando (urgente) o es mantenimiento programado"
+  }, {
+    "enumName" : "JARDINERIA",
+    "id" : "jardineria",
+    "label" : "jardinería",
+    "mvp" : true,
+    "keywords" : [ "jardin", "jardín", "pasto", "cesped", "césped", "cortar el pasto", "cortar pasto", "mantenimiento exterior", "jardiner" ],
+    "priceMin" : 1200,
+    "priceMax" : 3000,
+    "priceRangeLabel" : "$1200–3000",
+    "intakeHint" : "tamaño aproximado del jardín y qué trabajo necesita (corte, limpieza, poda)"
+  }, {
+    "enumName" : "AIRES_ACONDICIONADOS",
+    "id" : "aires_acondicionados",
+    "label" : "aire acondicionado",
+    "mvp" : true,
+    "keywords" : [ "aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría", "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría", "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración", "aires", "el aire", "un aire", "aire" ],
+    "priceMin" : 1500,
+    "priceMax" : 4500,
+    "priceRangeLabel" : "$1500–4500",
+    "intakeHint" : "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"
+  }, {
+    "enumName" : "REPARACIONES",
+    "id" : "reparaciones",
+    "label" : "reparaciones",
+    "mvp" : false,
+    "keywords" : [ "arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana" ],
+    "priceMin" : null,
+    "priceMax" : null,
+    "priceRangeLabel" : null,
+    "intakeHint" : "qué hay que arreglar y de qué se trata (mueble, persiana, pared)"
+  }, {
+    "enumName" : "PASTELERIA",
+    "id" : "pasteleria",
+    "label" : "pastelería",
+    "mvp" : true,
+    "keywords" : [ "torta", "tortas", "pastel", "pasteles", "cumpleaños", "cumpleanos", "cumple ", "mesa dulce", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería", "postre", "postres", "shots dulces", "candy bar" ],
+    "priceMin" : 900,
+    "priceMax" : 3500,
+    "priceRangeLabel" : "$900–3500",
+    "intakeHint" : "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre"
+  }, {
+    "enumName" : "DECORACION_FIESTAS",
+    "id" : "decoracion_fiestas",
+    "label" : "decoración de fiestas",
+    "mvp" : true,
+    "keywords" : [ "decoracion", "decoración", "ambientacion", "ambientación", "ambientar", "globos", "arco de globos", "backdrop", "guirnalda", "centro de mesa", "decorar la fiesta", "decoracion de fiesta", "decoración de fiesta" ],
+    "priceMin" : 2000,
+    "priceMax" : 8000,
+    "priceRangeLabel" : "$2000–8000",
+    "intakeHint" : "para cuándo es, qué tipo de evento (cumpleaños, 15, casamiento, empresa) y qué querés (globos, ambientación completa, un sector)"
+  }, {
+    "enumName" : "MANDADOS",
+    "id" : "mandados",
+    "label" : "mandados y trámites",
+    "mvp" : true,
+    "keywords" : [ "mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras", "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab", "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite", "hacer un trámite", "pagar una factura" ],
+    "priceMin" : 200,
+    "priceMax" : 500,
+    "priceRangeLabel" : "$200–500",
+    "intakeHint" : "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte"
+  }, {
+    "enumName" : "OTRO",
+    "id" : "otro",
+    "label" : "otro",
+    "mvp" : false,
+    "keywords" : [ ],
+    "priceMin" : null,
+    "priceMax" : null,
+    "priceRangeLabel" : null,
+    "intakeHint" : null
+  } ],
+  "MVP_IDS" : [ "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria", "decoracion_fiestas", "mandados" ],
+  "MVP_LABELS" : [ "plomería", "barométrica", "jardinería", "aire acondicionado", "pastelería", "decoración de fiestas", "mandados y trámites" ],
+  "ALL_IDS_INCLUDING_OTRO" : [ "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria", "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas", "mandados", "otro" ],
+  "zoneBehavior" : {
+    "fromLabel" : [ {
+      "in" : "Ciudad de la Costa",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "ciudad de la costa"
+    }, {
+      "in" : "CIUDAD DE LA COSTA",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "ciudad de la costa"
+    }, {
+      "in" : "ciudad de la costa",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "ciudad de la costa"
+    }, {
+      "in" : "La Costa",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "la costa"
+    }, {
+      "in" : "la costa",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "la costa"
+    }, {
+      "in" : "Solymar",
+      "out" : "SOLYMAR",
+      "covered" : true,
+      "normalized" : "solymar"
+    }, {
+      "in" : "SOLYMAR",
+      "out" : "SOLYMAR",
+      "covered" : true,
+      "normalized" : "solymar"
+    }, {
+      "in" : "solymar",
+      "out" : "SOLYMAR",
+      "covered" : true,
+      "normalized" : "solymar"
+    }, {
+      "in" : "Lagomar",
+      "out" : "LAGOMAR",
+      "covered" : true,
+      "normalized" : "lagomar"
+    }, {
+      "in" : "LAGOMAR",
+      "out" : "LAGOMAR",
+      "covered" : true,
+      "normalized" : "lagomar"
+    }, {
+      "in" : "lagomar",
+      "out" : "LAGOMAR",
+      "covered" : true,
+      "normalized" : "lagomar"
+    }, {
+      "in" : "El Pinar",
+      "out" : "EL_PINAR",
+      "covered" : true,
+      "normalized" : "el pinar"
+    }, {
+      "in" : "EL PINAR",
+      "out" : "EL_PINAR",
+      "covered" : true,
+      "normalized" : "el pinar"
+    }, {
+      "in" : "el pinar",
+      "out" : "EL_PINAR",
+      "covered" : true,
+      "normalized" : "el pinar"
+    }, {
+      "in" : "Shangrilá",
+      "out" : "SHANGRILA",
+      "covered" : true,
+      "normalized" : "shangrila"
+    }, {
+      "in" : "SHANGRILÁ",
+      "out" : "SHANGRILA",
+      "covered" : true,
+      "normalized" : "shangrila"
+    }, {
+      "in" : "shangrila",
+      "out" : "SHANGRILA",
+      "covered" : true,
+      "normalized" : "shangrila"
+    }, {
+      "in" : "Barra de Carrasco",
+      "out" : "BARRA_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "barra de carrasco"
+    }, {
+      "in" : "BARRA DE CARRASCO",
+      "out" : "BARRA_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "barra de carrasco"
+    }, {
+      "in" : "barra de carrasco",
+      "out" : "BARRA_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "barra de carrasco"
+    }, {
+      "in" : "Parque Miramar",
+      "out" : "PARQUE_MIRAMAR",
+      "covered" : true,
+      "normalized" : "parque miramar"
+    }, {
+      "in" : "PARQUE MIRAMAR",
+      "out" : "PARQUE_MIRAMAR",
+      "covered" : true,
+      "normalized" : "parque miramar"
+    }, {
+      "in" : "parque miramar",
+      "out" : "PARQUE_MIRAMAR",
+      "covered" : true,
+      "normalized" : "parque miramar"
+    }, {
+      "in" : "San José de Carrasco",
+      "out" : "SAN_JOSE_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "san jose de carrasco"
+    }, {
+      "in" : "SAN JOSÉ DE CARRASCO",
+      "out" : "SAN_JOSE_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "san jose de carrasco"
+    }, {
+      "in" : "san jose de carrasco",
+      "out" : "SAN_JOSE_DE_CARRASCO",
+      "covered" : true,
+      "normalized" : "san jose de carrasco"
+    }, {
+      "in" : "Lomas de Solymar",
+      "out" : "LOMAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "lomas de solymar"
+    }, {
+      "in" : "LOMAS DE SOLYMAR",
+      "out" : "LOMAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "lomas de solymar"
+    }, {
+      "in" : "lomas de solymar",
+      "out" : "LOMAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "lomas de solymar"
+    }, {
+      "in" : "Colinas de Solymar",
+      "out" : "COLINAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "colinas de solymar"
+    }, {
+      "in" : "COLINAS DE SOLYMAR",
+      "out" : "COLINAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "colinas de solymar"
+    }, {
+      "in" : "colinas de solymar",
+      "out" : "COLINAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "colinas de solymar"
+    }, {
+      "in" : "Montes de Solymar",
+      "out" : "MONTES_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "montes de solymar"
+    }, {
+      "in" : "MONTES DE SOLYMAR",
+      "out" : "MONTES_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "montes de solymar"
+    }, {
+      "in" : "montes de solymar",
+      "out" : "MONTES_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "montes de solymar"
+    }, {
+      "in" : "Aeroparque",
+      "out" : "AEROPARQUE",
+      "covered" : true,
+      "normalized" : "aeroparque"
+    }, {
+      "in" : "AEROPARQUE",
+      "out" : "AEROPARQUE",
+      "covered" : true,
+      "normalized" : "aeroparque"
+    }, {
+      "in" : "aeroparque",
+      "out" : "AEROPARQUE",
+      "covered" : true,
+      "normalized" : "aeroparque"
+    }, {
+      "in" : "Pocitos",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "pocitos"
+    }, {
+      "in" : "Cordón",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "cordon"
+    }, {
+      "in" : "Montevideo",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "montevideo"
+    }, {
+      "in" : "canelones",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "canelones"
+    }, {
+      "in" : "sin definir",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "sin definir"
+    }, {
+      "in" : "  ",
+      "out" : null,
+      "covered" : false,
+      "normalized" : ""
+    }, {
+      "in" : "",
+      "out" : null,
+      "covered" : false,
+      "normalized" : ""
+    }, {
+      "in" : "lomas",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "lomas"
+    }, {
+      "in" : "montes",
+      "out" : null,
+      "covered" : false,
+      "normalized" : "montes"
+    }, {
+      "in" : "Colinas de Solymar ",
+      "out" : "COLINAS_DE_SOLYMAR",
+      "covered" : true,
+      "normalized" : "colinas de solymar"
+    }, {
+      "in" : "Shangrila",
+      "out" : "SHANGRILA",
+      "covered" : true,
+      "normalized" : "shangrila"
+    }, {
+      "in" : "  Solymar  ",
+      "out" : "SOLYMAR",
+      "covered" : true,
+      "normalized" : "solymar"
+    }, {
+      "in" : "Ciudad De La Costa",
+      "out" : "CIUDAD_DE_LA_COSTA",
+      "covered" : true,
+      "normalized" : "ciudad de la costa"
+    }, {
+      "in" : null,
+      "out" : null,
+      "covered" : false,
+      "normalized" : ""
+    } ],
+    "covers" : [ "Ciudad de la Costa\tCiudad de la Costa\ttrue", "Ciudad de la Costa\tLa Costa\ttrue", "Ciudad de la Costa\tSolymar\ttrue", "Ciudad de la Costa\tLagomar\ttrue", "Ciudad de la Costa\tEl Pinar\ttrue", "Ciudad de la Costa\tShangrilá\ttrue", "Ciudad de la Costa\tBarra de Carrasco\ttrue", "Ciudad de la Costa\tParque Miramar\ttrue", "Ciudad de la Costa\tSan José de Carrasco\ttrue", "Ciudad de la Costa\tLomas de Solymar\ttrue", "Ciudad de la Costa\tColinas de Solymar\ttrue", "Ciudad de la Costa\tMontes de Solymar\ttrue", "Ciudad de la Costa\tAeroparque\ttrue", "Ciudad de la Costa\tPocitos\tfalse", "Ciudad de la Costa\tCordón\tfalse", "Ciudad de la Costa\tcanelones\tfalse", "Ciudad de la Costa\t  \tfalse", "Ciudad de la Costa\t\tfalse", "Ciudad de la Costa\tsolymar\ttrue", "Ciudad de la Costa\tSHANGRILA\ttrue", "Ciudad de la Costa\tnull\tfalse", "La Costa\tCiudad de la Costa\ttrue", "La Costa\tLa Costa\ttrue", "La Costa\tSolymar\ttrue", "La Costa\tLagomar\ttrue", "La Costa\tEl Pinar\ttrue", "La Costa\tShangrilá\ttrue", "La Costa\tBarra de Carrasco\ttrue", "La Costa\tParque Miramar\ttrue", "La Costa\tSan José de Carrasco\ttrue", "La Costa\tLomas de Solymar\ttrue", "La Costa\tColinas de Solymar\ttrue", "La Costa\tMontes de Solymar\ttrue", "La Costa\tAeroparque\ttrue", "La Costa\tPocitos\tfalse", "La Costa\tCordón\tfalse", "La Costa\tcanelones\tfalse", "La Costa\t  \tfalse", "La Costa\t\tfalse", "La Costa\tsolymar\ttrue", "La Costa\tSHANGRILA\ttrue", "La Costa\tnull\tfalse", "Solymar\tCiudad de la Costa\ttrue", "Solymar\tLa Costa\ttrue", "Solymar\tSolymar\ttrue", "Solymar\tLagomar\tfalse", "Solymar\tEl Pinar\tfalse", "Solymar\tShangrilá\tfalse", "Solymar\tBarra de Carrasco\tfalse", "Solymar\tParque Miramar\tfalse", "Solymar\tSan José de Carrasco\tfalse", "Solymar\tLomas de Solymar\tfalse", "Solymar\tColinas de Solymar\tfalse", "Solymar\tMontes de Solymar\tfalse", "Solymar\tAeroparque\tfalse", "Solymar\tPocitos\tfalse", "Solymar\tCordón\tfalse", "Solymar\tcanelones\tfalse", "Solymar\t  \tfalse", "Solymar\t\tfalse", "Solymar\tsolymar\ttrue", "Solymar\tSHANGRILA\tfalse", "Solymar\tnull\tfalse", "Lagomar\tCiudad de la Costa\ttrue", "Lagomar\tLa Costa\ttrue", "Lagomar\tSolymar\tfalse", "Lagomar\tLagomar\ttrue", "Lagomar\tEl Pinar\tfalse", "Lagomar\tShangrilá\tfalse", "Lagomar\tBarra de Carrasco\tfalse", "Lagomar\tParque Miramar\tfalse", "Lagomar\tSan José de Carrasco\tfalse", "Lagomar\tLomas de Solymar\tfalse", "Lagomar\tColinas de Solymar\tfalse", "Lagomar\tMontes de Solymar\tfalse", "Lagomar\tAeroparque\tfalse", "Lagomar\tPocitos\tfalse", "Lagomar\tCordón\tfalse", "Lagomar\tcanelones\tfalse", "Lagomar\t  \tfalse", "Lagomar\t\tfalse", "Lagomar\tsolymar\tfalse", "Lagomar\tSHANGRILA\tfalse", "Lagomar\tnull\tfalse", "El Pinar\tCiudad de la Costa\ttrue", "El Pinar\tLa Costa\ttrue", "El Pinar\tSolymar\tfalse", "El Pinar\tLagomar\tfalse", "El Pinar\tEl Pinar\ttrue", "El Pinar\tShangrilá\tfalse", "El Pinar\tBarra de Carrasco\tfalse", "El Pinar\tParque Miramar\tfalse", "El Pinar\tSan José de Carrasco\tfalse", "El Pinar\tLomas de Solymar\tfalse", "El Pinar\tColinas de Solymar\tfalse", "El Pinar\tMontes de Solymar\tfalse", "El Pinar\tAeroparque\tfalse", "El Pinar\tPocitos\tfalse", "El Pinar\tCordón\tfalse", "El Pinar\tcanelones\tfalse", "El Pinar\t  \tfalse", "El Pinar\t\tfalse", "El Pinar\tsolymar\tfalse", "El Pinar\tSHANGRILA\tfalse", "El Pinar\tnull\tfalse", "Shangrilá\tCiudad de la Costa\ttrue", "Shangrilá\tLa Costa\ttrue", "Shangrilá\tSolymar\tfalse", "Shangrilá\tLagomar\tfalse", "Shangrilá\tEl Pinar\tfalse", "Shangrilá\tShangrilá\ttrue", "Shangrilá\tBarra de Carrasco\tfalse", "Shangrilá\tParque Miramar\tfalse", "Shangrilá\tSan José de Carrasco\tfalse", "Shangrilá\tLomas de Solymar\tfalse", "Shangrilá\tColinas de Solymar\tfalse", "Shangrilá\tMontes de Solymar\tfalse", "Shangrilá\tAeroparque\tfalse", "Shangrilá\tPocitos\tfalse", "Shangrilá\tCordón\tfalse", "Shangrilá\tcanelones\tfalse", "Shangrilá\t  \tfalse", "Shangrilá\t\tfalse", "Shangrilá\tsolymar\tfalse", "Shangrilá\tSHANGRILA\ttrue", "Shangrilá\tnull\tfalse", "Barra de Carrasco\tCiudad de la Costa\ttrue", "Barra de Carrasco\tLa Costa\ttrue", "Barra de Carrasco\tSolymar\tfalse", "Barra de Carrasco\tLagomar\tfalse", "Barra de Carrasco\tEl Pinar\tfalse", "Barra de Carrasco\tShangrilá\tfalse", "Barra de Carrasco\tBarra de Carrasco\ttrue", "Barra de Carrasco\tParque Miramar\tfalse", "Barra de Carrasco\tSan José de Carrasco\tfalse", "Barra de Carrasco\tLomas de Solymar\tfalse", "Barra de Carrasco\tColinas de Solymar\tfalse", "Barra de Carrasco\tMontes de Solymar\tfalse", "Barra de Carrasco\tAeroparque\tfalse", "Barra de Carrasco\tPocitos\tfalse", "Barra de Carrasco\tCordón\tfalse", "Barra de Carrasco\tcanelones\tfalse", "Barra de Carrasco\t  \tfalse", "Barra de Carrasco\t\tfalse", "Barra de Carrasco\tsolymar\tfalse", "Barra de Carrasco\tSHANGRILA\tfalse", "Barra de Carrasco\tnull\tfalse", "Parque Miramar\tCiudad de la Costa\ttrue", "Parque Miramar\tLa Costa\ttrue", "Parque Miramar\tSolymar\tfalse", "Parque Miramar\tLagomar\tfalse", "Parque Miramar\tEl Pinar\tfalse", "Parque Miramar\tShangrilá\tfalse", "Parque Miramar\tBarra de Carrasco\tfalse", "Parque Miramar\tParque Miramar\ttrue", "Parque Miramar\tSan José de Carrasco\tfalse", "Parque Miramar\tLomas de Solymar\tfalse", "Parque Miramar\tColinas de Solymar\tfalse", "Parque Miramar\tMontes de Solymar\tfalse", "Parque Miramar\tAeroparque\tfalse", "Parque Miramar\tPocitos\tfalse", "Parque Miramar\tCordón\tfalse", "Parque Miramar\tcanelones\tfalse", "Parque Miramar\t  \tfalse", "Parque Miramar\t\tfalse", "Parque Miramar\tsolymar\tfalse", "Parque Miramar\tSHANGRILA\tfalse", "Parque Miramar\tnull\tfalse", "San José de Carrasco\tCiudad de la Costa\ttrue", "San José de Carrasco\tLa Costa\ttrue", "San José de Carrasco\tSolymar\tfalse", "San José de Carrasco\tLagomar\tfalse", "San José de Carrasco\tEl Pinar\tfalse", "San José de Carrasco\tShangrilá\tfalse", "San José de Carrasco\tBarra de Carrasco\tfalse", "San José de Carrasco\tParque Miramar\tfalse", "San José de Carrasco\tSan José de Carrasco\ttrue", "San José de Carrasco\tLomas de Solymar\tfalse", "San José de Carrasco\tColinas de Solymar\tfalse", "San José de Carrasco\tMontes de Solymar\tfalse", "San José de Carrasco\tAeroparque\tfalse", "San José de Carrasco\tPocitos\tfalse", "San José de Carrasco\tCordón\tfalse", "San José de Carrasco\tcanelones\tfalse", "San José de Carrasco\t  \tfalse", "San José de Carrasco\t\tfalse", "San José de Carrasco\tsolymar\tfalse", "San José de Carrasco\tSHANGRILA\tfalse", "San José de Carrasco\tnull\tfalse", "Lomas de Solymar\tCiudad de la Costa\ttrue", "Lomas de Solymar\tLa Costa\ttrue", "Lomas de Solymar\tSolymar\tfalse", "Lomas de Solymar\tLagomar\tfalse", "Lomas de Solymar\tEl Pinar\tfalse", "Lomas de Solymar\tShangrilá\tfalse", "Lomas de Solymar\tBarra de Carrasco\tfalse", "Lomas de Solymar\tParque Miramar\tfalse", "Lomas de Solymar\tSan José de Carrasco\tfalse", "Lomas de Solymar\tLomas de Solymar\ttrue", "Lomas de Solymar\tColinas de Solymar\tfalse", "Lomas de Solymar\tMontes de Solymar\tfalse", "Lomas de Solymar\tAeroparque\tfalse", "Lomas de Solymar\tPocitos\tfalse", "Lomas de Solymar\tCordón\tfalse", "Lomas de Solymar\tcanelones\tfalse", "Lomas de Solymar\t  \tfalse", "Lomas de Solymar\t\tfalse", "Lomas de Solymar\tsolymar\tfalse", "Lomas de Solymar\tSHANGRILA\tfalse", "Lomas de Solymar\tnull\tfalse", "Colinas de Solymar\tCiudad de la Costa\ttrue", "Colinas de Solymar\tLa Costa\ttrue", "Colinas de Solymar\tSolymar\tfalse", "Colinas de Solymar\tLagomar\tfalse", "Colinas de Solymar\tEl Pinar\tfalse", "Colinas de Solymar\tShangrilá\tfalse", "Colinas de Solymar\tBarra de Carrasco\tfalse", "Colinas de Solymar\tParque Miramar\tfalse", "Colinas de Solymar\tSan José de Carrasco\tfalse", "Colinas de Solymar\tLomas de Solymar\tfalse", "Colinas de Solymar\tColinas de Solymar\ttrue", "Colinas de Solymar\tMontes de Solymar\tfalse", "Colinas de Solymar\tAeroparque\tfalse", "Colinas de Solymar\tPocitos\tfalse", "Colinas de Solymar\tCordón\tfalse", "Colinas de Solymar\tcanelones\tfalse", "Colinas de Solymar\t  \tfalse", "Colinas de Solymar\t\tfalse", "Colinas de Solymar\tsolymar\tfalse", "Colinas de Solymar\tSHANGRILA\tfalse", "Colinas de Solymar\tnull\tfalse", "Montes de Solymar\tCiudad de la Costa\ttrue", "Montes de Solymar\tLa Costa\ttrue", "Montes de Solymar\tSolymar\tfalse", "Montes de Solymar\tLagomar\tfalse", "Montes de Solymar\tEl Pinar\tfalse", "Montes de Solymar\tShangrilá\tfalse", "Montes de Solymar\tBarra de Carrasco\tfalse", "Montes de Solymar\tParque Miramar\tfalse", "Montes de Solymar\tSan José de Carrasco\tfalse", "Montes de Solymar\tLomas de Solymar\tfalse", "Montes de Solymar\tColinas de Solymar\tfalse", "Montes de Solymar\tMontes de Solymar\ttrue", "Montes de Solymar\tAeroparque\tfalse", "Montes de Solymar\tPocitos\tfalse", "Montes de Solymar\tCordón\tfalse", "Montes de Solymar\tcanelones\tfalse", "Montes de Solymar\t  \tfalse", "Montes de Solymar\t\tfalse", "Montes de Solymar\tsolymar\tfalse", "Montes de Solymar\tSHANGRILA\tfalse", "Montes de Solymar\tnull\tfalse", "Aeroparque\tCiudad de la Costa\ttrue", "Aeroparque\tLa Costa\ttrue", "Aeroparque\tSolymar\tfalse", "Aeroparque\tLagomar\tfalse", "Aeroparque\tEl Pinar\tfalse", "Aeroparque\tShangrilá\tfalse", "Aeroparque\tBarra de Carrasco\tfalse", "Aeroparque\tParque Miramar\tfalse", "Aeroparque\tSan José de Carrasco\tfalse", "Aeroparque\tLomas de Solymar\tfalse", "Aeroparque\tColinas de Solymar\tfalse", "Aeroparque\tMontes de Solymar\tfalse", "Aeroparque\tAeroparque\ttrue", "Aeroparque\tPocitos\tfalse", "Aeroparque\tCordón\tfalse", "Aeroparque\tcanelones\tfalse", "Aeroparque\t  \tfalse", "Aeroparque\t\tfalse", "Aeroparque\tsolymar\tfalse", "Aeroparque\tSHANGRILA\tfalse", "Aeroparque\tnull\tfalse", "Pocitos\tCiudad de la Costa\tfalse", "Pocitos\tLa Costa\tfalse", "Pocitos\tSolymar\tfalse", "Pocitos\tLagomar\tfalse", "Pocitos\tEl Pinar\tfalse", "Pocitos\tShangrilá\tfalse", "Pocitos\tBarra de Carrasco\tfalse", "Pocitos\tParque Miramar\tfalse", "Pocitos\tSan José de Carrasco\tfalse", "Pocitos\tLomas de Solymar\tfalse", "Pocitos\tColinas de Solymar\tfalse", "Pocitos\tMontes de Solymar\tfalse", "Pocitos\tAeroparque\tfalse", "Pocitos\tPocitos\ttrue", "Pocitos\tCordón\tfalse", "Pocitos\tcanelones\tfalse", "Pocitos\t  \tfalse", "Pocitos\t\tfalse", "Pocitos\tsolymar\tfalse", "Pocitos\tSHANGRILA\tfalse", "Pocitos\tnull\tfalse", "Cordón\tCiudad de la Costa\tfalse", "Cordón\tLa Costa\tfalse", "Cordón\tSolymar\tfalse", "Cordón\tLagomar\tfalse", "Cordón\tEl Pinar\tfalse", "Cordón\tShangrilá\tfalse", "Cordón\tBarra de Carrasco\tfalse", "Cordón\tParque Miramar\tfalse", "Cordón\tSan José de Carrasco\tfalse", "Cordón\tLomas de Solymar\tfalse", "Cordón\tColinas de Solymar\tfalse", "Cordón\tMontes de Solymar\tfalse", "Cordón\tAeroparque\tfalse", "Cordón\tPocitos\tfalse", "Cordón\tCordón\ttrue", "Cordón\tcanelones\tfalse", "Cordón\t  \tfalse", "Cordón\t\tfalse", "Cordón\tsolymar\tfalse", "Cordón\tSHANGRILA\tfalse", "Cordón\tnull\tfalse", "canelones\tCiudad de la Costa\tfalse", "canelones\tLa Costa\tfalse", "canelones\tSolymar\tfalse", "canelones\tLagomar\tfalse", "canelones\tEl Pinar\tfalse", "canelones\tShangrilá\tfalse", "canelones\tBarra de Carrasco\tfalse", "canelones\tParque Miramar\tfalse", "canelones\tSan José de Carrasco\tfalse", "canelones\tLomas de Solymar\tfalse", "canelones\tColinas de Solymar\tfalse", "canelones\tMontes de Solymar\tfalse", "canelones\tAeroparque\tfalse", "canelones\tPocitos\tfalse", "canelones\tCordón\tfalse", "canelones\tcanelones\ttrue", "canelones\t  \tfalse", "canelones\t\tfalse", "canelones\tsolymar\tfalse", "canelones\tSHANGRILA\tfalse", "canelones\tnull\tfalse", "  \tCiudad de la Costa\tfalse", "  \tLa Costa\tfalse", "  \tSolymar\tfalse", "  \tLagomar\tfalse", "  \tEl Pinar\tfalse", "  \tShangrilá\tfalse", "  \tBarra de Carrasco\tfalse", "  \tParque Miramar\tfalse", "  \tSan José de Carrasco\tfalse", "  \tLomas de Solymar\tfalse", "  \tColinas de Solymar\tfalse", "  \tMontes de Solymar\tfalse", "  \tAeroparque\tfalse", "  \tPocitos\tfalse", "  \tCordón\tfalse", "  \tcanelones\tfalse", "  \t  \tfalse", "  \t\tfalse", "  \tsolymar\tfalse", "  \tSHANGRILA\tfalse", "  \tnull\tfalse", "\tCiudad de la Costa\tfalse", "\tLa Costa\tfalse", "\tSolymar\tfalse", "\tLagomar\tfalse", "\tEl Pinar\tfalse", "\tShangrilá\tfalse", "\tBarra de Carrasco\tfalse", "\tParque Miramar\tfalse", "\tSan José de Carrasco\tfalse", "\tLomas de Solymar\tfalse", "\tColinas de Solymar\tfalse", "\tMontes de Solymar\tfalse", "\tAeroparque\tfalse", "\tPocitos\tfalse", "\tCordón\tfalse", "\tcanelones\tfalse", "\t  \tfalse", "\t\tfalse", "\tsolymar\tfalse", "\tSHANGRILA\tfalse", "\tnull\tfalse", "solymar\tCiudad de la Costa\ttrue", "solymar\tLa Costa\ttrue", "solymar\tSolymar\ttrue", "solymar\tLagomar\tfalse", "solymar\tEl Pinar\tfalse", "solymar\tShangrilá\tfalse", "solymar\tBarra de Carrasco\tfalse", "solymar\tParque Miramar\tfalse", "solymar\tSan José de Carrasco\tfalse", "solymar\tLomas de Solymar\tfalse", "solymar\tColinas de Solymar\tfalse", "solymar\tMontes de Solymar\tfalse", "solymar\tAeroparque\tfalse", "solymar\tPocitos\tfalse", "solymar\tCordón\tfalse", "solymar\tcanelones\tfalse", "solymar\t  \tfalse", "solymar\t\tfalse", "solymar\tsolymar\ttrue", "solymar\tSHANGRILA\tfalse", "solymar\tnull\tfalse", "SHANGRILA\tCiudad de la Costa\ttrue", "SHANGRILA\tLa Costa\ttrue", "SHANGRILA\tSolymar\tfalse", "SHANGRILA\tLagomar\tfalse", "SHANGRILA\tEl Pinar\tfalse", "SHANGRILA\tShangrilá\ttrue", "SHANGRILA\tBarra de Carrasco\tfalse", "SHANGRILA\tParque Miramar\tfalse", "SHANGRILA\tSan José de Carrasco\tfalse", "SHANGRILA\tLomas de Solymar\tfalse", "SHANGRILA\tColinas de Solymar\tfalse", "SHANGRILA\tMontes de Solymar\tfalse", "SHANGRILA\tAeroparque\tfalse", "SHANGRILA\tPocitos\tfalse", "SHANGRILA\tCordón\tfalse", "SHANGRILA\tcanelones\tfalse", "SHANGRILA\t  \tfalse", "SHANGRILA\t\tfalse", "SHANGRILA\tsolymar\tfalse", "SHANGRILA\tSHANGRILA\ttrue", "SHANGRILA\tnull\tfalse", "null\tCiudad de la Costa\tfalse", "null\tLa Costa\tfalse", "null\tSolymar\tfalse", "null\tLagomar\tfalse", "null\tEl Pinar\tfalse", "null\tShangrilá\tfalse", "null\tBarra de Carrasco\tfalse", "null\tParque Miramar\tfalse", "null\tSan José de Carrasco\tfalse", "null\tLomas de Solymar\tfalse", "null\tColinas de Solymar\tfalse", "null\tMontes de Solymar\tfalse", "null\tAeroparque\tfalse", "null\tPocitos\tfalse", "null\tCordón\tfalse", "null\tcanelones\tfalse", "null\t  \tfalse", "null\t\tfalse", "null\tsolymar\tfalse", "null\tSHANGRILA\tfalse", "null\tnull\tfalse" ],
+    "unrecognized" : [ {
+      "a" : "Solymar",
+      "b" : "Pocitos, Lagomar, Cordón",
+      "out" : [ "Pocitos", "Cordón" ]
+    }, {
+      "a" : "La Costa",
+      "b" : null,
+      "out" : [ ]
+    }, {
+      "a" : "Pocitos",
+      "b" : "Pocitos ,  Punta Gorda",
+      "out" : [ "Pocitos", "Punta Gorda" ]
+    }, {
+      "a" : null,
+      "b" : "  ,  ",
+      "out" : [ ]
+    }, {
+      "a" : "Ciudad de la Costa",
+      "b" : "Solymar, Lagomar",
+      "out" : [ ]
+    }, {
+      "a" : "Costa de Oro, Solymar, solymar, Atlántida",
+      "b" : null,
+      "out" : [ "Costa de Oro", "Atlántida" ]
+    }, {
+      "a" : null,
+      "b" : null,
+      "out" : [ ]
+    } ]
+  },
+  "detectFromText" : [ {
+    "in" : "se me rompió la canilla",
+    "out" : "plomeria"
+  }, {
+    "in" : "se tapó la cámara séptica",
+    "out" : "barometrica"
+  }, {
+    "in" : "necesito cortar el pasto del jardín",
+    "out" : "jardineria"
+  }, {
+    "in" : "el aire acondicionado no enfría",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "quiero encargar una torta de cumpleaños",
+    "out" : "pasteleria"
+  }, {
+    "in" : "se cortó la luz del tablero",
+    "out" : "electricidad"
+  }, {
+    "in" : "me quedé afuera, perdí la llave",
+    "out" : "cerrajeria"
+  }, {
+    "in" : "quiero un arco de globos para ambientar la fiesta",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "necesito que alguien me haga un mandado a la farmacia",
+    "out" : "mandados"
+  }, {
+    "in" : "me equivoque es aires",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "en realidad es el aire que anda mal",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "error era pastel",
+    "out" : "pasteleria"
+  }, {
+    "in" : "quiero decoración con globos en tonos pastel",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "¿pueden pagar una factura en abitab por mí?",
+    "out" : "mandados"
+  }, {
+    "in" : "quiero comprar un split y que me lo instalen",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "hola, ¿cómo estás?",
+    "out" : null
+  }, {
+    "in" : "aire roto",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "decoración para una fiesta al aire libre",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "decoración con globos para el cumpleaños",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "quiero una torta decorada para el cumpleaños",
+    "out" : "pasteleria"
+  }, {
+    "in" : "una torta con decoración de unicornio",
+    "out" : "pasteleria"
+  }, {
+    "in" : "quiero decorar el salón para un cumpleaños",
+    "out" : "decoracion_fiestas"
+  }, {
+    "in" : "quiero agua en el Tata",
+    "out" : "plomeria"
+  }, {
+    "in" : "mesa dulce y ambientación",
+    "out" : "pasteleria"
+  }, {
+    "in" : "buenos aires",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "arreglo de persiana",
+    "out" : "reparaciones"
+  }, {
+    "in" : "mueble roto",
+    "out" : "reparaciones"
+  }, {
+    "in" : "necesito un carpintero",
+    "out" : null
+  }, {
+    "in" : "se pierde agua y hace corto",
+    "out" : "plomeria"
+  }, {
+    "in" : "cumple de mi hija",
+    "out" : "pasteleria"
+  }, {
+    "in" : "candy bar y backdrop",
+    "out" : "pasteleria"
+  }, {
+    "in" : "hacer la compra del super",
+    "out" : "mandados"
+  }, {
+    "in" : "un tramite en el correo",
+    "out" : "mandados"
+  }, {
+    "in" : "recarga de gas del split",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "la ducha pierde",
+    "out" : "plomeria"
+  }, {
+    "in" : "quiero postres",
+    "out" : "pasteleria"
+  }, {
+    "in" : "",
+    "out" : null
+  }, {
+    "in" : "   ",
+    "out" : null
+  }, {
+    "in" : "AIRE ACONDICIONADO",
+    "out" : "aires_acondicionados"
+  }, {
+    "in" : "Pastel de chocolate",
+    "out" : "pasteleria"
+  }, {
+    "in" : "guirnalda de cumple",
+    "out" : "decoracion_fiestas"
+  } ],
+  "detectFromTextNull" : [ {
+    "out" : null
+  } ],
+  "refineCategoryId" : [ "se me rompió la canilla\tplomeria\tplomeria", "se me rompió la canilla\telectricidad\telectricidad", "se me rompió la canilla\tcerrajeria\tcerrajeria", "se me rompió la canilla\tbarometrica\tbarometrica", "se me rompió la canilla\tjardineria\tjardineria", "se me rompió la canilla\taires_acondicionados\taires_acondicionados", "se me rompió la canilla\treparaciones\treparaciones", "se me rompió la canilla\tpasteleria\tpasteleria", "se me rompió la canilla\tdecoracion_fiestas\tdecoracion_fiestas", "se me rompió la canilla\tmandados\tmandados", "se me rompió la canilla\totro\totro", "se me rompió la canilla\tcategoria-inventada\tcategoria-inventada", "se me rompió la canilla\tnull\tnull", "se me rompió la canilla\tPASTELERIA\tpasteleria", "se tapó la cámara séptica\tplomeria\tplomeria", "se tapó la cámara séptica\telectricidad\telectricidad", "se tapó la cámara séptica\tcerrajeria\tcerrajeria", "se tapó la cámara séptica\tbarometrica\tbarometrica", "se tapó la cámara séptica\tjardineria\tjardineria", "se tapó la cámara séptica\taires_acondicionados\taires_acondicionados", "se tapó la cámara séptica\treparaciones\treparaciones", "se tapó la cámara séptica\tpasteleria\tpasteleria", "se tapó la cámara séptica\tdecoracion_fiestas\tdecoracion_fiestas", "se tapó la cámara séptica\tmandados\tmandados", "se tapó la cámara séptica\totro\totro", "se tapó la cámara séptica\tcategoria-inventada\tcategoria-inventada", "se tapó la cámara séptica\tnull\tnull", "se tapó la cámara séptica\tPASTELERIA\tpasteleria", "necesito cortar el pasto del jardín\tplomeria\tplomeria", "necesito cortar el pasto del jardín\telectricidad\telectricidad", "necesito cortar el pasto del jardín\tcerrajeria\tcerrajeria", "necesito cortar el pasto del jardín\tbarometrica\tbarometrica", "necesito cortar el pasto del jardín\tjardineria\tjardineria", "necesito cortar el pasto del jardín\taires_acondicionados\taires_acondicionados", "necesito cortar el pasto del jardín\treparaciones\treparaciones", "necesito cortar el pasto del jardín\tpasteleria\tpasteleria", "necesito cortar el pasto del jardín\tdecoracion_fiestas\tdecoracion_fiestas", "necesito cortar el pasto del jardín\tmandados\tmandados", "necesito cortar el pasto del jardín\totro\totro", "necesito cortar el pasto del jardín\tcategoria-inventada\tcategoria-inventada", "necesito cortar el pasto del jardín\tnull\tnull", "necesito cortar el pasto del jardín\tPASTELERIA\tpasteleria", "el aire acondicionado no enfría\tplomeria\tplomeria", "el aire acondicionado no enfría\telectricidad\telectricidad", "el aire acondicionado no enfría\tcerrajeria\tcerrajeria", "el aire acondicionado no enfría\tbarometrica\tbarometrica", "el aire acondicionado no enfría\tjardineria\tjardineria", "el aire acondicionado no enfría\taires_acondicionados\taires_acondicionados", "el aire acondicionado no enfría\treparaciones\treparaciones", "el aire acondicionado no enfría\tpasteleria\tpasteleria", "el aire acondicionado no enfría\tdecoracion_fiestas\tdecoracion_fiestas", "el aire acondicionado no enfría\tmandados\tmandados", "el aire acondicionado no enfría\totro\totro", "el aire acondicionado no enfría\tcategoria-inventada\tcategoria-inventada", "el aire acondicionado no enfría\tnull\tnull", "el aire acondicionado no enfría\tPASTELERIA\tpasteleria", "quiero encargar una torta de cumpleaños\tplomeria\tplomeria", "quiero encargar una torta de cumpleaños\telectricidad\telectricidad", "quiero encargar una torta de cumpleaños\tcerrajeria\tcerrajeria", "quiero encargar una torta de cumpleaños\tbarometrica\tbarometrica", "quiero encargar una torta de cumpleaños\tjardineria\tjardineria", "quiero encargar una torta de cumpleaños\taires_acondicionados\taires_acondicionados", "quiero encargar una torta de cumpleaños\treparaciones\treparaciones", "quiero encargar una torta de cumpleaños\tpasteleria\tpasteleria", "quiero encargar una torta de cumpleaños\tdecoracion_fiestas\tdecoracion_fiestas", "quiero encargar una torta de cumpleaños\tmandados\tmandados", "quiero encargar una torta de cumpleaños\totro\totro", "quiero encargar una torta de cumpleaños\tcategoria-inventada\tcategoria-inventada", "quiero encargar una torta de cumpleaños\tnull\tnull", "quiero encargar una torta de cumpleaños\tPASTELERIA\tpasteleria", "se cortó la luz del tablero\tplomeria\tplomeria", "se cortó la luz del tablero\telectricidad\telectricidad", "se cortó la luz del tablero\tcerrajeria\tcerrajeria", "se cortó la luz del tablero\tbarometrica\tbarometrica", "se cortó la luz del tablero\tjardineria\tjardineria", "se cortó la luz del tablero\taires_acondicionados\taires_acondicionados", "se cortó la luz del tablero\treparaciones\treparaciones", "se cortó la luz del tablero\tpasteleria\tpasteleria", "se cortó la luz del tablero\tdecoracion_fiestas\tdecoracion_fiestas", "se cortó la luz del tablero\tmandados\tmandados", "se cortó la luz del tablero\totro\totro", "se cortó la luz del tablero\tcategoria-inventada\tcategoria-inventada", "se cortó la luz del tablero\tnull\tnull", "se cortó la luz del tablero\tPASTELERIA\tpasteleria", "me quedé afuera, perdí la llave\tplomeria\tplomeria", "me quedé afuera, perdí la llave\telectricidad\telectricidad", "me quedé afuera, perdí la llave\tcerrajeria\tcerrajeria", "me quedé afuera, perdí la llave\tbarometrica\tbarometrica", "me quedé afuera, perdí la llave\tjardineria\tjardineria", "me quedé afuera, perdí la llave\taires_acondicionados\taires_acondicionados", "me quedé afuera, perdí la llave\treparaciones\treparaciones", "me quedé afuera, perdí la llave\tpasteleria\tpasteleria", "me quedé afuera, perdí la llave\tdecoracion_fiestas\tdecoracion_fiestas", "me quedé afuera, perdí la llave\tmandados\tmandados", "me quedé afuera, perdí la llave\totro\totro", "me quedé afuera, perdí la llave\tcategoria-inventada\tcategoria-inventada", "me quedé afuera, perdí la llave\tnull\tnull", "me quedé afuera, perdí la llave\tPASTELERIA\tpasteleria", "quiero un arco de globos para ambientar la fiesta\tplomeria\tplomeria", "quiero un arco de globos para ambientar la fiesta\telectricidad\telectricidad", "quiero un arco de globos para ambientar la fiesta\tcerrajeria\tcerrajeria", "quiero un arco de globos para ambientar la fiesta\tbarometrica\tbarometrica", "quiero un arco de globos para ambientar la fiesta\tjardineria\tjardineria", "quiero un arco de globos para ambientar la fiesta\taires_acondicionados\taires_acondicionados", "quiero un arco de globos para ambientar la fiesta\treparaciones\treparaciones", "quiero un arco de globos para ambientar la fiesta\tpasteleria\tdecoracion_fiestas", "quiero un arco de globos para ambientar la fiesta\tdecoracion_fiestas\tdecoracion_fiestas", "quiero un arco de globos para ambientar la fiesta\tmandados\tmandados", "quiero un arco de globos para ambientar la fiesta\totro\totro", "quiero un arco de globos para ambientar la fiesta\tcategoria-inventada\tcategoria-inventada", "quiero un arco de globos para ambientar la fiesta\tnull\tnull", "quiero un arco de globos para ambientar la fiesta\tPASTELERIA\tdecoracion_fiestas", "necesito que alguien me haga un mandado a la farmacia\tplomeria\tplomeria", "necesito que alguien me haga un mandado a la farmacia\telectricidad\telectricidad", "necesito que alguien me haga un mandado a la farmacia\tcerrajeria\tcerrajeria", "necesito que alguien me haga un mandado a la farmacia\tbarometrica\tbarometrica", "necesito que alguien me haga un mandado a la farmacia\tjardineria\tjardineria", "necesito que alguien me haga un mandado a la farmacia\taires_acondicionados\taires_acondicionados", "necesito que alguien me haga un mandado a la farmacia\treparaciones\treparaciones", "necesito que alguien me haga un mandado a la farmacia\tpasteleria\tpasteleria", "necesito que alguien me haga un mandado a la farmacia\tdecoracion_fiestas\tdecoracion_fiestas", "necesito que alguien me haga un mandado a la farmacia\tmandados\tmandados", "necesito que alguien me haga un mandado a la farmacia\totro\totro", "necesito que alguien me haga un mandado a la farmacia\tcategoria-inventada\tcategoria-inventada", "necesito que alguien me haga un mandado a la farmacia\tnull\tnull", "necesito que alguien me haga un mandado a la farmacia\tPASTELERIA\tpasteleria", "me equivoque es aires\tplomeria\tplomeria", "me equivoque es aires\telectricidad\telectricidad", "me equivoque es aires\tcerrajeria\tcerrajeria", "me equivoque es aires\tbarometrica\tbarometrica", "me equivoque es aires\tjardineria\tjardineria", "me equivoque es aires\taires_acondicionados\taires_acondicionados", "me equivoque es aires\treparaciones\treparaciones", "me equivoque es aires\tpasteleria\tpasteleria", "me equivoque es aires\tdecoracion_fiestas\tdecoracion_fiestas", "me equivoque es aires\tmandados\tmandados", "me equivoque es aires\totro\totro", "me equivoque es aires\tcategoria-inventada\tcategoria-inventada", "me equivoque es aires\tnull\tnull", "me equivoque es aires\tPASTELERIA\tpasteleria", "en realidad es el aire que anda mal\tplomeria\tplomeria", "en realidad es el aire que anda mal\telectricidad\telectricidad", "en realidad es el aire que anda mal\tcerrajeria\tcerrajeria", "en realidad es el aire que anda mal\tbarometrica\tbarometrica", "en realidad es el aire que anda mal\tjardineria\tjardineria", "en realidad es el aire que anda mal\taires_acondicionados\taires_acondicionados", "en realidad es el aire que anda mal\treparaciones\treparaciones", "en realidad es el aire que anda mal\tpasteleria\tpasteleria", "en realidad es el aire que anda mal\tdecoracion_fiestas\tdecoracion_fiestas", "en realidad es el aire que anda mal\tmandados\tmandados", "en realidad es el aire que anda mal\totro\totro", "en realidad es el aire que anda mal\tcategoria-inventada\tcategoria-inventada", "en realidad es el aire que anda mal\tnull\tnull", "en realidad es el aire que anda mal\tPASTELERIA\tpasteleria", "error era pastel\tplomeria\tplomeria", "error era pastel\telectricidad\telectricidad", "error era pastel\tcerrajeria\tcerrajeria", "error era pastel\tbarometrica\tbarometrica", "error era pastel\tjardineria\tjardineria", "error era pastel\taires_acondicionados\taires_acondicionados", "error era pastel\treparaciones\treparaciones", "error era pastel\tpasteleria\tpasteleria", "error era pastel\tdecoracion_fiestas\tdecoracion_fiestas", "error era pastel\tmandados\tmandados", "error era pastel\totro\totro", "error era pastel\tcategoria-inventada\tcategoria-inventada", "error era pastel\tnull\tnull", "error era pastel\tPASTELERIA\tpasteleria", "quiero decoración con globos en tonos pastel\tplomeria\tplomeria", "quiero decoración con globos en tonos pastel\telectricidad\telectricidad", "quiero decoración con globos en tonos pastel\tcerrajeria\tcerrajeria", "quiero decoración con globos en tonos pastel\tbarometrica\tbarometrica", "quiero decoración con globos en tonos pastel\tjardineria\tjardineria", "quiero decoración con globos en tonos pastel\taires_acondicionados\taires_acondicionados", "quiero decoración con globos en tonos pastel\treparaciones\treparaciones", "quiero decoración con globos en tonos pastel\tpasteleria\tdecoracion_fiestas", "quiero decoración con globos en tonos pastel\tdecoracion_fiestas\tdecoracion_fiestas", "quiero decoración con globos en tonos pastel\tmandados\tmandados", "quiero decoración con globos en tonos pastel\totro\totro", "quiero decoración con globos en tonos pastel\tcategoria-inventada\tcategoria-inventada", "quiero decoración con globos en tonos pastel\tnull\tnull", "quiero decoración con globos en tonos pastel\tPASTELERIA\tdecoracion_fiestas", "¿pueden pagar una factura en abitab por mí?\tplomeria\tplomeria", "¿pueden pagar una factura en abitab por mí?\telectricidad\telectricidad", "¿pueden pagar una factura en abitab por mí?\tcerrajeria\tcerrajeria", "¿pueden pagar una factura en abitab por mí?\tbarometrica\tbarometrica", "¿pueden pagar una factura en abitab por mí?\tjardineria\tjardineria", "¿pueden pagar una factura en abitab por mí?\taires_acondicionados\taires_acondicionados", "¿pueden pagar una factura en abitab por mí?\treparaciones\treparaciones", "¿pueden pagar una factura en abitab por mí?\tpasteleria\tpasteleria", "¿pueden pagar una factura en abitab por mí?\tdecoracion_fiestas\tdecoracion_fiestas", "¿pueden pagar una factura en abitab por mí?\tmandados\tmandados", "¿pueden pagar una factura en abitab por mí?\totro\totro", "¿pueden pagar una factura en abitab por mí?\tcategoria-inventada\tcategoria-inventada", "¿pueden pagar una factura en abitab por mí?\tnull\tnull", "¿pueden pagar una factura en abitab por mí?\tPASTELERIA\tpasteleria", "quiero comprar un split y que me lo instalen\tplomeria\tplomeria", "quiero comprar un split y que me lo instalen\telectricidad\telectricidad", "quiero comprar un split y que me lo instalen\tcerrajeria\tcerrajeria", "quiero comprar un split y que me lo instalen\tbarometrica\tbarometrica", "quiero comprar un split y que me lo instalen\tjardineria\tjardineria", "quiero comprar un split y que me lo instalen\taires_acondicionados\taires_acondicionados", "quiero comprar un split y que me lo instalen\treparaciones\treparaciones", "quiero comprar un split y que me lo instalen\tpasteleria\tpasteleria", "quiero comprar un split y que me lo instalen\tdecoracion_fiestas\tdecoracion_fiestas", "quiero comprar un split y que me lo instalen\tmandados\tmandados", "quiero comprar un split y que me lo instalen\totro\totro", "quiero comprar un split y que me lo instalen\tcategoria-inventada\tcategoria-inventada", "quiero comprar un split y que me lo instalen\tnull\tnull", "quiero comprar un split y que me lo instalen\tPASTELERIA\tpasteleria", "hola, ¿cómo estás?\tplomeria\tplomeria", "hola, ¿cómo estás?\telectricidad\telectricidad", "hola, ¿cómo estás?\tcerrajeria\tcerrajeria", "hola, ¿cómo estás?\tbarometrica\tbarometrica", "hola, ¿cómo estás?\tjardineria\tjardineria", "hola, ¿cómo estás?\taires_acondicionados\taires_acondicionados", "hola, ¿cómo estás?\treparaciones\treparaciones", "hola, ¿cómo estás?\tpasteleria\tpasteleria", "hola, ¿cómo estás?\tdecoracion_fiestas\tdecoracion_fiestas", "hola, ¿cómo estás?\tmandados\tmandados", "hola, ¿cómo estás?\totro\totro", "hola, ¿cómo estás?\tcategoria-inventada\tcategoria-inventada", "hola, ¿cómo estás?\tnull\tnull", "hola, ¿cómo estás?\tPASTELERIA\tpasteleria", "aire roto\tplomeria\tplomeria", "aire roto\telectricidad\telectricidad", "aire roto\tcerrajeria\tcerrajeria", "aire roto\tbarometrica\tbarometrica", "aire roto\tjardineria\tjardineria", "aire roto\taires_acondicionados\taires_acondicionados", "aire roto\treparaciones\treparaciones", "aire roto\tpasteleria\tpasteleria", "aire roto\tdecoracion_fiestas\tdecoracion_fiestas", "aire roto\tmandados\tmandados", "aire roto\totro\totro", "aire roto\tcategoria-inventada\tcategoria-inventada", "aire roto\tnull\tnull", "aire roto\tPASTELERIA\tpasteleria", "decoración para una fiesta al aire libre\tplomeria\tplomeria", "decoración para una fiesta al aire libre\telectricidad\telectricidad", "decoración para una fiesta al aire libre\tcerrajeria\tcerrajeria", "decoración para una fiesta al aire libre\tbarometrica\tbarometrica", "decoración para una fiesta al aire libre\tjardineria\tjardineria", "decoración para una fiesta al aire libre\taires_acondicionados\taires_acondicionados", "decoración para una fiesta al aire libre\treparaciones\treparaciones", "decoración para una fiesta al aire libre\tpasteleria\tdecoracion_fiestas", "decoración para una fiesta al aire libre\tdecoracion_fiestas\tdecoracion_fiestas", "decoración para una fiesta al aire libre\tmandados\tmandados", "decoración para una fiesta al aire libre\totro\totro", "decoración para una fiesta al aire libre\tcategoria-inventada\tcategoria-inventada", "decoración para una fiesta al aire libre\tnull\tnull", "decoración para una fiesta al aire libre\tPASTELERIA\tdecoracion_fiestas", "decoración con globos para el cumpleaños\tplomeria\tplomeria", "decoración con globos para el cumpleaños\telectricidad\telectricidad", "decoración con globos para el cumpleaños\tcerrajeria\tcerrajeria", "decoración con globos para el cumpleaños\tbarometrica\tbarometrica", "decoración con globos para el cumpleaños\tjardineria\tjardineria", "decoración con globos para el cumpleaños\taires_acondicionados\taires_acondicionados", "decoración con globos para el cumpleaños\treparaciones\treparaciones", "decoración con globos para el cumpleaños\tpasteleria\tdecoracion_fiestas", "decoración con globos para el cumpleaños\tdecoracion_fiestas\tdecoracion_fiestas", "decoración con globos para el cumpleaños\tmandados\tmandados", "decoración con globos para el cumpleaños\totro\totro", "decoración con globos para el cumpleaños\tcategoria-inventada\tcategoria-inventada", "decoración con globos para el cumpleaños\tnull\tnull", "decoración con globos para el cumpleaños\tPASTELERIA\tdecoracion_fiestas", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tplomeria\tplomeria", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\telectricidad\telectricidad", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tcerrajeria\tcerrajeria", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tbarometrica\tbarometrica", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tjardineria\tjardineria", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\taires_acondicionados\taires_acondicionados", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\treparaciones\treparaciones", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tpasteleria\tdecoracion_fiestas", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tdecoracion_fiestas\tdecoracion_fiestas", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tmandados\tmandados", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\totro\totro", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tcategoria-inventada\tcategoria-inventada", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tnull\tnull", "necesito decoración para el cumpleaños de mi hija, globos y guirnaldas\tPASTELERIA\tdecoracion_fiestas", "quiero una torta decorada para el cumpleaños\tplomeria\tplomeria", "quiero una torta decorada para el cumpleaños\telectricidad\telectricidad", "quiero una torta decorada para el cumpleaños\tcerrajeria\tcerrajeria", "quiero una torta decorada para el cumpleaños\tbarometrica\tbarometrica", "quiero una torta decorada para el cumpleaños\tjardineria\tjardineria", "quiero una torta decorada para el cumpleaños\taires_acondicionados\taires_acondicionados", "quiero una torta decorada para el cumpleaños\treparaciones\treparaciones", "quiero una torta decorada para el cumpleaños\tpasteleria\tpasteleria", "quiero una torta decorada para el cumpleaños\tdecoracion_fiestas\tdecoracion_fiestas", "quiero una torta decorada para el cumpleaños\tmandados\tmandados", "quiero una torta decorada para el cumpleaños\totro\totro", "quiero una torta decorada para el cumpleaños\tcategoria-inventada\tcategoria-inventada", "quiero una torta decorada para el cumpleaños\tnull\tnull", "quiero una torta decorada para el cumpleaños\tPASTELERIA\tpasteleria", "una torta con decoración de unicornio\tplomeria\tplomeria", "una torta con decoración de unicornio\telectricidad\telectricidad", "una torta con decoración de unicornio\tcerrajeria\tcerrajeria", "una torta con decoración de unicornio\tbarometrica\tbarometrica", "una torta con decoración de unicornio\tjardineria\tjardineria", "una torta con decoración de unicornio\taires_acondicionados\taires_acondicionados", "una torta con decoración de unicornio\treparaciones\treparaciones", "una torta con decoración de unicornio\tpasteleria\tpasteleria", "una torta con decoración de unicornio\tdecoracion_fiestas\tdecoracion_fiestas", "una torta con decoración de unicornio\tmandados\tmandados", "una torta con decoración de unicornio\totro\totro", "una torta con decoración de unicornio\tcategoria-inventada\tcategoria-inventada", "una torta con decoración de unicornio\tnull\tnull", "una torta con decoración de unicornio\tPASTELERIA\tpasteleria", "quiero decorar el salón para un cumpleaños\tplomeria\tplomeria", "quiero decorar el salón para un cumpleaños\telectricidad\telectricidad", "quiero decorar el salón para un cumpleaños\tcerrajeria\tcerrajeria", "quiero decorar el salón para un cumpleaños\tbarometrica\tbarometrica", "quiero decorar el salón para un cumpleaños\tjardineria\tjardineria", "quiero decorar el salón para un cumpleaños\taires_acondicionados\taires_acondicionados", "quiero decorar el salón para un cumpleaños\treparaciones\treparaciones", "quiero decorar el salón para un cumpleaños\tpasteleria\tdecoracion_fiestas", "quiero decorar el salón para un cumpleaños\tdecoracion_fiestas\tdecoracion_fiestas", "quiero decorar el salón para un cumpleaños\tmandados\tmandados", "quiero decorar el salón para un cumpleaños\totro\totro", "quiero decorar el salón para un cumpleaños\tcategoria-inventada\tcategoria-inventada", "quiero decorar el salón para un cumpleaños\tnull\tnull", "quiero decorar el salón para un cumpleaños\tPASTELERIA\tdecoracion_fiestas", "quiero agua en el Tata\tplomeria\tplomeria", "quiero agua en el Tata\telectricidad\telectricidad", "quiero agua en el Tata\tcerrajeria\tcerrajeria", "quiero agua en el Tata\tbarometrica\tbarometrica", "quiero agua en el Tata\tjardineria\tjardineria", "quiero agua en el Tata\taires_acondicionados\taires_acondicionados", "quiero agua en el Tata\treparaciones\treparaciones", "quiero agua en el Tata\tpasteleria\tpasteleria", "quiero agua en el Tata\tdecoracion_fiestas\tdecoracion_fiestas", "quiero agua en el Tata\tmandados\tmandados", "quiero agua en el Tata\totro\totro", "quiero agua en el Tata\tcategoria-inventada\tcategoria-inventada", "quiero agua en el Tata\tnull\tnull", "quiero agua en el Tata\tPASTELERIA\tpasteleria", "mesa dulce y ambientación\tplomeria\tplomeria", "mesa dulce y ambientación\telectricidad\telectricidad", "mesa dulce y ambientación\tcerrajeria\tcerrajeria", "mesa dulce y ambientación\tbarometrica\tbarometrica", "mesa dulce y ambientación\tjardineria\tjardineria", "mesa dulce y ambientación\taires_acondicionados\taires_acondicionados", "mesa dulce y ambientación\treparaciones\treparaciones", "mesa dulce y ambientación\tpasteleria\tpasteleria", "mesa dulce y ambientación\tdecoracion_fiestas\tdecoracion_fiestas", "mesa dulce y ambientación\tmandados\tmandados", "mesa dulce y ambientación\totro\totro", "mesa dulce y ambientación\tcategoria-inventada\tcategoria-inventada", "mesa dulce y ambientación\tnull\tnull", "mesa dulce y ambientación\tPASTELERIA\tpasteleria", "buenos aires\tplomeria\tplomeria", "buenos aires\telectricidad\telectricidad", "buenos aires\tcerrajeria\tcerrajeria", "buenos aires\tbarometrica\tbarometrica", "buenos aires\tjardineria\tjardineria", "buenos aires\taires_acondicionados\taires_acondicionados", "buenos aires\treparaciones\treparaciones", "buenos aires\tpasteleria\tpasteleria", "buenos aires\tdecoracion_fiestas\tdecoracion_fiestas", "buenos aires\tmandados\tmandados", "buenos aires\totro\totro", "buenos aires\tcategoria-inventada\tcategoria-inventada", "buenos aires\tnull\tnull", "buenos aires\tPASTELERIA\tpasteleria", "arreglo de persiana\tplomeria\tplomeria", "arreglo de persiana\telectricidad\telectricidad", "arreglo de persiana\tcerrajeria\tcerrajeria", "arreglo de persiana\tbarometrica\tbarometrica", "arreglo de persiana\tjardineria\tjardineria", "arreglo de persiana\taires_acondicionados\taires_acondicionados", "arreglo de persiana\treparaciones\treparaciones", "arreglo de persiana\tpasteleria\tpasteleria", "arreglo de persiana\tdecoracion_fiestas\tdecoracion_fiestas", "arreglo de persiana\tmandados\tmandados", "arreglo de persiana\totro\totro", "arreglo de persiana\tcategoria-inventada\tcategoria-inventada", "arreglo de persiana\tnull\tnull", "arreglo de persiana\tPASTELERIA\tpasteleria", "mueble roto\tplomeria\tplomeria", "mueble roto\telectricidad\telectricidad", "mueble roto\tcerrajeria\tcerrajeria", "mueble roto\tbarometrica\tbarometrica", "mueble roto\tjardineria\tjardineria", "mueble roto\taires_acondicionados\taires_acondicionados", "mueble roto\treparaciones\treparaciones", "mueble roto\tpasteleria\tpasteleria", "mueble roto\tdecoracion_fiestas\tdecoracion_fiestas", "mueble roto\tmandados\tmandados", "mueble roto\totro\totro", "mueble roto\tcategoria-inventada\tcategoria-inventada", "mueble roto\tnull\tnull", "mueble roto\tPASTELERIA\tpasteleria", "necesito un carpintero\tplomeria\tplomeria", "necesito un carpintero\telectricidad\telectricidad", "necesito un carpintero\tcerrajeria\tcerrajeria", "necesito un carpintero\tbarometrica\tbarometrica", "necesito un carpintero\tjardineria\tjardineria", "necesito un carpintero\taires_acondicionados\taires_acondicionados", "necesito un carpintero\treparaciones\treparaciones", "necesito un carpintero\tpasteleria\tpasteleria", "necesito un carpintero\tdecoracion_fiestas\tdecoracion_fiestas", "necesito un carpintero\tmandados\tmandados", "necesito un carpintero\totro\totro", "necesito un carpintero\tcategoria-inventada\tcategoria-inventada", "necesito un carpintero\tnull\tnull", "necesito un carpintero\tPASTELERIA\tpasteleria", "se pierde agua y hace corto\tplomeria\tplomeria", "se pierde agua y hace corto\telectricidad\telectricidad", "se pierde agua y hace corto\tcerrajeria\tcerrajeria", "se pierde agua y hace corto\tbarometrica\tbarometrica", "se pierde agua y hace corto\tjardineria\tjardineria", "se pierde agua y hace corto\taires_acondicionados\taires_acondicionados", "se pierde agua y hace corto\treparaciones\treparaciones", "se pierde agua y hace corto\tpasteleria\tpasteleria", "se pierde agua y hace corto\tdecoracion_fiestas\tdecoracion_fiestas", "se pierde agua y hace corto\tmandados\tmandados", "se pierde agua y hace corto\totro\totro", "se pierde agua y hace corto\tcategoria-inventada\tcategoria-inventada", "se pierde agua y hace corto\tnull\tnull", "se pierde agua y hace corto\tPASTELERIA\tpasteleria", "cumple de mi hija\tplomeria\tplomeria", "cumple de mi hija\telectricidad\telectricidad", "cumple de mi hija\tcerrajeria\tcerrajeria", "cumple de mi hija\tbarometrica\tbarometrica", "cumple de mi hija\tjardineria\tjardineria", "cumple de mi hija\taires_acondicionados\taires_acondicionados", "cumple de mi hija\treparaciones\treparaciones", "cumple de mi hija\tpasteleria\tpasteleria", "cumple de mi hija\tdecoracion_fiestas\tdecoracion_fiestas", "cumple de mi hija\tmandados\tmandados", "cumple de mi hija\totro\totro", "cumple de mi hija\tcategoria-inventada\tcategoria-inventada", "cumple de mi hija\tnull\tnull", "cumple de mi hija\tPASTELERIA\tpasteleria", "candy bar y backdrop\tplomeria\tplomeria", "candy bar y backdrop\telectricidad\telectricidad", "candy bar y backdrop\tcerrajeria\tcerrajeria", "candy bar y backdrop\tbarometrica\tbarometrica", "candy bar y backdrop\tjardineria\tjardineria", "candy bar y backdrop\taires_acondicionados\taires_acondicionados", "candy bar y backdrop\treparaciones\treparaciones", "candy bar y backdrop\tpasteleria\tpasteleria", "candy bar y backdrop\tdecoracion_fiestas\tdecoracion_fiestas", "candy bar y backdrop\tmandados\tmandados", "candy bar y backdrop\totro\totro", "candy bar y backdrop\tcategoria-inventada\tcategoria-inventada", "candy bar y backdrop\tnull\tnull", "candy bar y backdrop\tPASTELERIA\tpasteleria", "hacer la compra del super\tplomeria\tplomeria", "hacer la compra del super\telectricidad\telectricidad", "hacer la compra del super\tcerrajeria\tcerrajeria", "hacer la compra del super\tbarometrica\tbarometrica", "hacer la compra del super\tjardineria\tjardineria", "hacer la compra del super\taires_acondicionados\taires_acondicionados", "hacer la compra del super\treparaciones\treparaciones", "hacer la compra del super\tpasteleria\tpasteleria", "hacer la compra del super\tdecoracion_fiestas\tdecoracion_fiestas", "hacer la compra del super\tmandados\tmandados", "hacer la compra del super\totro\totro", "hacer la compra del super\tcategoria-inventada\tcategoria-inventada", "hacer la compra del super\tnull\tnull", "hacer la compra del super\tPASTELERIA\tpasteleria", "un tramite en el correo\tplomeria\tplomeria", "un tramite en el correo\telectricidad\telectricidad", "un tramite en el correo\tcerrajeria\tcerrajeria", "un tramite en el correo\tbarometrica\tbarometrica", "un tramite en el correo\tjardineria\tjardineria", "un tramite en el correo\taires_acondicionados\taires_acondicionados", "un tramite en el correo\treparaciones\treparaciones", "un tramite en el correo\tpasteleria\tpasteleria", "un tramite en el correo\tdecoracion_fiestas\tdecoracion_fiestas", "un tramite en el correo\tmandados\tmandados", "un tramite en el correo\totro\totro", "un tramite en el correo\tcategoria-inventada\tcategoria-inventada", "un tramite en el correo\tnull\tnull", "un tramite en el correo\tPASTELERIA\tpasteleria", "recarga de gas del split\tplomeria\tplomeria", "recarga de gas del split\telectricidad\telectricidad", "recarga de gas del split\tcerrajeria\tcerrajeria", "recarga de gas del split\tbarometrica\tbarometrica", "recarga de gas del split\tjardineria\tjardineria", "recarga de gas del split\taires_acondicionados\taires_acondicionados", "recarga de gas del split\treparaciones\treparaciones", "recarga de gas del split\tpasteleria\tpasteleria", "recarga de gas del split\tdecoracion_fiestas\tdecoracion_fiestas", "recarga de gas del split\tmandados\tmandados", "recarga de gas del split\totro\totro", "recarga de gas del split\tcategoria-inventada\tcategoria-inventada", "recarga de gas del split\tnull\tnull", "recarga de gas del split\tPASTELERIA\tpasteleria", "la ducha pierde\tplomeria\tplomeria", "la ducha pierde\telectricidad\telectricidad", "la ducha pierde\tcerrajeria\tcerrajeria", "la ducha pierde\tbarometrica\tbarometrica", "la ducha pierde\tjardineria\tjardineria", "la ducha pierde\taires_acondicionados\taires_acondicionados", "la ducha pierde\treparaciones\treparaciones", "la ducha pierde\tpasteleria\tpasteleria", "la ducha pierde\tdecoracion_fiestas\tdecoracion_fiestas", "la ducha pierde\tmandados\tmandados", "la ducha pierde\totro\totro", "la ducha pierde\tcategoria-inventada\tcategoria-inventada", "la ducha pierde\tnull\tnull", "la ducha pierde\tPASTELERIA\tpasteleria", "quiero postres\tplomeria\tplomeria", "quiero postres\telectricidad\telectricidad", "quiero postres\tcerrajeria\tcerrajeria", "quiero postres\tbarometrica\tbarometrica", "quiero postres\tjardineria\tjardineria", "quiero postres\taires_acondicionados\taires_acondicionados", "quiero postres\treparaciones\treparaciones", "quiero postres\tpasteleria\tpasteleria", "quiero postres\tdecoracion_fiestas\tdecoracion_fiestas", "quiero postres\tmandados\tmandados", "quiero postres\totro\totro", "quiero postres\tcategoria-inventada\tcategoria-inventada", "quiero postres\tnull\tnull", "quiero postres\tPASTELERIA\tpasteleria", "\tplomeria\tplomeria", "\telectricidad\telectricidad", "\tcerrajeria\tcerrajeria", "\tbarometrica\tbarometrica", "\tjardineria\tjardineria", "\taires_acondicionados\taires_acondicionados", "\treparaciones\treparaciones", "\tpasteleria\tpasteleria", "\tdecoracion_fiestas\tdecoracion_fiestas", "\tmandados\tmandados", "\totro\totro", "\tcategoria-inventada\tcategoria-inventada", "\tnull\tnull", "\tPASTELERIA\tpasteleria", "   \tplomeria\tplomeria", "   \telectricidad\telectricidad", "   \tcerrajeria\tcerrajeria", "   \tbarometrica\tbarometrica", "   \tjardineria\tjardineria", "   \taires_acondicionados\taires_acondicionados", "   \treparaciones\treparaciones", "   \tpasteleria\tpasteleria", "   \tdecoracion_fiestas\tdecoracion_fiestas", "   \tmandados\tmandados", "   \totro\totro", "   \tcategoria-inventada\tcategoria-inventada", "   \tnull\tnull", "   \tPASTELERIA\tpasteleria", "AIRE ACONDICIONADO\tplomeria\tplomeria", "AIRE ACONDICIONADO\telectricidad\telectricidad", "AIRE ACONDICIONADO\tcerrajeria\tcerrajeria", "AIRE ACONDICIONADO\tbarometrica\tbarometrica", "AIRE ACONDICIONADO\tjardineria\tjardineria", "AIRE ACONDICIONADO\taires_acondicionados\taires_acondicionados", "AIRE ACONDICIONADO\treparaciones\treparaciones", "AIRE ACONDICIONADO\tpasteleria\tpasteleria", "AIRE ACONDICIONADO\tdecoracion_fiestas\tdecoracion_fiestas", "AIRE ACONDICIONADO\tmandados\tmandados", "AIRE ACONDICIONADO\totro\totro", "AIRE ACONDICIONADO\tcategoria-inventada\tcategoria-inventada", "AIRE ACONDICIONADO\tnull\tnull", "AIRE ACONDICIONADO\tPASTELERIA\tpasteleria", "Pastel de chocolate\tplomeria\tplomeria", "Pastel de chocolate\telectricidad\telectricidad", "Pastel de chocolate\tcerrajeria\tcerrajeria", "Pastel de chocolate\tbarometrica\tbarometrica", "Pastel de chocolate\tjardineria\tjardineria", "Pastel de chocolate\taires_acondicionados\taires_acondicionados", "Pastel de chocolate\treparaciones\treparaciones", "Pastel de chocolate\tpasteleria\tpasteleria", "Pastel de chocolate\tdecoracion_fiestas\tdecoracion_fiestas", "Pastel de chocolate\tmandados\tmandados", "Pastel de chocolate\totro\totro", "Pastel de chocolate\tcategoria-inventada\tcategoria-inventada", "Pastel de chocolate\tnull\tnull", "Pastel de chocolate\tPASTELERIA\tpasteleria", "guirnalda de cumple\tplomeria\tplomeria", "guirnalda de cumple\telectricidad\telectricidad", "guirnalda de cumple\tcerrajeria\tcerrajeria", "guirnalda de cumple\tbarometrica\tbarometrica", "guirnalda de cumple\tjardineria\tjardineria", "guirnalda de cumple\taires_acondicionados\taires_acondicionados", "guirnalda de cumple\treparaciones\treparaciones", "guirnalda de cumple\tpasteleria\tdecoracion_fiestas", "guirnalda de cumple\tdecoracion_fiestas\tdecoracion_fiestas", "guirnalda de cumple\tmandados\tmandados", "guirnalda de cumple\totro\totro", "guirnalda de cumple\tcategoria-inventada\tcategoria-inventada", "guirnalda de cumple\tnull\tnull", "guirnalda de cumple\tPASTELERIA\tdecoracion_fiestas", "null\tpasteleria\tpasteleria" ],
+  "humanLabel" : [ {
+    "id" : "plomeria",
+    "label" : "plomería",
+    "range" : "$800–2500",
+    "hint" : "qué pasa exactamente (pérdida, canilla tapada, destape) y si es urgente",
+    "fromId" : "PLOMERIA"
+  }, {
+    "id" : "electricidad",
+    "label" : "electricidad",
+    "range" : null,
+    "hint" : "qué falla (sin luz general, un enchufe, el tablero) y si es urgente",
+    "fromId" : "ELECTRICIDAD"
+  }, {
+    "id" : "cerrajeria",
+    "label" : "cerrajería",
+    "range" : null,
+    "hint" : "si quedó afuera AHORA (urgente) o es cambio/arreglo de cerradura",
+    "fromId" : "CERRAJERIA"
+  }, {
+    "id" : "barometrica",
+    "label" : "barométrica",
+    "range" : "$1500–4000",
+    "hint" : "si el pozo está desbordando (urgente) o es mantenimiento programado",
+    "fromId" : "BAROMETRICA"
+  }, {
+    "id" : "jardineria",
+    "label" : "jardinería",
+    "range" : "$1200–3000",
+    "hint" : "tamaño aproximado del jardín y qué trabajo necesita (corte, limpieza, poda)",
+    "fromId" : "JARDINERIA"
+  }, {
+    "id" : "aires_acondicionados",
+    "label" : "aire acondicionado",
+    "range" : "$1500–4500",
+    "hint" : "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)",
+    "fromId" : "AIRES_ACONDICIONADOS"
+  }, {
+    "id" : "reparaciones",
+    "label" : "reparaciones",
+    "range" : null,
+    "hint" : "qué hay que arreglar y de qué se trata (mueble, persiana, pared)",
+    "fromId" : "REPARACIONES"
+  }, {
+    "id" : "pasteleria",
+    "label" : "pastelería",
+    "range" : "$900–3500",
+    "hint" : "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre",
+    "fromId" : "PASTELERIA"
+  }, {
+    "id" : "decoracion_fiestas",
+    "label" : "decoración de fiestas",
+    "range" : "$2000–8000",
+    "hint" : "para cuándo es, qué tipo de evento (cumpleaños, 15, casamiento, empresa) y qué querés (globos, ambientación completa, un sector)",
+    "fromId" : "DECORACION_FIESTAS"
+  }, {
+    "id" : "mandados",
+    "label" : "mandados y trámites",
+    "range" : "$200–500",
+    "hint" : "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte",
+    "fromId" : "MANDADOS"
+  }, {
+    "id" : "otro",
+    "label" : "otro",
+    "range" : null,
+    "hint" : null,
+    "fromId" : "OTRO"
+  }, {
+    "id" : "categoria-inventada",
+    "label" : "categoria-inventada",
+    "range" : null,
+    "hint" : null,
+    "fromId" : null
+  }, {
+    "id" : null,
+    "label" : "tu pedido",
+    "range" : null,
+    "hint" : null,
+    "fromId" : null
+  }, {
+    "id" : "PASTELERIA",
+    "label" : "pastelería",
+    "range" : "$900–3500",
+    "hint" : "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre",
+    "fromId" : "PASTELERIA"
+  }, {
+    "id" : "",
+    "label" : "tu pedido",
+    "range" : null,
+    "fromId" : null
+  } ]
+}

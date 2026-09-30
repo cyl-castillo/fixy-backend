@@ -3,7 +3,8 @@ package com.fixy.backend.service;
 import com.fixy.backend.dto.OrderCreateRequest;
 import com.fixy.backend.dto.OrderCreateResponse;
 import com.fixy.backend.dto.RemoteCareOrderCreateRequest;
-import com.fixy.backend.model.CoverageZone;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.OrderTimeWindow;
@@ -108,7 +109,7 @@ public class OrderService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "el servicio pedido no existe o no está disponible"));
 
-    CoverageZone zone = CoverageZone.fromLabel(zoneLabel)
+    ZoneDef zone = DomainCatalog.get().zoneByLabel(zoneLabel)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "esa zona todavía no está en la cobertura de Fixy"));
 
@@ -189,7 +190,7 @@ public class OrderService {
    * agrega una línea propia en vez de la genérica de "remote".
    */
   private String buildConfirmationMessage(
-      ServiceCatalogItem service, CoverageZone zone, OrderTimeWindow timeWindow, boolean remote, Lead lead,
+      ServiceCatalogItem service, ZoneDef zone, OrderTimeWindow timeWindow, boolean remote, Lead lead,
       boolean fromRemoteCarePlan, boolean serviceFeeOptOut
   ) {
     StringBuilder message = new StringBuilder()

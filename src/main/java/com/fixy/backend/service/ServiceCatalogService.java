@@ -1,11 +1,11 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.dto.ServiceCatalogGroupResponse;
 import com.fixy.backend.dto.ServiceCatalogItemCreateRequest;
 import com.fixy.backend.dto.ServiceCatalogItemResponse;
 import com.fixy.backend.dto.ServiceCatalogItemUpdateRequest;
 import com.fixy.backend.model.ServiceCatalogItem;
-import com.fixy.backend.model.ServiceCategory;
 import com.fixy.backend.repository.ServiceCatalogItemRepository;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -89,7 +89,7 @@ public class ServiceCatalogService {
     // demanda tiene (aires), y una categoría activa sin servicios cargados
     // todavía sale vacía en vez de omitirse o tirar NPE.
     for (String id : activeCategories) {
-      if (ServiceCategory.fromId(id).isEmpty()) {
+      if (DomainCatalog.get().categoryById(id).isEmpty()) {
         continue;
       }
       if (normalizedFilter != null && !normalizedFilter.equals(id)) {
@@ -101,7 +101,7 @@ public class ServiceCatalogService {
     return byCategory.entrySet().stream()
         .map(entry -> new ServiceCatalogGroupResponse(
             entry.getKey(),
-            ServiceCategory.humanLabel(entry.getKey()),
+            DomainCatalog.get().humanLabel(entry.getKey()),
             entry.getValue().stream()
                 .map(item -> new ServiceCatalogGroupResponse.Item(
                     item.getCode(), item.getName(), item.getDescription(),
@@ -134,7 +134,7 @@ public class ServiceCatalogService {
     if (repository.existsByCode(request.code().trim())) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "code already exists");
     }
-    if (ServiceCategory.fromId(request.category()).isEmpty()) {
+    if (DomainCatalog.get().categoryById(request.category()).isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unknown category");
     }
 
@@ -157,7 +157,7 @@ public class ServiceCatalogService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "service not found"));
 
     if (request.category() != null) {
-      if (ServiceCategory.fromId(request.category()).isEmpty()) {
+      if (DomainCatalog.get().categoryById(request.category()).isEmpty()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unknown category");
       }
       item.setCategory(request.category().trim());

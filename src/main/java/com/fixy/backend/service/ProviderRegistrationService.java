@@ -1,9 +1,9 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderVerificationStatus;
-import com.fixy.backend.model.ServiceCategory;
 import com.fixy.backend.repository.ProviderRepository;
 import java.util.List;
 import java.util.UUID;
@@ -132,7 +132,7 @@ public class ProviderRegistrationService {
     return clean;
   }
 
-  /** Solo ids reales del catálogo (ServiceCategory), sin "otro": el proveedor ofrece oficios concretos. */
+  /** Solo ids reales del catálogo (DomainCatalog), sin "otro": el proveedor ofrece oficios concretos. */
   private String validateCategories(List<String> categories) {
     if (categories == null || categories.isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "elegí al menos una categoría");
@@ -142,7 +142,7 @@ public class ProviderRegistrationService {
         .distinct()
         .toList();
     for (String category : clean) {
-      if ("otro".equals(category) || ServiceCategory.fromId(category).isEmpty()) {
+      if ("otro".equals(category) || DomainCatalog.get().categoryById(category).isEmpty()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "categoría desconocida: " + category);
       }
     }

@@ -1,16 +1,17 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.domain.CategoryDef;
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.dto.PublicDemandResponse;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
-import com.fixy.backend.model.ServiceCategory;
 import com.fixy.backend.model.SmokeTraffic;
 import com.fixy.backend.repository.LeadRepository;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -68,7 +69,7 @@ public class PublicDemandService {
 
   public PublicDemandResponse get() {
     OffsetDateTime cutoff = OffsetDateTime.now(clock).minusDays(FRESHNESS_DAYS);
-    Map<ServiceCategory, Integer> counts = new EnumMap<>(ServiceCategory.class);
+    Map<CategoryDef, Integer> counts = new LinkedHashMap<>();
 
     for (LeadStatus status : OPEN_STATUSES) {
       for (Lead lead : leadRepository.findByStatusOrderByCreatedAtDesc(status)) {
@@ -96,12 +97,12 @@ public class PublicDemandService {
   }
 
   /** Oficio del lead, solo si existe en el catálogo de alta (sin {@code OTRO} ni desconocidos). */
-  private Optional<ServiceCategory> resolveCategory(String detectedCategory) {
+  private Optional<CategoryDef> resolveCategory(String detectedCategory) {
     if (detectedCategory == null || detectedCategory.isBlank()) {
       return Optional.empty();
     }
-    for (ServiceCategory category : ServiceCategory.values()) {
-      if (category != ServiceCategory.OTRO && category.id().equals(detectedCategory)) {
+    for (CategoryDef category : DomainCatalog.get().categories()) {
+      if (!category.catchAll() && category.id().equals(detectedCategory)) {
         return Optional.of(category);
       }
     }

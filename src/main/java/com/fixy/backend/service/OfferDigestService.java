@@ -4,7 +4,8 @@ import com.fixy.backend.dto.OfferDigestPreviewResponse;
 import com.fixy.backend.dto.OfferDigestSendResponse;
 import com.fixy.backend.dto.OfferDigestZonePreview;
 import com.fixy.backend.dto.OfferPublicResponse;
-import com.fixy.backend.model.CoverageZone;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import com.fixy.backend.model.PushSubscription;
 import com.fixy.backend.repository.PushSubscriptionRepository;
 import java.time.Clock;
@@ -83,7 +84,7 @@ public class OfferDigestService {
     List<OfferDigestZonePreview> zones = new ArrayList<>();
     int totalToSend = 0;
 
-    for (CoverageZone zone : CoverageZone.values()) {
+    for (ZoneDef zone : DomainCatalog.get().zones()) {
       List<PushSubscription> subsInZone = digestSubs.stream()
           .filter(sub -> zone.label().equals(sub.getZone()))
           .toList();

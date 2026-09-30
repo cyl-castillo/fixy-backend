@@ -1,6 +1,7 @@
 package com.fixy.backend.service;
 
-import com.fixy.backend.model.ServiceCategory;
+import com.fixy.backend.domain.CategoryDef;
+import com.fixy.backend.domain.DomainCatalog;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -77,10 +78,7 @@ public class WhatsAppMenuService {
       return false;
     }
     List<WhatsAppService.ListRow> rows = new ArrayList<>();
-    for (ServiceCategory category : ServiceCategory.values()) {
-      if (!category.isMvp()) {
-        continue;
-      }
+    for (CategoryDef category : DomainCatalog.get().mvpCategories()) {
       rows.add(new WhatsAppService.ListRow(
           category.id(),
           capitalize(category.label()),
@@ -105,7 +103,7 @@ public class WhatsAppMenuService {
     if (OTHER_ROW_ID.equals(id)) {
       return true;
     }
-    return ServiceCategory.fromId(id).map(ServiceCategory::isMvp).orElse(false);
+    return DomainCatalog.get().categoryById(id).map(CategoryDef::mvp).orElse(false);
   }
 
   public static boolean isOtherRowId(String id) {

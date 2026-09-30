@@ -2,7 +2,8 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.RemoteCarePlanRequest;
 import com.fixy.backend.dto.RemoteCarePlanRequestResponse;
-import com.fixy.backend.model.CoverageZone;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import com.fixy.backend.model.RemoteCarePlan;
 import com.fixy.backend.repository.RemoteCarePlanRepository;
 import java.util.UUID;
@@ -65,7 +66,7 @@ public class RemoteCareRequestService {
     if (!hasText(request.phone())) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "phone es obligatorio");
     }
-    CoverageZone zone = CoverageZone.fromLabel(request.zone())
+    ZoneDef zone = DomainCatalog.get().zoneByLabel(request.zone())
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST,
             "esa zona todavía no está en la cobertura de Fixy"));
     if (!hasText(request.address()) || request.address().trim().length() < ADDRESS_MIN

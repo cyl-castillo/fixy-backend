@@ -1,8 +1,9 @@
 package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.ZoneDef;
 import com.fixy.backend.model.Business;
-import com.fixy.backend.model.CoverageZone;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.PushSubscription;
 import com.fixy.backend.repository.BusinessRepository;
@@ -115,7 +116,7 @@ public class PushNotificationService {
 
   /**
    * Zona canónica del lead al momento del alta (Fase Push-1): {@code
-   * Lead.location} resuelto contra {@link CoverageZone#fromLabel}, mismo
+   * Lead.location} resuelto contra {@link DomainCatalog#zoneByLabel}, mismo
    * alias/jerarquía que usa el matching. Null si el lead no existe o su
    * zona declarada no es una que Fixy reconozca — una suscripción sin zona
    * simplemente queda fuera del digest, no rompe el alta.
@@ -124,7 +125,7 @@ public class PushNotificationService {
     if (leadId == null) return null;
     Lead lead = leadRepository.findById(leadId).orElse(null);
     if (lead == null) return null;
-    return CoverageZone.fromLabel(lead.getLocation()).map(CoverageZone::label).orElse(null);
+    return DomainCatalog.get().zoneByLabel(lead.getLocation()).map(ZoneDef::label).orElse(null);
   }
 
   /**
@@ -170,7 +171,7 @@ public class PushNotificationService {
    * este endpoint sin saberlo (por ejemplo, el visitante que después completa
    * un pedido reusa el mismo endpoint del navegador).
    *
-   * <p>{@code zone} se valida contra {@link CoverageZone}: si no es una que
+   * <p>{@code zone} se valida contra {@link DomainCatalog}: si no es una que
    * Fixy reconoce, queda en null — igual que {@link #resolveLeadZone}. Pero
    * en una fila que YA tiene zona conocida no se pisa con null: la PWA
    * re-sincroniza la suscripción en cada arranque y el visitante que nunca
@@ -179,7 +180,7 @@ public class PushNotificationService {
    * ya había elegido y lo dejaba fuera del digest para siempre
    * ({@code skippedNoZone=6} de 19 en el digest del 04/09). Mismo criterio
    * que {@code businessId} más abajo. Cambiar de barrio sí pisa: para eso la
-   * zona nueva tiene que resolver contra {@link CoverageZone}.
+   * zona nueva tiene que resolver contra {@link DomainCatalog}.
    * Validación de abuso ({@code savedOfferIds} y rate limit por IP) antes de
    * tocar la base, mismo orden que el resto de las rutas públicas.
    *
@@ -194,7 +195,7 @@ public class PushNotificationService {
       List<Long> savedOfferIds, String merchantToken
   ) {
     abuseProtectionService.validatePushSubscription(clientIp, savedOfferIds);
-    String zone = CoverageZone.fromLabel(zoneRaw).map(CoverageZone::label).orElse(null);
+    String zone = DomainCatalog.get().zoneByLabel(zoneRaw).map(ZoneDef::label).orElse(null);
     // Hotfix 2026-08-25: prod arrastra endpoints duplicados de la era
     // pre-upsert (cada re-suscripción insertaba fila nueva) y findByEndpoint
     // tiraba NonUniqueResult. Sobrevive la fila con identidad (lead/provider,

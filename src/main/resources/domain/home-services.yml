@@ -1,0 +1,329 @@
+# Catálogo de dominio de Fixy ("servicios del hogar"): FUENTE ÚNICA de qué zonas
+# cubre Fixy, qué categorías existen y cómo se le habla de ellas al LLM.
+#
+# Core Fase 2 (ver CORE_FASE2_CONTRATO.md): antes esto vivía en dos enums de Java
+# (CoverageZone, ServiceCategory), en listas sueltas de AgentService/LeadAgentService/
+# WhatsAppMenuService y en los prompts. Ahora se edita ACÁ (o en un override externo,
+# sin recompilar: FIXY_DOMAIN_CATALOG_PATH=/etc/fixy-backend/domain.yml) y todo lo
+# demás lo deriva: isCovered/covers, detección de categoría, prompts, schemas JSON,
+# menú de WhatsApp.
+#
+# Reglas del override (DomainCatalog.load): puede AGREGAR zonas y categorías y
+# cambiar datos, pero tiene que traer todos los ids que trae este archivo; si está
+# roto o le falta alguno, Fixy arranca con este y loguea WARN (nunca se rompe prod
+# por un archivo de override).
+#
+# El ORDEN importa y es comportamiento: el de `zones` es el de las listas que ve el
+# cliente y el proveedor (paraguas primero); el de `categories` es el de
+# detectCategory (itera en orden de declaración, la primera keyword que matchea gana).
+
+business:
+  name: "Fixy"
+  intro: "Operás primero en Ciudad de la Costa, Canelones, Uruguay."
+  region: "Ciudad de la Costa, Canelones, Uruguay"
+
+# Cómo se listan las zonas en prompts y schemas: las específicas en su orden, después
+# el paraguas (parent: null), después el valor de "zona no definida" del clasificador.
+prompt_order:
+  umbrellaLast: true
+  areaUnknown: "sin definir"
+
+# `parent`: el paraguas que contiene a la zona (null = ella es el paraguas). La jerarquía
+# vale en las dos direcciones en covers() (ver DomainCatalog.covers).
+# `aliases`: otros nombres de la MISMA zona que no son diferencia de acento (la
+# normalización ya saca tildes y mayúsculas). Cuentan para isCovered/covers/fromLabel.
+# `detect`: cómo detecta la zona AgentService.detectArea en texto libre. `tokens` son
+# fragmentos normalizados (sin tildes) que el cliente escribe ("vivo en los montes");
+# NO son aliases: "montes" suelto no es una zona válida para isCovered. `priority` es el
+# orden de evaluación (menor primero): las zonas específicas van ANTES que "solymar" a
+# secas, porque "lomas de solymar"/"colinas de solymar"/"montes de solymar" contienen la
+# palabra "solymar" y matchearían el genérico primero si el orden fuera al revés (caso
+# real lead #132: "montes" cayó a "Ciudad de la Costa"). Los paraguas se evalúan siempre
+# al final. Sin bloque `detect`, la zona se detecta por su nombre normalizado.
+zones:
+  # El paraguas. Contiene a todas las demás. "La Costa" es como le dice el vecino en la
+  # calle, y es lo que un proveedor escribe cuando el campo es texto libre.
+  - id: CIUDAD_DE_LA_COSTA
+    label: "Ciudad de la Costa"
+    parent: null
+    aliases: ["La Costa"]
+    detect: {tokens: ["ciudad de la costa", "canelones"]}
+  - id: SOLYMAR
+    label: "Solymar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 11, tokens: ["solymar"]}
+  - id: LAGOMAR
+    label: "Lagomar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 10, tokens: ["lagomar"]}
+  - id: EL_PINAR
+    label: "El Pinar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 5, tokens: ["el pinar", "pinar"]}
+  - id: SHANGRILA
+    label: "Shangrilá"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 4, tokens: ["shangrila"]}
+  - id: BARRA_DE_CARRASCO
+    label: "Barra de Carrasco"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 6, tokens: ["barra de carrasco"]}
+  - id: PARQUE_MIRAMAR
+    label: "Parque Miramar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 7, tokens: ["parque miramar", "miramar"]}
+  - id: SAN_JOSE_DE_CARRASCO
+    label: "San José de Carrasco"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 8, tokens: ["san jose de carrasco"]}
+  - id: LOMAS_DE_SOLYMAR
+    label: "Lomas de Solymar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 2, tokens: ["lomas de solymar", "lomas"]}
+  - id: COLINAS_DE_SOLYMAR
+    label: "Colinas de Solymar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 3, tokens: ["colinas de solymar", "colinas"]}
+  - id: MONTES_DE_SOLYMAR
+    label: "Montes de Solymar"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 1, tokens: ["montes de solymar", "montes"]}
+  - id: AEROPARQUE
+    label: "Aeroparque"
+    parent: CIUDAD_DE_LA_COSTA
+    aliases: []
+    detect: {priority: 9, tokens: ["aeroparque"]}
+
+# Categorías. Campos:
+#   id: valor persistido en Lead.detectedCategory (String plano). enumName: nombre de la
+#     constante de la fachada Java (ServiceCategory); los tests usan las constantes.
+#   mvp: participa en matching real; las no-MVP (electricidad, cerrajería, reparaciones)
+#     el clasificador todavía las reconoce por texto pero Fixy no las cubre hoy.
+#   keywords: palabras que activan la categoría en los clasificadores heurísticos (fallback
+#     sin LLM). ORDEN = comportamiento (ver arriba). declaredKeywords: lista deliberadamente
+#     más CORTA que usa AgentService.normalizeServiceCategory sobre una categoría ya
+#     declarada por el usuario (no texto libre) — no deriva de `keywords` a propósito, para
+#     no ampliar sus matches y arriesgar falsos positivos.
+#   priceMin/priceMax: rango en UYU, Cotización Estimada, Ola 2 MVP. SON PLACEHOLDERS
+#     razonables para Uruguay 2026, puestos por ingeniería para destrabar el feature —
+#     CARLOS DEBE VALIDARLOS con proveedores reales antes de confiar en ellos frente a
+#     clientes. Representan "visita + trabajo simple/estándar", no casos grandes; el
+#     agente SIEMPRE aclara que el precio final lo confirma el proveedor. null = sin rango.
+#   intakeHint: qué le conviene preguntar el agente para ESTE servicio una vez que
+#     categoría y zona están definidas. Guion de intake determinista: el 8B demostró (lead
+#     #123, 2026-07-16) que sin esto inventa preguntas de otra categoría ("¿cuántas
+#     porciones?" para un aire acondicionado). null = sin guion, el agente pregunta genérico.
+#   classifierDescription: la línea de esta categoría en prompts/intake-classifier.md.
+#   coverageNote: aclaración entre paréntesis en "Servicios que cubrimos" del prompt del turno.
+#   promptNotes: párrafo por categoría en prompts/lead-agent-system.md.
+#   menuDescription: descripción de la fila del menú de WhatsApp (límite Meta: 72
+#     caracteres). Contenido curado a mano: afecta solo cómo se ve el menú, nunca
+#     clasificación ni matching.
+#   catchAll: la categoría "otro" (default explícito; nunca matchea por keywords).
+#   ambiguity: desempate determinista contra otra categoría (ver DomainCatalog.refineAmbiguity).
+categories:
+  - id: plomeria
+    enumName: PLOMERIA
+    label: "plomería"
+    mvp: true
+    keywords:
+      ["agua", "canilla", "ducha", "caño", "cano", "perdida", "pierde", "perdida de agua",
+       "pierde agua", "plomer", "destap"]
+    declaredKeywords:
+      ["plomer", "agua", "caño", "cano"]
+    priceMin: 800
+    priceMax: 2500
+    intakeHint: "qué pasa exactamente (pérdida, canilla tapada, destape) y si es urgente"
+    classifierDescription: "canillas, caños, perdidas de agua, duchas, destapaciones."
+    menuDescription: "Pérdidas, canillas tapadas, destapes"
+  - id: electricidad
+    enumName: ELECTRICIDAD
+    label: "electricidad"
+    mvp: false
+    keywords:
+      ["luz", "corriente", "enchufe", "tablero", "corto", "electric"]
+    declaredKeywords:
+      ["electric", "luz"]
+    priceMin: null
+    priceMax: null
+    intakeHint: "qué falla (sin luz general, un enchufe, el tablero) y si es urgente"
+    classifierDescription: "cortes de luz, tableros, cortocircuitos, enchufes, chispas."
+  - id: cerrajeria
+    enumName: CERRAJERIA
+    label: "cerrajería"
+    mvp: false
+    keywords:
+      ["llave", "cerradura", "tranca", "me quede afuera", "me quede fuera", "cerraj"]
+    declaredKeywords:
+      ["cerraj", "llave", "cerradura"]
+    priceMin: null
+    priceMax: null
+    intakeHint: "si quedó afuera AHORA (urgente) o es cambio/arreglo de cerradura"
+    classifierDescription: "llaves perdidas o trabadas, cerraduras, no poder entrar a la casa."
+  - id: barometrica
+    enumName: BAROMETRICA
+    label: "barométrica"
+    mvp: true
+    keywords:
+      ["pozo", "barometr", "camara septica", "cámara séptica"]
+    declaredKeywords:
+      ["barometr"]
+    priceMin: 1500
+    priceMax: 4000
+    intakeHint: "si el pozo está desbordando (urgente) o es mantenimiento programado"
+    classifierDescription: "pozos negros, camaras septicas, desborde de pozo."
+    menuDescription: "Pozos y cámaras sépticas"
+  - id: jardineria
+    enumName: JARDINERIA
+    label: "jardinería"
+    mvp: true
+    keywords:
+      ["jardin", "jardín", "pasto", "cesped", "césped", "cortar el pasto", "cortar pasto",
+       "mantenimiento exterior", "jardiner"]
+    declaredKeywords:
+      ["jardin", "jardín", "pasto", "cesped", "césped", "jardiner"]
+    priceMin: 1200
+    priceMax: 3000
+    intakeHint: "tamaño aproximado del jardín y qué trabajo necesita (corte, limpieza, poda)"
+    classifierDescription: "cortar pasto, podar arboles, mantenimiento de jardin."
+    menuDescription: "Corte de pasto, poda, mantenimiento"
+  - id: aires_acondicionados
+    # "aires"/"el aire"/"un aire": así habla la gente ("me equivoqué, es aires" — prueba de
+    # Carlos lead #194, la corrección no se entendía). Riesgo asumido: "buenos aires"
+    # matchearía — rarísimo en este contexto y las categorías con keyword más específica
+    # se evalúan antes.
+    enumName: AIRES_ACONDICIONADOS
+    label: "aire acondicionado"
+    mvp: true
+    keywords:
+      ["aire acondicionado", "aires acondicionados", "aire que no enfria", "aire que no enfría",
+       "split", "climatizacion", "climatización", "recarga de gas", "no enfria", "no enfría",
+       "no calienta", "mantenimiento de aire", "refrigeracion", "refrigeración", "aires",
+       "el aire", "un aire", "aire"]
+    declaredKeywords:
+      ["aire acondicionado", "aires acondicionados", "split", "climatizacion", "climatización",
+       "refrigeracion", "refrigeración"]
+    priceMin: 1500
+    priceMax: 4500
+    intakeHint: "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"
+    classifierDescription: "instalacion, recarga de gas, splits que no enfrian o no calientan."
+    menuDescription: "Instalación, service, no enfría o no calienta"
+  - id: reparaciones
+    enumName: REPARACIONES
+    label: "reparaciones"
+    mvp: false
+    keywords:
+      ["arreglo", "reparacion", "reparación", "hogar", "mueble", "persiana"]
+    priceMin: null
+    priceMax: null
+    intakeHint: "qué hay que arreglar y de qué se trata (mueble, persiana, pared)"
+    classifierDescription: "muebles rotos, persianas, arreglos generales del hogar que no son de otro rubro."
+  - id: pasteleria
+    # "pastel"/"pasteles": coloquial real (prueba de Carlos lead #196, "error era pastel" no
+    # corregía porque solo existían torta/pastelería).
+    enumName: PASTELERIA
+    label: "pastelería"
+    mvp: true
+    keywords:
+      ["torta", "tortas", "pastel", "pasteles", "cumpleaños", "cumpleanos", "cumple ",
+       "mesa dulce", "cupcake", "pasteleria", "pastelería", "reposteria", "repostería", "postre",
+       "postres", "shots dulces", "candy bar"]
+    declaredKeywords:
+      ["torta", "cumpleaños", "cumpleanos", "cupcake", "pasteleria", "pastelería", "reposteria",
+       "repostería"]
+    priceMin: 900
+    priceMax: 3500
+    intakeHint: "para cuándo lo necesita, para cuántas personas y qué tipo de torta o postre"
+    classifierDescription: "LA COMIDA DULCE de un evento — tortas, tortas tematicas, mesa dulce, cupcakes, postres, candy bar."
+    coverageNote: "tortas y mesa dulce de eventos"
+    promptNotes: |-
+      Si el pedido es de pastelería (torta, cumpleaños, mesa dulce, catering de evento): además de
+      zona y urgencia, pedile natural (sin enumerar) para cuándo necesita el pedido, cuántas personas
+      o porciones, y la temática o tipo de torta — guardalo como parte del detalle del pedido, igual
+      que hacés con la dirección para otros rubros.
+    menuDescription: "Tortas, cumpleaños, mesa dulce"
+    # Desempate determinista pastelería vs decoración ("lo crítico va en código, no en
+    # prompt"): "cumpleaños"/"fiesta" son keywords de pastelería por historia, así que
+    # "decoración para el cumpleaños" caía en pastelería — lo midió el banco
+    # (mixto_cumple_decoracion) y lo fallaban tanto el heurístico como gpt-5-mini
+    # (2026-07-27). Regla, espejo de la del prompt: si el texto trae `alternativeSignals`
+    # (señales visuales de ambientación) y NINGUNA `keepSignals` (señal inequívoca de
+    # comida: torta, mesa dulce...), es la alternativa. "Torta para el cumple" no se toca:
+    # torta es señal fuerte de comida.
+    ambiguity:
+      alternative: decoracion_fiestas
+      alternativeSignals:
+        ["decoracion", "decoración", "decorar", "ambientacion", "ambientación", "ambientar",
+         "globos", "backdrop", "guirnalda"]
+      keepSignals:
+        ["torta", "cupcake", "mesa dulce", "postre", "candy bar", "shots dulces", "reposteria",
+         "repostería", "pasteleria", "pastelería"]
+  - id: decoracion_fiestas
+    # Declarada DESPUÉS de pastelería a propósito: detectCategory itera en orden de
+    # declaración, así "decorar la torta" cae en pastelería (keyword "torta") antes de
+    # llegar acá. Las keywords de decoración son visuales/específicas (globos,
+    # ambientación), NO comparten los términos de evento genéricos ("cumpleaños", "fiesta"
+    # a secas) con pastelería — el clasificador LLM resuelve el caso ambiguo "decoración
+    # para un cumpleaños" con la guía del prompt; el heurístico prioriza lo que matchea
+    # primero, aceptable como fallback.
+    enumName: DECORACION_FIESTAS
+    label: "decoración de fiestas"
+    mvp: true
+    keywords:
+      ["decoracion", "decoración", "ambientacion", "ambientación", "ambientar", "globos",
+       "arco de globos", "backdrop", "guirnalda", "centro de mesa", "decorar la fiesta",
+       "decoracion de fiesta", "decoración de fiesta"]
+    declaredKeywords:
+      ["decoracion", "decoración", "ambientacion", "ambientación", "globos"]
+    priceMin: 2000
+    priceMax: 8000
+    intakeHint: "para cuándo es, qué tipo de evento (cumpleaños, 15, casamiento, empresa) y qué querés (globos, ambientación completa, un sector)"
+    classifierDescription: "LA AMBIENTACION VISUAL de un evento — globos, arcos de globos, backdrops, telones, guirnaldas, centros de mesa, decoracion y ambientacion de cumpleaños, 15, casamientos o eventos de empresa. NO es la comida (eso es pasteleria)."
+    coverageNote: "globos, ambientación de cumpleaños, 15, casamientos y eventos — la parte visual, no la comida"
+    menuDescription: "Globos, ambientación, decoración de eventos"
+  - id: mandados
+    # Categoría 2026-07-28 (pedido de Carlos, con proveedor real): el mandadero de barrio —
+    # compras y trámites por encargo como oficio. Keywords sin "compra" a secas a propósito:
+    # "comprar un split/una torta/una cerradura" debe seguir cayendo en su categoría (todas
+    # declaradas antes, el orden ya lo resuelve), pero un "quiero comprar X" genérico no es
+    # un mandado seguro.
+    enumName: MANDADOS
+    label: "mandados y trámites"
+    mvp: true
+    keywords:
+      ["mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras",
+       "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab",
+       "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite",
+       "hacer un trámite", "pagar una factura"]
+    priceMin: 200
+    priceMax: 500
+    intakeHint: "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte"
+    classifierDescription: "compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo. NO es comprar un producto para instalarlo (eso va en su rubro: \"comprar un split\" es aires_acondicionados)."
+    coverageNote: "compras del súper, farmacia, feria, pagos en Abitab/Redpagos, correo — por encargo"
+    promptNotes: |-
+      Si el pedido es de mandados: además de zona y urgencia, pedile natural qué mandados son y para
+      cuándo, e invitalo a pasar la lista acá mismo en el chat — escrita o con una foto de la lista de
+      papel, como le quede más cómodo; el mandadero la ve tal cual y le pregunta por acá cualquier duda.
+      Aclarale que lo comprado se paga contra entrega mostrando el ticket — la tarifa del mandadero va
+      aparte. Nunca pidas plata por adelantado.
+    menuDescription: "Súper, farmacia, trámites y pagos"
+  - id: otro
+    enumName: OTRO
+    label: "otro"
+    mvp: false
+    catchAll: true
+    keywords: []
+    priceMin: null
+    priceMax: null
+    intakeHint: null
+    classifierDescription: "cualquier pedido que no encaje claramente en las anteriores, o pedidos vagos."

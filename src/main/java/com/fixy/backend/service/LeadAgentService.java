@@ -2,6 +2,8 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.domain.CategoryDef;
+import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
@@ -1589,8 +1591,8 @@ public class LeadAgentService {
         }
       }
     } catch (Exception ignored) {}
-    return com.fixy.backend.model.ServiceCategory.detectFromText(text.toString())
-        .map(com.fixy.backend.model.ServiceCategory::id)
+    return DomainCatalog.get().detectCategory(text.toString())
+        .map(CategoryDef::id)
         .orElse(null);
   }
 
@@ -1893,7 +1895,7 @@ public class LeadAgentService {
               .formatted(humanCategory(lead.getDetectedCategory())));
       return;
     }
-    var category = com.fixy.backend.model.ServiceCategory.fromId(categoryId).orElse(null);
+    var category = DomainCatalog.get().categoryById(categoryId).orElse(null);
     if (category == null) {
       safePost(leadId, fallbackChatFirstGreeting());
       return;
