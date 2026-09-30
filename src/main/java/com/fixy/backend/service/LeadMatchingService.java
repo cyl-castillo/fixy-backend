@@ -42,6 +42,7 @@ public class LeadMatchingService {
   private final WhatsAppService whatsappService;
   private final TelegramNotifyService telegramNotifyService;
   private final SearchDeadlineService searchDeadlineService;
+  private final TurnPolicy turnPolicy;
   private final String whatsappTemplateName;
   private final String whatsappTemplateLang;
   private final String publicAppBaseUrl;
@@ -58,6 +59,7 @@ public class LeadMatchingService {
       WhatsAppService whatsappService,
       TelegramNotifyService telegramNotifyService,
       SearchDeadlineService searchDeadlineService,
+      TurnPolicy turnPolicy,
       @Value("${fixy.whatsapp.template-name:provider_lead_notification}") String whatsappTemplateName,
       @Value("${fixy.whatsapp.template-lang:es}") String whatsappTemplateLang,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
@@ -73,14 +75,11 @@ public class LeadMatchingService {
     this.whatsappService = whatsappService;
     this.telegramNotifyService = telegramNotifyService;
     this.searchDeadlineService = searchDeadlineService;
+    this.turnPolicy = turnPolicy;
     this.whatsappTemplateName = whatsappTemplateName;
     this.whatsappTemplateLang = whatsappTemplateLang;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");
   }
-
-  /** Fuente única: DomainCatalog (domain/home-services.yml). */
-  private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.copyOf(DomainCatalog.get().mvpIds());
 
   /** Copia de LeadAgentService.hasMatchingRequirements: categoría MVP conocida
    * y zona cubierta. Duplicado a propósito (ver javadoc de la clase sobre por
@@ -89,7 +88,7 @@ public class LeadMatchingService {
   boolean hasMatchingRequirements(Lead lead) {
     String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
     String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
-    if (cat.isBlank() || "otro".equals(cat) || !MVP_CATEGORIES.contains(cat)) return false;
+    if (cat.isBlank() || "otro".equals(cat) || !turnPolicy.isMvpCategory(cat)) return false;
     if (loc.isBlank() || "sin definir".equals(loc)
         || !DomainCatalog.get().isCovered(loc)) return false;
     return true;
@@ -121,7 +120,7 @@ public class LeadMatchingService {
         // cierra la pestaña: este mensaje es EL lugar donde pedir el WhatsApp
         // (verificación post-deploy 2026-07-28: el flujo de pedido completo
         // saltea la respuesta conversacional y entra directo acá).
-        leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
+        leadMessageService.postFromAgent(lead.getId(), turnPolicy.withContactPhoneAsk(lead,
             noProviderMessage(lead)));
         shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
@@ -199,7 +198,7 @@ public class LeadMatchingService {
       List<ProviderCatalogItem> matches = providerCatalogService.findMatchesForLead(
           leadId, lead.getDetectedCategory(), lead.getLocation());
       if (matches == null || matches.isEmpty()) {
-        leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
+        leadMessageService.postFromAgent(lead.getId(), turnPolicy.withContactPhoneAsk(lead,
             noProviderMessage(lead)));
         shareRecoveryLink(lead);
         safeTelegramNotifyDemandWithoutSupply(lead);
@@ -227,10 +226,10 @@ public class LeadMatchingService {
       // begin() antes de llegar acá), pero sin deadline no se puede prometer
       // una hora — cae al copy sin hora en vez de mostrar "las ".
       return "Por ahora no tengo técnico libre en %s para %s. Sigo buscando y te aviso por acá apenas consiga."
-          .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()));
+          .formatted(lead.getLocation(), turnPolicy.humanCategory(lead.getDetectedCategory()));
     }
     return "Por ahora no tengo técnico libre en %s para %s. Sigo buscando hasta las %s; si a esa hora no conseguí, te aviso y vemos alternativas."
-        .formatted(lead.getLocation(), humanCategory(lead.getDetectedCategory()), deadline);
+        .formatted(lead.getLocation(), turnPolicy.humanCategory(lead.getDetectedCategory()), deadline);
   }
 
   /**
@@ -286,14 +285,14 @@ public class LeadMatchingService {
     // Push al proveedor matcheado (si se suscribió): el camino AUTOMÁTICO
     // también avisa, no solo el manual de generateMatches. Async y no-op
     // sin claves VAPID — nunca interrumpe el matching.
-    if (providerEntity != null && !HomeServicesPolicy.isSmokeLead(lead)) {
+    if (providerEntity != null && !turnPolicy.isSmokeLead(lead)) {
       pushNotificationService.notifyProvider(
           providerEntity.getId(),
           providerEntity.getAccessToken(),
           "Nueva oportunidad para vos",
           "%s en %s — entrá a tu panel para aceptarla".formatted(
-              humanCategory(lead.getDetectedCategory()),
-              safe(lead.getLocation(), "tu zona")));
+              turnPolicy.humanCategory(lead.getDetectedCategory()),
+              turnPolicy.safe(lead.getLocation(), "tu zona")));
     }
 
     // Marco el lead como "esperando respuesta del proveedor" para que el
@@ -313,14 +312,14 @@ public class LeadMatchingService {
     // no hay confirmación real del proveedor (ver PLAN_SUPERAPP_CLIENTE.md
     // Ola 1 #2). Si el proveedor rechaza después, el cliente no debe sentir
     // que le mintieron.
-    leadMessageService.postFromAgent(lead.getId(), withContactPhoneAsk(lead,
+    leadMessageService.postFromAgent(lead.getId(), turnPolicy.withContactPhoneAsk(lead,
         switch (context) {
           case SCHEDULED_RETRY -> "¡Buenas noticias! Apareció un proveedor para tu pedido: estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+              .formatted(top.name(), turnPolicy.humanCategory(lead.getDetectedCategory()), lead.getLocation());
           case DECLINE_REOFFER -> "El primer técnico no pudo; ya estoy contactando a otro: %s para %s en %s. Te aviso por acá apenas confirme."
-              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+              .formatted(top.name(), turnPolicy.humanCategory(lead.getDetectedCategory()), lead.getLocation());
           case INITIAL -> "Estoy contactando a %s para %s en %s. Te aviso por acá apenas confirme."
-              .formatted(top.name(), humanCategory(lead.getDetectedCategory()), lead.getLocation());
+              .formatted(top.name(), turnPolicy.humanCategory(lead.getDetectedCategory()), lead.getLocation());
         }));
     shareRecoveryLink(lead);
 
@@ -366,7 +365,7 @@ public class LeadMatchingService {
       }
     }
     return List.of(
-        humanCategory(lead.getDetectedCategory()),
+        turnPolicy.humanCategory(lead.getDetectedCategory()),
         location,
         lead.getUrgency() == null ? "media" : lead.getUrgency()
     );
@@ -406,35 +405,6 @@ public class LeadMatchingService {
     }
   }
 
-  /**
-   * Anexa el pedido de WhatsApp a un mensaje del agente si corresponde (sin
-   * teléfono en el lead, sin haberlo pedido antes y sin que el mensaje ya lo
-   * pida). Copia de {@code LeadAgentService.withContactPhoneAsk} — el loop
-   * conversacional tiene su propia copia porque la usa en un camino
-   * (respuesta directa del turno) que no pasa por acá.
-   */
-  private String withContactPhoneAsk(Lead lead, String message) {
-    boolean phoneMissing = lead.getPhone() == null || lead.getPhone().isBlank();
-    if (phoneMissing && !HomeServicesPolicy.asksForContactPhone(message) && !contactPhoneAlreadyAsked(lead.getId())) {
-      return message + " " + LeadAgentService.CONTACT_PHONE_ASK;
-    }
-    return message;
-  }
-
-  /** true si el agente ya pidió el WhatsApp en algún mensaje anterior — se
-   * pide UNA vez, no se insiste. Copia de {@code LeadAgentService.contactPhoneAlreadyAsked}. */
-  private boolean contactPhoneAlreadyAsked(Long leadId) {
-    try {
-      return leadMessageService.recentForAgent(leadId, 30).stream()
-          .anyMatch(m -> !"customer".equals(m.getSender())
-              && m.getText() != null
-              && HomeServicesPolicy.asksForContactPhone(m.getText()));
-    } catch (Exception ex) {
-      // Ante la duda no repreguntar: molesta más pedir dos veces que no pedir.
-      return true;
-    }
-  }
-
   /** Nunca debe interrumpir el matching: TelegramNotifyService ya se protege
    *  internamente, pero esto es una segunda red de seguridad barata. */
   private void safeTelegramNotifyOpportunity(Lead lead, List<ProviderCatalogItem> matches) {
@@ -451,16 +421,5 @@ public class LeadMatchingService {
     } catch (Exception ex) {
       log.warn("telegram notifyDemandWithoutSupply failed for lead {}: {}", lead.getId(), ex.getMessage());
     }
-  }
-
-  /** Deriva del catálogo único DomainCatalog (domain/home-services.yml). Copia de
-   * {@code LeadAgentService.humanCategory}. */
-  private String humanCategory(String raw) {
-    return DomainCatalog.get().humanLabel(raw);
-  }
-
-  /** Copia de {@code LeadAgentService.safe}. */
-  private String safe(String value, String fallback) {
-    return value == null || value.isBlank() ? fallback : value;
   }
 }

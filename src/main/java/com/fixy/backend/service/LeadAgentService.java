@@ -224,14 +224,14 @@ public class LeadAgentService {
       // haría. Antes el agente reabría el interrogatorio ante un "ok"
       // (captura de Carlos, 2026-07-16 17:47).
       if (lead.isReadyForMatching() && lead.getAssignedProviderId() == null
-          && isAcknowledgment(pendingText)) {
+          && turnPolicy.isAcknowledgment(pendingText)) {
         log.info("ack del cliente en espera, sin respuesta: lead={}", leadId);
         return;
       }
       boolean categoryKnown = lead.getDetectedCategory() != null
           && !lead.getDetectedCategory().isBlank()
           && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
-      if (categoryKnown && HomeServicesPolicy.isPriceQuestion(pendingText)) {
+      if (categoryKnown && turnPolicy.isPriceQuestion(pendingText)) {
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
       }
@@ -242,7 +242,7 @@ public class LeadAgentService {
       recordShortAnswerToLastQuestion(leadId, lead);
       String provisionalCategory = null;
       if (lead.getDetectedCategory() == null || lead.getDetectedCategory().isBlank()) {
-        provisionalCategory = detectCategoryFromMessages(pendingTexts);
+        provisionalCategory = turnPolicy.detectCategoryFromMessages(pendingTexts);
       }
       String context = buildContext(lead, provisionalCategory);
       String history = renderHistory(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT));
@@ -271,7 +271,7 @@ public class LeadAgentService {
       // Que el pedido tenga o no proveedor encima no puede depender del 8B:
       // si la respuesta dice que está buscando y el lead ya tiene uno, gana
       // el camino determinista (regla fixy-8b-codigo-no-prompt).
-      if (hasProviderOnTheLine(lead) && claimsStillSearching(result.reply())) {
+      if (turnPolicy.hasProviderOnTheLine(lead) && turnPolicy.claimsStillSearching(result.reply())) {
         log.info("LLM dice que busca proveedor con uno ya contactado en lead {}: fallback determinista", leadId);
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
@@ -323,7 +323,7 @@ public class LeadAgentService {
       boolean categoryKnownForReply = categoryKnown
           || provisionalCategory != null
           || (extracted != null && extracted.get("category") != null);
-      if (shouldForceZoneQuestion(categoryKnownForReply, lead.getLocation(), pendingText, result.reply(), zoneArrivedThisTurn)) {
+      if (turnPolicy.shouldForceZoneQuestion(categoryKnownForReply, lead.getLocation(), pendingText, result.reply(), zoneArrivedThisTurn)) {
         log.info("respuesta del LLM no pide la zona (única traba) en lead {}: fallback determinista", leadId);
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
         return;
@@ -334,8 +334,8 @@ public class LeadAgentService {
       boolean zoneKnownForReply = (lead.getLocation() != null && !lead.getLocation().isBlank())
           || zoneArrivedThisTurn;
       boolean phoneArrivedThisTurn = extracted != null && extracted.get("phone") != null;
-      if (shouldAskContactPhone(categoryKnownForReply, zoneKnownForReply, lead.getPhone(), phoneArrivedThisTurn, reply)
-          && !contactPhoneAlreadyAsked(leadId)) {
+      if (turnPolicy.shouldAskContactPhone(categoryKnownForReply, zoneKnownForReply, lead.getPhone(), phoneArrivedThisTurn, reply)
+          && !turnPolicy.contactPhoneAlreadyAsked(leadId)) {
         reply = reply + " " + CONTACT_PHONE_ASK;
       }
       leadMessageService.postFromAgent(leadId, reply);
@@ -351,7 +351,7 @@ public class LeadAgentService {
         respondWithHeuristicFallback(leadId, lead, pendingTexts);
       } catch (Exception fallbackEx) {
         log.error("heuristic fallback also failed for lead {}: {}", leadId, fallbackEx.getMessage());
-        safePost(leadId, ASK_WHAT_HAPPENED);
+        safePost(leadId, turnPolicy.askWhatHappenedReply());
       }
     } finally {
       // El turno intentó cubrir esta tanda (con LLM, heurística o el enlatado
@@ -456,7 +456,7 @@ public class LeadAgentService {
       // conocida cuando existe (resolvedService/resolvedArea).
       // applyExtractedFields decide después si corresponde actualizar (solo
       // pre-matching).
-      String messageCategory = detectCategoryFromMessages(messages);
+      String messageCategory = turnPolicy.detectCategoryFromMessages(messages);
       if (messageCategory != null) {
         extracted.put("category", messageCategory);
       } else if (classified.serviceCategory() != null && !"otro".equalsIgnoreCase(classified.serviceCategory())) {
@@ -470,7 +470,7 @@ public class LeadAgentService {
           messageZone = zone; // la última mención gana, igual que en turnos secuenciales
         }
         if (messagePhone == null) {
-          messagePhone = phoneMentionedIn(message);
+          messagePhone = turnPolicy.phoneMentionedIn(message);
         }
       }
       if (messageZone != null) {
@@ -495,8 +495,8 @@ public class LeadAgentService {
     }
     // Releer el lead: applyExtractedFields pudo haber actualizado categoría/zona.
     Lead refreshed = leadRepository.findById(leadId).orElse(lead);
-    if (HomeServicesPolicy.isPriceQuestion(pendingText)) {
-      leadMessageService.postFromAgent(leadId, HomeServicesPolicy.priceReply(refreshed));
+    if (turnPolicy.isPriceQuestion(pendingText)) {
+      leadMessageService.postFromAgent(leadId, turnPolicy.priceReply(refreshed));
       return;
     }
     String reply = heuristicFallbackReply(refreshed);
@@ -507,7 +507,7 @@ public class LeadAgentService {
     // isStuckRepeatingItself aplica al LLM: en espera se reconoce una vez,
     // ante la insistencia se contesta el ESTADO de la búsqueda, y si eso
     // también se dijo ya, silencio — como haría una persona.
-    if ((refreshed.isReadyForMatching() || hasProviderOnTheLine(refreshed))
+    if ((refreshed.isReadyForMatching() || turnPolicy.hasProviderOnTheLine(refreshed))
         && isStuckRepeatingItself(leadId, reply)) {
       String waiting = waitingStatusReply(refreshed);
       if (isStuckRepeatingItself(leadId, waiting)) {
@@ -532,7 +532,7 @@ public class LeadAgentService {
     // también con la zona adelante ("Anotado: tu pedido en Solymar. Contame
     // un poco más: ..."): ese pedido tenía zona pero no categoría, así que
     // nunca era ASK_WHAT_HAPPENED exacto y se escapaba del escalamiento.
-    if (isAskWhatHappened(reply) && isStuckRepeatingItself(leadId, reply)) {
+    if (turnPolicy.isAskWhatHappened(reply) && isStuckRepeatingItself(leadId, reply)) {
       escalateUnclassifiedRequest(leadId, refreshed);
       return;
     }
@@ -546,7 +546,7 @@ public class LeadAgentService {
     // dónde llega Fixy, que es lo que haría una persona.
     boolean zoneStillMissing = refreshed.getLocation() == null || refreshed.getLocation().isBlank()
         || "sin definir".equalsIgnoreCase(refreshed.getLocation());
-    if (zoneStillMissing && asksForZone(reply) && isStuckRepeatingItself(leadId, reply)) {
+    if (zoneStillMissing && turnPolicy.asksForZone(reply) && isStuckRepeatingItself(leadId, reply)) {
       answerWithRealCoverage(leadId, refreshed);
       return;
     }
@@ -593,7 +593,7 @@ public class LeadAgentService {
     boolean hasCategory = lead.getDetectedCategory() != null && !lead.getDetectedCategory().isBlank()
         && !"otro".equalsIgnoreCase(lead.getDetectedCategory());
     String pedido = hasCategory
-        ? "tu pedido de " + humanCategory(lead.getDetectedCategory())
+        ? "tu pedido de " + turnPolicy.humanCategory(lead.getDetectedCategory())
         : "tu pedido";
     return "Perdón, esa zona todavía no la cubrimos. Por ahora Fixy llega a " + areas
         + ". Si estás en alguno de esos barrios decime cuál y sigo con " + pedido
@@ -666,7 +666,7 @@ public class LeadAgentService {
     dispatchEscalation(leadId, new AgentAction("escalate",
         "el clasificador no entendió el pedido en dos turnos",
         said == null ? "sin texto del cliente" : said),
-        withUncoveredServicePhoneAsk(lead, whatFixyCoversReply()));
+        withUncoveredServicePhoneAsk(lead, turnPolicy.whatFixyCoversReply()));
   }
 
   /**
@@ -725,7 +725,7 @@ public class LeadAgentService {
    * para vos". El pedido nunca se dice "en búsqueda" cuando ya tiene nombre.
    */
   private String providerOnTheLineReply(Lead lead) {
-    String name = safe(lead.getAssignedProvider(), "el proveedor");
+    String name = turnPolicy.safe(lead.getAssignedProvider(), "el proveedor");
     if (providerAlreadyWroteInChat(lead.getId())) {
       return ("%s ya te escribió acá arriba: contestale por este mismo chat y coordinan directo. "
           + "Si necesitás algo de mi lado, decímelo.").formatted(name);
@@ -743,13 +743,13 @@ public class LeadAgentService {
    * reconocimiento inicial.
    */
   private String waitingStatusReply(Lead lead) {
-    String category = humanCategory(lead.getDetectedCategory());
+    String category = turnPolicy.humanCategory(lead.getDetectedCategory());
     // Con proveedor ya encima, la insistencia no se contesta con el estado de
     // una búsqueda que no está corriendo (mismo caso #257). Redacción con
     // solapamiento <0.8 contra providerOnTheLineReply, para no caer en el
     // propio guard de repetición.
-    if (hasProviderOnTheLine(lead)) {
-      String name = safe(lead.getAssignedProvider(), "el proveedor");
+    if (turnPolicy.hasProviderOnTheLine(lead)) {
+      String name = turnPolicy.safe(lead.getAssignedProvider(), "el proveedor");
       if (lead.getStatus() == com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED) {
         return "Sigo pendiente de la respuesta de %s. En cuanto tenga novedades te las paso.".formatted(name);
       }
@@ -896,9 +896,7 @@ public class LeadAgentService {
   static final String ESCALATION_HANDOFF =
       "Te paso con una persona de Fixy para resolver esto mejor, en breve te contactan.";
 
-  static final String CONTACT_PHONE_ASK =
-      "Por último: ¿me dejás un WhatsApp para avisarte apenas el proveedor confirme? "
-          + "Si preferís, seguimos solo por acá.";
+  static final String CONTACT_PHONE_ASK = HomeServicesPolicy.CONTACT_PHONE_ASK;
 
   /**
    * El mismo pedido de WhatsApp, pero para el vecino cuyo oficio Fixy NO
@@ -908,7 +906,7 @@ public class LeadAgentService {
    * e26bf43. Dice la razón real por la que lo pide.
    *
    * <p>Contiene "WhatsApp" a propósito: así {@link #asksForContactPhone} lo
-   * reconoce y {@link #contactPhoneAlreadyAsked} evita que se vuelva a pedir
+   * reconoce y {@link TurnPolicy#contactPhoneAlreadyAsked} evita que se vuelva a pedir
    * si el vecino después corrige su pedido a una categoría que sí existe.
    */
   static final String UNCOVERED_SERVICE_PHONE_ASK =
@@ -976,23 +974,10 @@ public class LeadAgentService {
    */
   private String withUncoveredServicePhoneAsk(Lead lead, String message) {
     boolean phoneMissing = lead.getPhone() == null || lead.getPhone().isBlank();
-    if (phoneMissing && !contactPhoneAlreadyAsked(lead.getId())) {
+    if (phoneMissing && !turnPolicy.contactPhoneAlreadyAsked(lead.getId())) {
       return message + " " + UNCOVERED_SERVICE_PHONE_ASK;
     }
     return message;
-  }
-
-  /** true si el agente ya pidió el WhatsApp en algún mensaje anterior — se pide UNA vez, no se insiste. */
-  private boolean contactPhoneAlreadyAsked(Long leadId) {
-    try {
-      return leadMessageService.recentForAgent(leadId, 30).stream()
-          .anyMatch(m -> !"customer".equals(m.getSender())
-              && m.getText() != null
-              && asksForContactPhone(m.getText()));
-    } catch (Exception ex) {
-      // Ante la duda no repreguntar: molesta más pedir dos veces que no pedir.
-      return true;
-    }
   }
 
   /** true si la respuesta menciona la zona/ubicación como pregunta o pedido
@@ -1028,15 +1013,15 @@ public class LeadAgentService {
       if (!"customer".equals(last.getSender()) || !"fixy".equals(previous.getSender())) {
         return;
       }
-      String answer = safe(last.getText(), "").trim();
-      String question = safe(previous.getText(), "").trim();
+      String answer = turnPolicy.safe(last.getText(), "").trim();
+      String question = turnPolicy.safe(previous.getText(), "").trim();
       if (answer.isEmpty() || answer.length() > 80 || !question.contains("?")
-          || isAcknowledgment(answer)) {
+          || turnPolicy.isAcknowledgment(answer)) {
         return;
       }
       String entry = answer + " (respuesta a: " + (question.length() > 60
           ? question.substring(question.length() - 60) : question) + ")";
-      String currentNotes = safe(lead.getNotes(), "");
+      String currentNotes = turnPolicy.safe(lead.getNotes(), "");
       if (currentNotes.contains(answer)) {
         return; // ya registrado (por el LLM o por un turno anterior)
       }
@@ -1083,15 +1068,15 @@ public class LeadAgentService {
       // Mensaje vacío/ambiguo ("hola", "??"): no hay nada que reconocer, repregunta honesta.
       // Se pregunta UNA sola vez: ver ASK_WHAT_HAPPENED y el guard de
       // respondWithHeuristicFallback que la convierte en escalamiento.
-      return ASK_WHAT_HAPPENED;
+      return turnPolicy.askWhatHappenedReply();
     }
 
     // Categoría que Fixy AÚN no cubre (simulación de clientes 2026-08-06,
     // persona "electricista": el guion pedía "dirección exacta para
     // coordinar" una coordinación imposible). Honestidad primero.
-    if (hasCategory && !MVP_CATEGORIES.contains(lead.getDetectedCategory().toLowerCase().trim())) {
+    if (hasCategory && !turnPolicy.isMvpCategory(lead.getDetectedCategory().toLowerCase().trim())) {
       return "Todavía no tenemos proveedores de %s en Fixy. Anoté tu pedido igual y te aviso por acá apenas sumemos uno — estamos creciendo."
-          .formatted(humanCategory(lead.getDetectedCategory()));
+          .formatted(turnPolicy.humanCategory(lead.getDetectedCategory()));
     }
 
     // Pregunta de confianza ("¿quién viene? ¿es de confianza?") — simulación
@@ -1099,7 +1084,7 @@ public class LeadAgentService {
     // guion genérico. La confianza es EL producto: respuesta digna en
     // código, pase lo que pase con el LLM.
     String lastMsg = lastCustomerMessage(lead.getId());
-    if (isTrustQuestion(lastMsg)) {
+    if (turnPolicy.isTrustQuestion(lastMsg)) {
       return "Todos los proveedores de Fixy están verificados por el equipo. Apenas se asigne el tuyo "
           + "vas a ver acá mismo su nombre, su calificación y los trabajos que ya hizo — y siempre decidís vos. "
           + "Cualquier problema, tocás \"Hablá con una persona\" y entra alguien del equipo.";
@@ -1107,13 +1092,13 @@ public class LeadAgentService {
 
     // Con proveedor ya contactado/asignado no hay búsqueda que contar: se
     // responde el estado real (guardia 2026-08-27, lead #257).
-    if (hasProviderOnTheLine(lead)) {
+    if (turnPolicy.hasProviderOnTheLine(lead)) {
       return providerOnTheLineReply(lead);
     }
 
     if (lead.isReadyForMatching()) {
       int providerCount = countProvidersInZone(lead.getDetectedCategory(), lead.getLocation());
-      String category = humanCategory(lead.getDetectedCategory());
+      String category = turnPolicy.humanCategory(lead.getDetectedCategory());
       if (providerCount > 0) {
         return "Anotado: problema de %s en %s. Ya tengo proveedores disponibles en tu zona, estoy buscando uno para vos."
             .formatted(category, lead.getLocation());
@@ -1124,10 +1109,10 @@ public class LeadAgentService {
 
     StringBuilder ack = new StringBuilder("Anotado: ");
     if (hasCategory && hasZone) {
-      ack.append("problema de ").append(humanCategory(lead.getDetectedCategory()))
+      ack.append("problema de ").append(turnPolicy.humanCategory(lead.getDetectedCategory()))
           .append(" en ").append(lead.getLocation()).append(". ");
     } else if (hasCategory) {
-      ack.append("problema de ").append(humanCategory(lead.getDetectedCategory())).append(". ");
+      ack.append("problema de ").append(turnPolicy.humanCategory(lead.getDetectedCategory())).append(". ");
     } else {
       ack.append("tu pedido en ").append(lead.getLocation()).append(". ");
     }
@@ -1150,7 +1135,7 @@ public class LeadAgentService {
       // ASK_WHAT_HAPPENED el guard de respondWithHeuristicFallback lo
       // reconoce: si esto también se repite, escala con el mensaje honesto de
       // qué cubre Fixy + el pedido de WhatsApp, en vez de callarse.
-      ack.append(ASK_WHAT_HAPPENED);
+      ack.append(turnPolicy.askWhatHappenedReply());
     } else if (!hasZone) {
       ack.append("¿En qué zona estás?");
     } else if (!hasUrgency) {
@@ -1360,7 +1345,7 @@ public class LeadAgentService {
       // en el Tata" en un pedido de mandados lo pasaba a plomería — la
       // lista del mandado siempre nombra productos que son keywords de
       // otras categorías). Ver HomeServicesPolicy.CORRECTION_PHRASES.
-      boolean correctionIntent = isExplicitCorrection(lastCustomerText(leadId));
+      boolean correctionIntent = turnPolicy.isExplicitCorrection(lastCustomerText(leadId));
       if (cat != null && !cat.equalsIgnoreCase("otro")
           && (categoryBlank
               || (preMatching && correctionIntent && !cat.equalsIgnoreCase(lead.getDetectedCategory())))) {
@@ -1515,23 +1500,18 @@ public class LeadAgentService {
     try {
       Lead lead = leadRepository.findById(leadId).orElse(null);
       if (lead == null) return;
-      if (isSmokeLead(lead)) return;
+      if (turnPolicy.isSmokeLead(lead)) return;
       if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
         return;
       }
       leadMessageService.postFromAgent(leadId, customerMessage);
       leadTimelineService.appendEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE, "system",
-          "Escalado a humano: " + safe(action.reason(), "no especificado"));
+          "Escalado a humano: " + turnPolicy.safe(action.reason(), "no especificado"));
       telegramNotifyService.notifyEscalation(lead, action.reason(), action.summary());
     } catch (Exception ex) {
       log.warn("dispatchEscalation failed for lead {}: {}", leadId, ex.getMessage());
     }
   }
-
-  private boolean isSmokeLead(Lead lead) {
-    return HomeServicesPolicy.isSmokeLead(lead);
-  }
-
 
   /**
    * Detecta categoría buscando keywords en el último mensaje del cliente y/o
@@ -1562,7 +1542,7 @@ public class LeadAgentService {
       return details;
     }
     if (cat != null && !cat.isBlank() && !cat.equalsIgnoreCase("otro")) {
-      return "Pedido de " + humanCategory(cat);
+      return "Pedido de " + turnPolicy.humanCategory(cat);
     }
     return null;
   }
@@ -1583,24 +1563,24 @@ public class LeadAgentService {
     // ("pasteleria"), no por la etiqueta humana ("Pastelería") — pasarle la
     // etiqueta hacía contar 0 y el agente le decía al cliente "no hay
     // proveedores" mientras el auto-match SÍ encontraba uno (lead #108/#109).
-    String rawCategory = safe(lead.getDetectedCategory(), "");
+    String rawCategory = turnPolicy.safe(lead.getDetectedCategory(), "");
     if (rawCategory.isBlank() && provisionalCategoryId != null && !provisionalCategoryId.isBlank()) {
       rawCategory = provisionalCategoryId;
     }
-    String rawLocation = safe(lead.getLocation(), "");
-    String category = humanCategory(rawCategory.isBlank() ? "sin definir" : rawCategory);
-    String location = safe(lead.getLocation(), "sin definir");
-    String urgency = safe(lead.getUrgency(), "no especificada");
+    String rawLocation = turnPolicy.safe(lead.getLocation(), "");
+    String category = turnPolicy.humanCategory(rawCategory.isBlank() ? "sin definir" : rawCategory);
+    String location = turnPolicy.safe(lead.getLocation(), "sin definir");
+    String urgency = turnPolicy.safe(lead.getUrgency(), "no especificada");
     boolean categoryKnown = !rawCategory.isBlank() && !"otro".equalsIgnoreCase(rawCategory);
     boolean locationKnown = !rawLocation.isBlank() && !"sin definir".equalsIgnoreCase(rawLocation);
     int providerCount = (categoryKnown && locationKnown)
         ? countProvidersInZone(rawCategory, rawLocation)
         : 0;
-    String missing = safe(lead.getMissingFields(), "").replace("||", ", ");
+    String missing = turnPolicy.safe(lead.getMissingFields(), "").replace("||", ", ");
     if (missing.isBlank()) missing = "ninguno";
 
     String coverageHint = "";
-    String action = safe(deriveNextAction(lead), "");
+    String action = turnPolicy.safe(deriveNextAction(lead), "");
     if ("out_of_coverage_area".equals(action)) {
       coverageHint = "\nINSTRUCCION DURA: la zona '" + location + "' NO ESTA EN COBERTURA. Decile al cliente con honestidad que todavia no operás ahí, que guardás el pedido y le avisás cuando llegues a esa zona. NO INVENTES otra zona ni le ofrezcas un proveedor.\n";
     } else if ("out_of_scope_category".equals(action)) {
@@ -1630,7 +1610,7 @@ public class LeadAgentService {
     // y re-pregunta en loop (lead #126: "¿reparación o instalación?" dos
     // veces después de que el cliente contestó "reparacion").
     String answeredLine = "";
-    String notes = safe(lead.getNotes(), "");
+    String notes = turnPolicy.safe(lead.getNotes(), "");
     if (!notes.isBlank()) {
       answeredLine = "\n- Detalles que el cliente YA dio (PROHIBIDO volver a preguntarlos): "
           + notes.replace("\n", "; ") + "\n";
@@ -1661,7 +1641,7 @@ public class LeadAgentService {
         %s%s%s
         """.formatted(
         lead.getId(),
-        safe(lead.getProblem(), ""),
+        turnPolicy.safe(lead.getProblem(), ""),
         category,
         location,
         urgency,
@@ -1727,8 +1707,8 @@ public class LeadAgentService {
       }
       StringBuilder sb = new StringBuilder("\nHistorial con este cliente (ya logueado, usalo para personalizar SIN inventar datos que no están acá):\n");
       for (Lead p : previous) {
-        sb.append("- ").append(humanCategory(safe(p.getDetectedCategory(), "servicio sin definir")))
-            .append(" en ").append(safe(p.getLocation(), "zona sin definir"))
+        sb.append("- ").append(turnPolicy.humanCategory(turnPolicy.safe(p.getDetectedCategory(), "servicio sin definir")))
+            .append(" en ").append(turnPolicy.safe(p.getLocation(), "zona sin definir"))
             .append(", estado ").append(humanStatus(p.getStatus()));
         if (p.getAssignedProvider() != null && !p.getAssignedProvider().isBlank()) {
           sb.append(", con el proveedor ").append(p.getAssignedProvider());
@@ -1760,9 +1740,6 @@ public class LeadAgentService {
     };
   }
 
-  /** Fuente única: DomainCatalog (domain/home-services.yml). */
-  private static final java.util.Set<String> MVP_CATEGORIES =
-      java.util.Set.copyOf(DomainCatalog.get().mvpIds());
   // Zonas cubiertas: fuente única en DomainCatalog (domain/home-services.yml)
   // (isCovered normaliza acentos, así que "Shangrilá" y "Shangrila" son la
   // misma zona sin necesidad de listar las dos formas).
@@ -1770,7 +1747,7 @@ public class LeadAgentService {
   private String deriveNextAction(Lead lead) {
     String cat = lead.getDetectedCategory() == null ? "" : lead.getDetectedCategory().toLowerCase().trim();
     String loc = lead.getLocation() == null ? "" : lead.getLocation().toLowerCase().trim();
-    if (!cat.isBlank() && !"otro".equals(cat) && !MVP_CATEGORIES.contains(cat)) {
+    if (!cat.isBlank() && !"otro".equals(cat) && !turnPolicy.isMvpCategory(cat)) {
       return "out_of_scope_category";
     }
     if (!loc.isBlank() && !"sin definir".equals(loc)
@@ -1811,19 +1788,14 @@ public class LeadAgentService {
   }
 
   private String fallbackGreeting(Lead lead) {
-    String category = humanCategory(safe(lead.getDetectedCategory(), "tu pedido"));
-    String location = safe(lead.getLocation(), "tu zona");
+    String category = turnPolicy.humanCategory(turnPolicy.safe(lead.getDetectedCategory(), "tu pedido"));
+    String location = turnPolicy.safe(lead.getLocation(), "tu zona");
     String missing = humanMissing(lead.getMissingFields());
     if (!missing.isBlank()) {
       return "Hola, soy Fixy. Recibí tu pedido de %s en %s. Para conseguirte un proveedor que pase precio firme me falta %s. ¿Me lo pasás por acá?"
           .formatted(category, location, missing);
     }
     return "Hola, soy Fixy. Ya recibí tu pedido de %s en %s. Estoy buscando un proveedor disponible — te aviso por acá apenas alguien acepte.".formatted(category, location);
-  }
-
-  /** Deriva del catálogo único DomainCatalog (domain/home-services.yml). */
-  private String humanCategory(String raw) {
-    return DomainCatalog.get().humanLabel(raw);
   }
 
   /**
@@ -1851,7 +1823,7 @@ public class LeadAgentService {
       // menú sobre un lead que ya tiene rumbo.
       leadMessageService.postFromAgent(leadId,
           "Ya tengo tu pedido de %s en curso. Si querés hacer un pedido nuevo de otro tipo, contame directo qué necesitás."
-              .formatted(humanCategory(lead.getDetectedCategory())));
+              .formatted(turnPolicy.humanCategory(lead.getDetectedCategory())));
       return;
     }
     var category = DomainCatalog.get().categoryById(categoryId).orElse(null);
@@ -1894,7 +1866,4 @@ public class LeadAgentService {
     }
   }
 
-  private String safe(String value, String fallback) {
-    return value == null || value.isBlank() ? fallback : value;
-  }
 }

@@ -3,12 +3,8 @@ package com.fixy.backend.service;
 import com.fixy.backend.domain.CategoryDef;
 import com.fixy.backend.domain.DomainCatalog;
 import com.fixy.backend.model.Lead;
-import com.fixy.backend.model.LeadMessage;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.stream.Collectors;
-import org.springframework.stereotype.Service;
 
 /**
  * Core Fase 1 (paso 2/3, ver CORE_FASE1_CONTRATO.md): guardas y heurísticas
@@ -20,185 +16,19 @@ import org.springframework.stereotype.Service;
  * original, comentarios de casos reales incluidos.
  *
  * <p>Los que son funciones puras (no necesitan historial de mensajes ni otro
- * colaborador) quedan {@code public static}: no ganan nada llamándose a
- * través de la interfaz {@link TurnPolicy}, y así los siguen pudiendo testear
+ * colaborador) son {@code public static}: así los siguen pudiendo testear
  * directo (varios ya se testeaban así antes de este refactor, contra
- * {@code LeadAgentService}, que ahora delega acá). Los que necesitan mirar
+ * {@code LeadAgentService}, que delega acá). Los que necesitan mirar
  * los mensajes del lead ({@link LeadMessageService}) o el clasificador de
- * zona de {@link AgentService} son la única implementación de
- * {@link TurnPolicy}, inyectada en {@link LeadAgentService}.
+ * zona de {@link AgentService} viven en {@link HomeServicesTurnPolicy}, la
+ * implementación de {@link TurnPolicy} inyectada en {@link LeadAgentService} y
+ * {@link LeadMatchingService} (Core Fase 2: ellas ya no llaman a estos
+ * estáticos, hablan con la interfaz; {@link HomeServicesTurnPolicy} delega acá).
+ * Esta clase ya no es un bean.
  */
-@Service
-public class HomeServicesPolicy implements TurnPolicy {
+public final class HomeServicesPolicy {
 
-  /** Mismo valor que {@code LeadAgentService.HISTORY_LIMIT}: cuántos
-   * mensajes recientes del lead se miran para las guardas de historial. */
-  private static final int HISTORY_LIMIT = 10;
-
-  private final LeadMessageService leadMessageService;
-  private final AgentService agentService;
-
-  public HomeServicesPolicy(LeadMessageService leadMessageService, AgentService agentService) {
-    this.leadMessageService = leadMessageService;
-    this.agentService = agentService;
-  }
-
-  // ---------------------------------------------------------------------
-  // TurnPolicy (necesitan historial de mensajes u otro colaborador)
-  // ---------------------------------------------------------------------
-
-  /** Una zona extraída por el LLM solo se acepta si aparece textualmente
-   * (case-insensitive, sin acentos) en algún mensaje del CLIENTE de la
-   * conversación reciente. */
-  @Override
-  public boolean isZoneMentionedByCustomer(Long leadId, String zone) {
-    if (zone == null || zone.isBlank()) {
-      return false;
-    }
-    String needle = stripAccents(zone.toLowerCase(Locale.ROOT)).trim();
-    if (needle.isEmpty()) {
-      return false;
-    }
-    // Matching por TOKENS distintivos, no por frase completa: el cliente
-    // escribe "lomas" y el LLM canonicaliza a "Lomas de Solymar" (correcto) —
-    // la versión anterior exigía la frase entera y rechazaba la zona real
-    // (lead #123). Un token distintivo (>=4 letras, sin conectores) del
-    // nombre canónico alcanza; "hola" sigue sin validar "Ciudad de la Costa".
-    List<String> tokens = java.util.Arrays.stream(needle.split("\\s+"))
-        .filter(t -> t.length() >= 4 && !ZONE_STOPWORDS.contains(t))
-        .toList();
-    if (tokens.isEmpty()) {
-      return false;
-    }
-    return leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
-        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
-        .map(m -> stripAccents(m.getText().toLowerCase(Locale.ROOT)))
-        .anyMatch(text -> tokens.stream().anyMatch(text::contains));
-  }
-
-  private static final java.util.Set<String> ZONE_STOPWORDS =
-      java.util.Set.of("de", "del", "la", "las", "el", "los", "san", "santa");
-
-  /** Una categoría extraída por el LLM solo se acepta si el CLIENTE dio algún
-   * rastro de ella en sus propios mensajes: o bien
-   * {@link DomainCatalog#detectCategory} sobre el
-   * texto del cliente devuelve esa misma categoría, o alguna de sus keywords
-   * (ver {@link CategoryDef#keywords()}) aparece
-   * ahí (sin acentos, case-insensitive). Mismo patrón que
-   * isZoneMentionedByCustomer — evita que el LLM le presuma una categoría a
-   * un cliente que solo dijo "hola" (leads #116/#119 en prod). */
-  @Override
-  public boolean isCategoryMentionedByCustomer(Long leadId, String category) {
-    if (category == null || category.isBlank()) {
-      return false;
-    }
-    java.util.Optional<CategoryDef> target =
-        DomainCatalog.get().categoryById(category);
-    if (target.isEmpty()) {
-      // Categoría desconocida para el catálogo (no debería pasar dado el enum
-      // del schema, pero si pasa no hay nada que validar contra keywords):
-      // se rechaza, es más seguro que aceptar algo que no podemos verificar.
-      return false;
-    }
-    String customerText = stripAccents(leadMessageService.recentForAgent(leadId, HISTORY_LIMIT).stream()
-        .filter(m -> "customer".equals(m.getSender()) && m.getText() != null)
-        .map(m -> m.getText().toLowerCase(Locale.ROOT))
-        .collect(Collectors.joining(" ")));
-    if (customerText.isBlank()) {
-      return false;
-    }
-    // 1) Clasificador heurístico laxo sobre el texto del cliente: si coincide
-    // con la misma categoría, es la validación más fuerte.
-    java.util.Optional<CategoryDef> detected =
-        DomainCatalog.get().detectCategory(customerText);
-    if (detected.isPresent() && detected.get().id().equals(target.get().id())) {
-      return true;
-    }
-    // 2) Si detectFromText matcheó OTRA categoría primero (la búsqueda es
-    // "primer match" en orden del catálogo), igual aceptamos si alguna keyword
-    // propia de la categoría extraída aparece en el texto del cliente.
-    for (String keyword : target.get().keywords()) {
-      if (customerText.contains(stripAccents(keyword))) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /** true si la respuesta generada es (normalizada) igual al último mensaje
-   * que el agente ya mandó — señal de LLM en loop. */
-  @Override
-  public boolean isStuckRepeatingItself(Long leadId, String reply) {
-    if (reply == null || reply.isBlank()) {
-      return false;
-    }
-    List<LeadMessage> recent = leadMessageService.recentForAgent(leadId, HISTORY_LIMIT);
-    // Contra los últimos 3 mensajes del agente, no solo el último: el 8B
-    // también re-hace preguntas VIEJAS ya respondidas (lead #131: volvió a
-    // "¿qué tamaño tiene el jardín?" dos preguntas después del "30 m").
-    int checked = 0;
-    for (int i = recent.size() - 1; i >= 0 && checked < 3; i--) {
-      LeadMessage m = recent.get(i);
-      if ("fixy".equals(m.getSender())) {
-        checked++;
-        if (tokenSimilarity(normalizeForComparison(m.getText()),
-            normalizeForComparison(reply)) >= 0.8) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  /** true si algún mensaje del CLIENTE de este lead trae la marca [smoke] (tráfico sintético). */
-  @Override
-  public boolean customerMentionedSmoke(Long leadId) {
-    try {
-      return leadMessageService.recentForAgent(leadId, 10).stream()
-          .anyMatch(m -> "customer".equals(m.getSender())
-              && com.fixy.backend.model.SmokeTraffic.marks(m.getText()));
-    } catch (Exception ex) {
-      return false;
-    }
-  }
-
-  /**
-   * Señales explícitas de los mensajes del cliente (keywords de categoría y
-   * zona) pisan lo extraído por el LLM — la base determinista de las
-   * correcciones "me equivoqué". Usado por el camino LLM; opera sobre la
-   * tanda de mensajes pendientes del turno con la misma semántica secuencial
-   * que detectCategoryFromMessages.
-   */
-  @Override
-  public Map<String, String> withMessageSignals(List<String> messages, Map<String, String> extracted) {
-    String cat = detectCategoryFromMessages(messages);
-    String zone = null;
-    String phone = null;
-    for (String message : messages) {
-      String z = agentService.areaMentionedIn(message);
-      if (z != null) {
-        zone = z; // la última mención gana, igual que en turnos secuenciales
-      }
-      if (phone == null) {
-        phone = phoneMentionedIn(message);
-      }
-    }
-    if (cat == null && zone == null && phone == null) {
-      return extracted;
-    }
-    Map<String, String> merged = extracted == null
-        ? new java.util.HashMap<>() : new java.util.HashMap<>(extracted);
-    if (cat != null) {
-      merged.put("category", cat);
-    }
-    if (zone != null) {
-      merged.put("zone", zone);
-    }
-    if (phone != null && !merged.containsKey("phone")) {
-      merged.put("phone", phone);
-    }
-    return merged;
-  }
+  private HomeServicesPolicy() {}
 
   // ---------------------------------------------------------------------
   // Funciones puras (sin historial ni colaboradores) — públicas y estáticas
@@ -397,6 +227,11 @@ public class HomeServicesPolicy implements TurnPolicy {
     return message != null && CORRECTION_PHRASES.matcher(message).find();
   }
 
+  /** El patrón de las frases explícitas de corrección (ver {@link #isExplicitCorrection}). */
+  public static java.util.regex.Pattern correctionPhrases() {
+    return CORRECTION_PHRASES;
+  }
+
   /** Señales de pregunta de confianza/seguridad sobre quién viene a la casa. */
   private static final List<String> TRUST_QUESTION_KEYWORDS = List.of(
       "de confianza", "confiable", "quien viene", "quién viene", "quien es el que viene",
@@ -443,6 +278,16 @@ public class HomeServicesPolicy implements TurnPolicy {
             || lead.getStatus() == com.fixy.backend.model.LeadStatus.ASSIGNED
             || lead.getStatus() == com.fixy.backend.model.LeadStatus.IN_PROGRESS);
   }
+
+  /**
+   * Pedido de WhatsApp que se anexa UNA vez a la respuesta del turno cuando categoría y zona ya
+   * están resueltas y el teléfono sigue vacío (mejora diaria 2026-07-28). Fuente única —
+   * {@code LeadAgentService} lo re-exporta bajo el mismo nombre porque los tests existentes lo
+   * referencian como {@code LeadAgentService.CONTACT_PHONE_ASK}.
+   */
+  public static final String CONTACT_PHONE_ASK =
+      "Por último: ¿me dejás un WhatsApp para avisarte apenas el proveedor confirme? "
+          + "Si preferís, seguimos solo por acá.";
 
   /**
    * Pregunta genérica de arranque. Constante porque el guard de
@@ -502,7 +347,7 @@ public class HomeServicesPolicy implements TurnPolicy {
     return com.fixy.backend.model.SmokeTraffic.marks(problem);
   }
 
-  private static double tokenSimilarity(String a, String b) {
+  static double tokenSimilarity(String a, String b) {
     java.util.Set<String> ta = new java.util.HashSet<>(java.util.Arrays.asList(a.split("\\s+")));
     java.util.Set<String> tb = new java.util.HashSet<>(java.util.Arrays.asList(b.split("\\s+")));
     ta.remove(""); tb.remove("");
@@ -517,14 +362,14 @@ public class HomeServicesPolicy implements TurnPolicy {
     return (double) inter.size() / Math.min(ta.size(), tb.size());
   }
 
-  private static String normalizeForComparison(String text) {
+  static String normalizeForComparison(String text) {
     if (text == null) {
       return "";
     }
     return stripAccents(text.toLowerCase(Locale.ROOT)).replaceAll("[^a-z0-9 ]", "").trim();
   }
 
-  private static String stripAccents(String s) {
+  static String stripAccents(String s) {
     return java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}", "");
   }
 }
