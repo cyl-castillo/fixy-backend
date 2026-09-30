@@ -1,8 +1,10 @@
 package com.fixy.backend.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -22,6 +24,9 @@ import org.springframework.web.reactive.function.client.WebClient;
  * WebClients apuntando a las mismas URLs. Refactor puro: los métodos
  * privados de abajo son copia textual de los que tenía cada servicio, sin
  * cambiar timeouts, reintentos, logging ni parseo de ningún proveedor.
+ * Excepción posterior (2026-09-30): el parseo de OpenAI se corrigió en
+ * {@link #parseResponsesBody} porque el original nunca encontraba el texto
+ * con modelos razonadores (ver javadoc ahí).
  *
  * <p>API de dos niveles a propósito:
  * <ul>
@@ -193,29 +198,78 @@ public class LlmGateway {
           .retry(1)
           .block();
       if (raw == null || raw.isBlank()) {
+        log.warn("openai: respuesta vacía de /responses (modelo {})", openAiModel);
         return null;
       }
-      JsonNode root = objectMapper.readTree(raw);
-      JsonNode outputText = root.path("output_text");
-      if (outputText.isTextual() && !outputText.asText().isBlank()) {
-        return outputText.asText().trim();
-      }
-      JsonNode output = root.path("output");
-      if (output.isArray() && output.size() > 0) {
-        JsonNode first = output.get(0);
-        if (first.has("content") && first.get("content").isArray()) {
-          for (JsonNode item : first.get("content")) {
-            if (item.has("text")) {
-              return item.get("text").asText().trim();
-            }
-          }
-        }
-      }
-      return null;
+      return parseResponsesBody(raw);
     } catch (Exception ex) {
       log.warn("openai call failed: {}", ex.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Extrae el texto de una respuesta cruda de la Responses API de OpenAI.
+   *
+   * <p>Bug de prod 2026-09-02..30 (todos los turnos con gpt-5-mini caían a
+   * "fallback heurístico" sin WARN): el parseo anterior solo miraba
+   * {@code output_text} en la raíz (atajo que existe en los SDKs, NO en el
+   * JSON HTTP) y {@code output[0].content[].text}. Con modelos razonadores
+   * {@code output[0]} es un item {@code type=reasoning} sin {@code content}
+   * y el {@code message} viene en {@code output[1]} — verificado con una
+   * llamada real desde prod el 2026-09-30 — así que devolvía null en
+   * silencio. Ahora recorre todo {@code output[]}, toma el primer item
+   * {@code type=message} y dentro el primer {@code content[]} con
+   * {@code type=output_text}; el atajo {@code output_text} raíz se mantiene
+   * por si algún proxy/SDK lo agrega. Si no hay texto, loguea WARN con los
+   * tipos recibidos y el inicio del cuerpo: nunca más un fallo mudo.
+   */
+  String parseResponsesBody(String raw) throws JsonProcessingException {
+    JsonNode root = objectMapper.readTree(raw);
+    JsonNode outputText = root.path("output_text");
+    if (outputText.isTextual() && !outputText.asText().isBlank()) {
+      return outputText.asText().trim();
+    }
+    List<String> itemTypes = new ArrayList<>();
+    JsonNode output = root.path("output");
+    if (output.isArray()) {
+      for (JsonNode item : output) {
+        String type = item.path("type").asText("");
+        itemTypes.add(type);
+        if (!"message".equals(type)) {
+          continue;
+        }
+        JsonNode content = item.path("content");
+        if (!content.isArray()) {
+          continue;
+        }
+        for (JsonNode part : content) {
+          String partType = part.path("type").asText("");
+          if (!partType.isEmpty() && !"output_text".equals(partType)) {
+            if ("refusal".equals(partType)) {
+              itemTypes.add("message.refusal");
+            }
+            continue;
+          }
+          JsonNode text = part.path("text");
+          if (text.isTextual() && !text.asText().isBlank()) {
+            return text.asText().trim();
+          }
+        }
+      }
+    }
+    String head = raw.length() > 300 ? raw.substring(0, 300) : raw;
+    log.warn("openai: sin texto utilizable en /responses (modelo {}, status={}, error={}, "
+            + "incomplete={}, output types={}): {}",
+        openAiModel,
+        root.path("status").asText("?"),
+        root.path("error").isNull() || root.path("error").isMissingNode()
+            ? "-" : root.path("error").toString(),
+        root.path("incomplete_details").isNull() || root.path("incomplete_details").isMissingNode()
+            ? "-" : root.path("incomplete_details").toString(),
+        itemTypes,
+        head.replace('\n', ' '));
+    return null;
   }
 
   private String callWorkersAi(String systemContent, String userContent) {

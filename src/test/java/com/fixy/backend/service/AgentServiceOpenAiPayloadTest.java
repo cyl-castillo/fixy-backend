@@ -49,6 +49,18 @@ class AgentServiceOpenAiPayloadTest {
   }
 
   @Test
+  void gpt5PayloadNeverSendsSamplingParamsReasoningModelsReject() {
+    // gpt-5-* rechaza temperature/top_p con 400 (que sí se loguearía como
+    // "openai call failed"). Verificado 2026-09-30: el payload actual con
+    // model+input+reasoning responde 200 en prod, así que no hay que agregar nada.
+    Map<String, Object> payload = AgentService.buildResponsesPayload("gpt-5-mini", "hola");
+
+    assertFalse(payload.containsKey("temperature"));
+    assertFalse(payload.containsKey("top_p"));
+    assertEquals(3, payload.size(), "gpt-5 payload = model + input + reasoning, nada más");
+  }
+
+  @Test
   void unknownOrEmptyModelDefaultsToLegacyPayload() {
     Map<String, Object> payloadEmpty = AgentService.buildResponsesPayload("", "hola");
     Map<String, Object> payloadOther = AgentService.buildResponsesPayload("some-other-model", "hola");
