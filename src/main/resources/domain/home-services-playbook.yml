@@ -1,0 +1,80 @@
+# Playbook del turno conversacional de Fixy ("servicios del hogar"): el CONTRATO de lo que el
+# LLM devuelve en cada turno. Core Fase 2 (ver CORE_FASE2_CONTRATO.md): de acá salen tanto el
+# bloque "FORMATO DE SALIDA" que va en el prompt del turno (Playbook.outputFormatBlock) como el
+# json_schema que se le exige a Workers AI (Playbook.turnSchema); antes eran dos copias escritas
+# a mano en LeadAgentService, que había que mantener iguales.
+#
+# Los enums de zona y categoría NO se listan acá: se derivan del catálogo de dominio
+# (home-services.yml), así una zona o categoría nueva llega al schema y al prompt sin tocar este
+# archivo.
+
+# Encabezado del bloque de formato dentro del prompt del turno.
+outputFormatHeader: "FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta estructura:"
+
+reply:
+  description: "tu respuesta conversacional al cliente"
+
+# Campos que el turno extrae del cliente ("extracted"), en este orden.
+#   name / type: clave y tipo JSON del campo.
+#   enumSource: de dónde salen los valores permitidos — `categories`, `zones`, o una lista literal.
+#     Con `categories`, `enumScope: mvp` limita a las categorías de matching real (el turno no
+#     pide las legacy no-MVP). `enumOrder` (solo `zones`) fija el orden histórico en que el
+#     schema del turno lista las zonas (Montes antes que Colinas, distinto del clasificador de
+#     intake), por paridad: las zonas no listadas van después, en el orden del catálogo, y el
+#     paraguas al final. `enumExtra`: valores fijos que se agregan al final ("otro").
+#   nullable: el formato del prompt agrega "|null" (el schema no lo refleja, como siempre).
+#   description: la frase que muestra el prompt para campos SIN enum.
+fields:
+  - name: category
+    type: string
+    enumSource: categories
+    enumScope: mvp
+    enumExtra: [otro]
+    nullable: true
+  - name: zone
+    type: string
+    enumSource: zones
+    enumOrder:
+      [SOLYMAR, LAGOMAR, EL_PINAR, SHANGRILA, BARRA_DE_CARRASCO, PARQUE_MIRAMAR, SAN_JOSE_DE_CARRASCO,
+       LOMAS_DE_SOLYMAR, MONTES_DE_SOLYMAR, COLINAS_DE_SOLYMAR, AEROPARQUE]
+    enumExtra: [otro]
+    nullable: true
+  - name: urgency
+    type: string
+    enumSource: [alta, media, baja]
+    nullable: true
+  - name: phone
+    type: string
+    nullable: true
+    description: "099XXXXXX o null"
+  - name: name
+    type: string
+    nullable: true
+    description: "nombre o null"
+  - name: address
+    type: string
+    nullable: true
+    description: "dirección exacta o null"
+  - name: details
+    type: string
+    nullable: true
+    description: "detalles relevantes o null"
+
+# Acción opcional que el LLM puede pedir en el turno (Salto 2 del cerebro agéntico): cualquier
+# valor distinto de "escalate" (ausente, "none", desconocido) se trata como "none".
+actions:
+  types: [none, escalate]
+  reason: "motivo corto del escalamiento, o null si type es none"
+  summary: "resumen de 1 línea de la situación para la persona que va a atender, o null si type es none"
+
+# Campos que tienen que estar definidos para que un pedido entre a matching.
+requiredForMatching: [category, zone]
+
+# El pedido de contacto (CONTACT_PHONE_ASK) sigue viviendo en la política del turno; el playbook
+# solo declara qué campo es el teléfono de contacto.
+contactAsk:
+  field: phone
+
+# Tools que Fixy expone a asistentes externos (MCP). McpToolService verifica que lo que expone
+# está acá.
+tools: [fixy_list_services, fixy_create_order]

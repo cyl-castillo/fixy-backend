@@ -2,6 +2,7 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.domain.Playbook;
 import com.fixy.backend.dto.McpToolDefinition;
 import com.fixy.backend.dto.McpToolResult;
 import com.fixy.backend.dto.OrderCreateRequest;
@@ -44,7 +45,8 @@ public class McpToolService {
       ProviderCatalogService providerCatalogService,
       OrderService orderService,
       Validator validator,
-      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
+      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
+      Playbook playbook
   ) {
     this.objectMapper = objectMapper;
     this.serviceCatalogService = serviceCatalogService;
@@ -84,6 +86,21 @@ public class McpToolService {
           }
         }
         """);
+    verifyExposedToolsAreInPlaybook(playbook);
+  }
+
+  /**
+   * Core Fase 2: las tools que Fixy expone a asistentes externos las declara el playbook
+   * ({@code tools}); lo que este servicio expone tiene que estar ahí. Falla al arrancar: una tool
+   * expuesta que el playbook no declara es una superficie que nadie está gobernando.
+   */
+  private void verifyExposedToolsAreInPlaybook(Playbook playbook) {
+    for (McpToolDefinition definition : definitions()) {
+      if (!playbook.tools().contains(definition.name())) {
+        throw new IllegalStateException("McpToolService expone la tool '" + definition.name()
+            + "' que el playbook no declara (tools: " + playbook.tools() + ")");
+      }
+    }
   }
 
   private JsonNode readSchema(String json) {

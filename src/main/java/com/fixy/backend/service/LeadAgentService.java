@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fixy.backend.domain.CategoryDef;
 import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.domain.Playbook;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
@@ -1188,10 +1189,22 @@ public class LeadAgentService {
   record AgentTurnResult(String reply, Map<String, String> extracted, AgentAction action) {}
 
   private AgentTurnResult respondAndExtractTurn(Lead lead, String context, String history) {
-    // Catálogo derivado de DomainCatalog.mvpIds() (fuente única) — antes era
-    // una lista "plomeria|barometrica|..." fija a mano acá.
-    String categoryOptions = String.join("|", DomainCatalog.get().mvpIds()) + "|otro|null";
-    String userContent = context + "\n\nConversación reciente:\n" + history + """
+    String userContent = context + "\n\nConversación reciente:\n" + history + turnInstructions();
+    String raw = llmGateway.completeJson(SYSTEM_PROMPT, userContent, turnJsonSchema());
+    if (raw == null || raw.isBlank()) {
+      return null;
+    }
+    return parseTurnJson(raw);
+  }
+
+  /**
+   * Las instrucciones del turno que van después del historial (TAREA, FORMATO DE SALIDA, reglas).
+   * El bloque FORMATO DE SALIDA lo genera el playbook (Core Fase 2): sus enums de categoría y zona
+   * derivan del catálogo — antes eran una lista "plomeria|barometrica|..." y otra de zonas fijas a
+   * mano acá. Package-private: testeado directo (golden), mismo patrón que buildContext.
+   */
+  static String turnInstructions() {
+    return """
 
 
         TAREA:
@@ -1210,24 +1223,7 @@ public class LeadAgentService {
         3) Decidí si hace falta escalar la conversación a una persona de Fixy (acción "escalate").
            Ver la sección "CUÁNDO ESCALAR" del prompt de sistema. Por defecto action.type es "none".
 
-        FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta estructura:
-        {
-          "reply": "tu respuesta conversacional al cliente",
-          "extracted": {
-            "category": "%s",
-            "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Montes de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
-            "urgency": "alta|media|baja|null",
-            "phone": "099XXXXXX o null",
-            "name": "nombre o null",
-            "address": "dirección exacta o null",
-            "details": "detalles relevantes o null"
-          },
-          "action": {
-            "type": "none|escalate",
-            "reason": "motivo corto del escalamiento, o null si type es none",
-            "summary": "resumen de 1 línea de la situación para la persona que va a atender, o null si type es none"
-          }
-        }
+        %s
 
         Reglas para extracted:
         - Usá null cuando el dato no aparezca en la conversación (no inventes).
@@ -1240,59 +1236,22 @@ public class LeadAgentService {
         - Default: {"type": "none", "reason": null, "summary": null}. Usalo salvo que aplique escalar.
         - "reply" SIEMPRE debe ser la respuesta honesta al cliente, sea cual sea action.type — si
           escalás, "reply" debe avisarle al cliente que lo vas a poner en contacto con una persona.
-        """.formatted(categoryOptions);
-    String raw = llmGateway.completeJson(SYSTEM_PROMPT, userContent, turnJsonSchema());
-    if (raw == null || raw.isBlank()) {
-      return null;
-    }
-    return parseTurnJson(raw);
+        """.formatted(Playbook.get().outputFormatBlock());
   }
 
   /**
    * json_schema del turno conversacional, exigido por Cloudflare Workers AI
    * vía response_format (ver {@link LlmGateway#completeJson}); ollama/openai
    * lo ignoran (siguen la instrucción de formato del prompt, como siempre).
-   * Antes vivía hardcodeado dentro de callWorkersAiJson; movido tal cual acá
-   * porque el schema es del TURNO (arma el prompt junto con userContent, acá
-   * en respondAndExtractTurn), no del transporte — eso es lo que separa a
-   * LlmGateway.
+   * Antes vivía hardcodeado dentro de callWorkersAiJson; luego acá porque el
+   * schema es del TURNO (arma el prompt junto con userContent, en
+   * respondAndExtractTurn), no del transporte — eso es lo que separa a
+   * LlmGateway. Desde Core Fase 2 lo genera el {@link Playbook} (mismo Map que
+   * antes; los enums de categoría y zona derivan del catálogo). Package-private:
+   * testeado directo contra el Map literal.
    */
-  private Map<String, Object> turnJsonSchema() {
-    // Fuente única: DomainCatalog.get().mvpIds(). El turno
-    // conversacional solo pide categorías MVP (matching real) + "otro".
-    List<String> categoryEnum = java.util.stream.Stream.concat(
-        DomainCatalog.get().mvpIds().stream(), java.util.stream.Stream.of("otro")).toList();
-    List<String> zoneEnum = List.of("Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
-        "Parque Miramar", "San José de Carrasco", "Lomas de Solymar", "Montes de Solymar", "Colinas de Solymar",
-        "Aeroparque", "Ciudad de la Costa", "otro");
-    List<String> urgencyEnum = List.of("alta", "media", "baja");
-    return Map.of(
-        "type", "object",
-        "properties", Map.of(
-            "reply", Map.of("type", "string"),
-            "extracted", Map.of(
-                "type", "object",
-                "properties", Map.of(
-                    "category", Map.of("type", "string", "enum", categoryEnum),
-                    "zone", Map.of("type", "string", "enum", zoneEnum),
-                    "urgency", Map.of("type", "string", "enum", urgencyEnum),
-                    "phone", Map.of("type", "string"),
-                    "name", Map.of("type", "string"),
-                    "address", Map.of("type", "string"),
-                    "details", Map.of("type", "string")
-                )
-            ),
-            "action", Map.of(
-                "type", "object",
-                "properties", Map.of(
-                    "type", Map.of("type", "string", "enum", List.of("none", "escalate")),
-                    "reason", Map.of("type", "string"),
-                    "summary", Map.of("type", "string")
-                )
-            )
-        ),
-        "required", List.of("reply", "extracted")
-    );
+  static Map<String, Object> turnJsonSchema() {
+    return Playbook.get().turnSchema();
   }
 
   /** Package-private: testeado directo (sin LLM real), mismo patrón que buildContext. */
