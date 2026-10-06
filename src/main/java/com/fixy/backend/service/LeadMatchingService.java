@@ -1,6 +1,7 @@
 package com.fixy.backend.service;
 
 import com.fixy.backend.core.agent.TurnPolicy;
+import com.fixy.backend.core.cases.CaseService;
 import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.dto.ProviderCatalogItem;
 import com.fixy.backend.model.Lead;
@@ -38,7 +39,7 @@ public class LeadMatchingService {
   private final com.fixy.backend.repository.ProviderRepository providerRepository;
   private final com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository;
   private final com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository;
-  private final LeadTimelineService leadTimelineService;
+  private final CaseService caseService;
   private final PushNotificationService pushNotificationService;
   private final WhatsAppService whatsappService;
   private final TelegramNotifyService telegramNotifyService;
@@ -55,7 +56,7 @@ public class LeadMatchingService {
       com.fixy.backend.repository.ProviderRepository providerRepository,
       com.fixy.backend.repository.ProviderOfferRepository providerOfferRepository,
       com.fixy.backend.repository.ServiceCatalogItemRepository serviceCatalogItemRepository,
-      LeadTimelineService leadTimelineService,
+      CaseService caseService,
       PushNotificationService pushNotificationService,
       WhatsAppService whatsappService,
       TelegramNotifyService telegramNotifyService,
@@ -71,7 +72,7 @@ public class LeadMatchingService {
     this.providerRepository = providerRepository;
     this.providerOfferRepository = providerOfferRepository;
     this.serviceCatalogItemRepository = serviceCatalogItemRepository;
-    this.leadTimelineService = leadTimelineService;
+    this.caseService = caseService;
     this.pushNotificationService = pushNotificationService;
     this.whatsappService = whatsappService;
     this.telegramNotifyService = telegramNotifyService;
@@ -301,8 +302,8 @@ public class LeadMatchingService {
     lead.setAssignedProviderId(top.id());
     lead.setAssignedProvider(top.name());
     lead.setStatus(com.fixy.backend.model.LeadStatus.PROVIDER_CONTACTED);
-    leadRepository.save(lead);
-    leadTimelineService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
+    caseService.save(lead);
+    caseService.appendEvent(lead, "PROVIDER_CONTACTED", "system",
         switch (context) {
           case SCHEDULED_RETRY -> "Reintento de matching: contactando a %s (el pedido esperaba sin proveedor)".formatted(top.name());
           case DECLINE_REOFFER -> "Re-oferta tras rechazo: contactando a %s via WhatsApp".formatted(top.name());

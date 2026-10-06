@@ -7,6 +7,7 @@ import com.fixy.backend.core.agent.LlmGateway;
 import com.fixy.backend.core.agent.PromptLoader;
 import com.fixy.backend.core.agent.TurnPolicy;
 import com.fixy.backend.core.cases.AgentTurn;
+import com.fixy.backend.core.cases.CaseService;
 import com.fixy.backend.core.domain.CategoryDef;
 import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.core.domain.Playbook;
@@ -71,7 +72,7 @@ public class LeadAgentService {
   private final UserLeadRepository userLeadRepository;
   private final ProviderCatalogService providerCatalogService;
   private final WhatsAppMenuService whatsappMenuService;
-  private final LeadTimelineService leadTimelineService;
+  private final CaseService caseService;
   private final AgentService agentService;
   private final TelegramNotifyService telegramNotifyService;
   private final SearchDeadlineService searchDeadlineService;
@@ -98,11 +99,15 @@ public class LeadAgentService {
       LeadMatchingService leadMatchingService
   ) {
     this(objectMapper, leadMessageService, leadRepository, userLeadRepository, providerCatalogService,
-        whatsappMenuService, leadTimelineService, agentService, telegramNotifyService, searchDeadlineService,
-        llmGateway, turnPolicy, leadMatchingService, AgentTurnRecorder.noop());
+        whatsappMenuService, new LeadCaseService(leadRepository, leadTimelineService), agentService,
+        telegramNotifyService, searchDeadlineService, llmGateway, turnPolicy, leadMatchingService,
+        AgentTurnRecorder.noop());
   }
 
-  /** Constructor real usado por Spring (Core Fase 3: suma el recorder de agent_turns). */
+  /**
+   * Constructor real usado por Spring (Core Fase 3: el loop habla con {@link CaseService} en vez de
+   * con {@code LeadTimelineService}, y suma el recorder de agent_turns).
+   */
   @Autowired
   public LeadAgentService(
       ObjectMapper objectMapper,
@@ -111,7 +116,7 @@ public class LeadAgentService {
       UserLeadRepository userLeadRepository,
       ProviderCatalogService providerCatalogService,
       WhatsAppMenuService whatsappMenuService,
-      LeadTimelineService leadTimelineService,
+      CaseService caseService,
       AgentService agentService,
       TelegramNotifyService telegramNotifyService,
       SearchDeadlineService searchDeadlineService,
@@ -121,7 +126,7 @@ public class LeadAgentService {
       AgentTurnRecorder turnRecorder
   ) {
     this.whatsappMenuService = whatsappMenuService;
-    this.leadTimelineService = leadTimelineService;
+    this.caseService = caseService;
     this.agentService = agentService;
     this.telegramNotifyService = telegramNotifyService;
     this.searchDeadlineService = searchDeadlineService;
@@ -757,9 +762,9 @@ public class LeadAgentService {
     String said = customerWordsForProblem(leadId);
     if (said != null && (lead.getProblem() == null || "(pendiente)".equals(lead.getProblem()))) {
       lead.setProblem(customerMentionedSmoke(leadId) ? "[smoke] " + said : said);
-      leadRepository.save(lead);
+      caseService.save(lead);
     }
-    if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
+    if (caseService.hasEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
       log.info("pedido sin clasificar ya escalado en lead {}: silencio", leadId);
       return;
     }
@@ -954,7 +959,7 @@ public class LeadAgentService {
     if (lead == null) {
       return;
     }
-    leadTimelineService.appendEvent(lead, "HUMAN_HELP_REQUESTED", "customer",
+    caseService.appendEvent(lead, "HUMAN_HELP_REQUESTED", "customer",
         "El cliente pidió hablar con una persona");
     telegramNotifyService.notifyEscalation(lead, "el cliente pidió hablar con una persona",
         lastCustomerText(leadId));
@@ -1132,7 +1137,7 @@ public class LeadAgentService {
         return false; // ya registrado (por el LLM o por un turno anterior)
       }
       lead.setNotes(currentNotes.isBlank() ? entry : currentNotes + "\n" + entry);
-      leadRepository.save(lead);
+      caseService.save(lead);
       return true;
     } catch (Exception ex) {
       log.warn("recordShortAnswer failed lead {}: {}", leadId, ex.getMessage());
@@ -1527,7 +1532,7 @@ public class LeadAgentService {
         // Recomputar readyForMatching con la lógica del LeadService.
         boolean nowReady = leadMatchingService.hasMatchingRequirements(lead);
         lead.setReadyForMatching(nowReady);
-        leadRepository.save(lead);
+        caseService.save(lead);
         // Si justo cruzó a "ready" en este turno, intentar matching automático.
         // También si el cliente CORRIGIÓ categoría/zona con el pedido ya
         // completo (2026-07-30): el automatch anterior corrió con los datos
@@ -1618,11 +1623,11 @@ public class LeadAgentService {
       Lead lead = leadRepository.findById(leadId).orElse(null);
       if (lead == null) return;
       if (turnPolicy.isSmokeLead(lead)) return;
-      if (leadTimelineService.hasEvent(leadId, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
+      if (caseService.hasEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE)) {
         return;
       }
       leadMessageService.postFromAgent(leadId, customerMessage);
-      leadTimelineService.appendEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE, "system",
+      caseService.appendEvent(lead, CUSTOMER_NOTIFIED_ESCALATION_EVENT_TYPE, "system",
           "Escalado a humano: " + turnPolicy.safe(action.reason(), "no especificado"));
       telegramNotifyService.notifyEscalation(lead, action.reason(), action.summary());
     } catch (Exception ex) {
@@ -1949,8 +1954,8 @@ public class LeadAgentService {
       return;
     }
     lead.setDetectedCategory(category.id());
-    leadRepository.save(lead);
-    leadTimelineService.appendEvent(lead, "MENU_CATEGORY_SELECTED", "user",
+    caseService.save(lead);
+    caseService.appendEvent(lead, "MENU_CATEGORY_SELECTED", "user",
         "Eligió " + category.label() + " en el menú de WhatsApp");
     String hint = DomainCatalog.get().intakeHintForId(category.id());
     String reply = hint != null
