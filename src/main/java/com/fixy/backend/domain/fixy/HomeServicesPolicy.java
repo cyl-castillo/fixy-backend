@@ -1,7 +1,7 @@
-package com.fixy.backend.service;
+package com.fixy.backend.domain.fixy;
 
-import com.fixy.backend.domain.CategoryDef;
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.CategoryDef;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.model.Lead;
 import java.util.List;
 import java.util.Locale;

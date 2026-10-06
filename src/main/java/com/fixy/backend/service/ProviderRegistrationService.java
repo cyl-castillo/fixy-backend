@@ -1,6 +1,6 @@
 package com.fixy.backend.service;
 
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.model.Provider;
 import com.fixy.backend.model.ProviderStatus;
 import com.fixy.backend.model.ProviderVerificationStatus;

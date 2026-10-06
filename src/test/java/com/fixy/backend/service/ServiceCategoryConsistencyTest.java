@@ -3,6 +3,7 @@ package com.fixy.backend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.core.agent.PromptLoader;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.model.ServiceCategory;

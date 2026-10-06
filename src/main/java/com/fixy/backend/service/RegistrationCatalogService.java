@@ -1,6 +1,6 @@
 package com.fixy.backend.service;
 
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.dto.RegistrationCatalogResponse;
 import com.fixy.backend.dto.RegistrationCategoryOption;
 import com.fixy.backend.model.BusinessCategory;

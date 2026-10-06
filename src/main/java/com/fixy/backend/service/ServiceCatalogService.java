@@ -1,6 +1,6 @@
 package com.fixy.backend.service;
 
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.dto.ServiceCatalogGroupResponse;
 import com.fixy.backend.dto.ServiceCatalogItemCreateRequest;
 import com.fixy.backend.dto.ServiceCatalogItemResponse;

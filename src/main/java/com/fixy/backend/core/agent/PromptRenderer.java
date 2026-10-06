@@ -1,8 +1,8 @@
-package com.fixy.backend.service;
+package com.fixy.backend.core.agent;
 
-import com.fixy.backend.domain.CategoryDef;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.domain.CategoryDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,14 +24,14 @@ import java.util.regex.Pattern;
  * {@code services.covered}, {@code zones.covered}, {@code zones.area_values},
  * {@code categories.count}, {@code categories.classifier_lines}, {@code categories.notes}.
  */
-final class PromptRenderer {
+public final class PromptRenderer {
 
   private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{\\s*([A-Za-z0-9_.]+)\\s*}}");
 
   private PromptRenderer() {}
 
   /** Rellena los placeholders del template con el catálogo dado. */
-  static String render(String template, DomainCatalog catalog) {
+  public static String render(String template, DomainCatalog catalog) {
     return render(template, catalog, false);
   }
 
@@ -40,7 +40,7 @@ final class PromptRenderer {
    * sustituidos ({@code %%}), para templates que después pasan por {@code String.formatted(...)}
    * (el clasificador de intake): un {@code %} en un dato del catálogo no puede romper el formato.
    */
-  static String renderForFormat(String template, DomainCatalog catalog) {
+  public static String renderForFormat(String template, DomainCatalog catalog) {
     return render(template, catalog, true);
   }
 
@@ -62,7 +62,7 @@ final class PromptRenderer {
   }
 
   /** Los placeholders disponibles y su valor para este catálogo. */
-  static Map<String, String> variables(DomainCatalog catalog) {
+  public static Map<String, String> variables(DomainCatalog catalog) {
     Map<String, String> vars = new LinkedHashMap<>();
     vars.put("business.name", catalog.business().name());
     vars.put("business.intro", catalog.business().intro());

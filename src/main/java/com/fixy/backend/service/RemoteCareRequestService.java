@@ -2,8 +2,8 @@ package com.fixy.backend.service;
 
 import com.fixy.backend.dto.RemoteCarePlanRequest;
 import com.fixy.backend.dto.RemoteCarePlanRequestResponse;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import com.fixy.backend.model.RemoteCarePlan;
 import com.fixy.backend.repository.RemoteCarePlanRepository;
 import java.util.UUID;

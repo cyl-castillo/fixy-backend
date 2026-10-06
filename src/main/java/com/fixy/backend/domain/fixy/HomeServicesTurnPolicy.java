@@ -1,9 +1,12 @@
-package com.fixy.backend.service;
+package com.fixy.backend.domain.fixy;
 
-import com.fixy.backend.domain.CategoryDef;
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.agent.TurnPolicy;
+import com.fixy.backend.core.domain.CategoryDef;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadMessage;
+import com.fixy.backend.service.AgentService;
+import com.fixy.backend.service.LeadMessageService;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;

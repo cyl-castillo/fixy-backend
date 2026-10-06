@@ -2,7 +2,7 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.Playbook;
+import com.fixy.backend.core.domain.Playbook;
 import com.fixy.backend.dto.McpToolDefinition;
 import com.fixy.backend.dto.McpToolResult;
 import com.fixy.backend.dto.OrderCreateRequest;

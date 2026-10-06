@@ -1,8 +1,8 @@
 package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import com.fixy.backend.model.Business;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.PushSubscription;

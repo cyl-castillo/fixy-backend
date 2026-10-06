@@ -1,6 +1,6 @@
-package com.fixy.backend.service;
+package com.fixy.backend.core.agent;
 
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.DomainCatalog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -16,12 +16,12 @@ import org.springframework.core.io.ClassPathResource;
  * frase de negocio) son placeholders {@code {{a.b}}} que {@link PromptRenderer} rellena desde
  * {@link DomainCatalog}; {@link #load} devuelve el texto ya renderizado.
  */
-final class PromptLoader {
+public final class PromptLoader {
 
   private PromptLoader() {}
 
   /** El prompt con sus placeholders rellenados desde el catálogo de dominio. */
-  static String load(String classpathLocation) {
+  public static String load(String classpathLocation) {
     return PromptRenderer.render(loadRaw(classpathLocation), DomainCatalog.get());
   }
 
@@ -29,12 +29,12 @@ final class PromptLoader {
    * Como {@link #load}, para plantillas que después pasan por {@code String.formatted(...)}
    * (conservan sus {@code %s}; los datos del catálogo se escapan).
    */
-  static String loadFormatTemplate(String classpathLocation) {
+  public static String loadFormatTemplate(String classpathLocation) {
     return PromptRenderer.renderForFormat(loadRaw(classpathLocation), DomainCatalog.get());
   }
 
   /** El archivo tal cual está en el classpath, con los placeholders sin rellenar. */
-  static String loadRaw(String classpathLocation) {
+  public static String loadRaw(String classpathLocation) {
     ClassPathResource resource = new ClassPathResource(classpathLocation);
     if (!resource.exists()) {
       throw new IllegalStateException("Prompt no encontrado en classpath: " + classpathLocation);

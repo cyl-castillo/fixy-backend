@@ -2,8 +2,8 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import java.time.Duration;
 import java.util.Optional;
 import org.slf4j.Logger;

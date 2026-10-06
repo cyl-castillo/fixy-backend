@@ -5,8 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.Playbook;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.Playbook;
 import com.fixy.backend.dto.McpToolDefinition;
 import jakarta.validation.Validator;
 import java.io.ByteArrayInputStream;

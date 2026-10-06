@@ -3,6 +3,7 @@ package com.fixy.backend.service;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fixy.backend.core.agent.PromptLoader;
 import org.junit.jupiter.api.Test;
 
 /**

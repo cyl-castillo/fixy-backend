@@ -1,4 +1,4 @@
-package com.fixy.backend.domain;
+package com.fixy.backend.core.domain;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

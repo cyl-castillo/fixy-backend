@@ -3,7 +3,7 @@ package com.fixy.backend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.Playbook;
+import com.fixy.backend.core.domain.Playbook;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;

@@ -2,9 +2,11 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.CategoryDef;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.agent.LlmGateway;
+import com.fixy.backend.core.agent.PromptLoader;
+import com.fixy.backend.core.domain.CategoryDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import java.util.ArrayList;
@@ -266,25 +268,11 @@ public class AgentService {
         .replaceAll("\\p{M}", "");
   }
 
-  /**
-   * Construye el body de /responses. Los modelos gpt-5 son reasoning models: por default
-   * usan "reasoning effort" medio, lo que agrega latencia de razonamiento invisible antes de
-   * responder. Para un intake conversacional de baja latencia fijamos "low" explícitamente.
-   * gpt-4.1 y anteriores ignoran/no tienen este campo si se omite, así que solo se agrega
-   * cuando el modelo es de la familia gpt-5.
-   */
+  /** La implementación vive en {@link LlmGateway#buildResponsesPayload} (Core Fase 3): el gateway
+   * es el único que arma el request a OpenAI y el core no puede depender de {@code service}.
+   * Se conserva acá con la misma firma porque {@code AgentServiceOpenAiPayloadTest} la llama. */
   static Map<String, Object> buildResponsesPayload(String model, String prompt) {
-    if (model != null && model.toLowerCase(Locale.ROOT).startsWith("gpt-5")) {
-      return Map.of(
-          "model", model,
-          "input", prompt,
-          "reasoning", Map.of("effort", "low")
-      );
-    }
-    return Map.of(
-        "model", model,
-        "input", prompt
-    );
+    return LlmGateway.buildResponsesPayload(model, prompt);
   }
 
   private List<String> readMissingFields(JsonNode node) {
@@ -373,7 +361,7 @@ public class AgentService {
    * ninguna. Para las correcciones del cliente en el fallback heurístico
    * ("no, es en Lagomar") — ver LeadAgentService.respondWithHeuristicFallback.
    */
-  String areaMentionedIn(String message) {
+  public String areaMentionedIn(String message) {
     if (message == null || message.isBlank()) {
       return null;
     }

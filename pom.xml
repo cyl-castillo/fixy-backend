@@ -97,6 +97,14 @@
       <artifactId>spring-security-test</artifactId>
       <scope>test</scope>
     </dependency>
+    <dependency>
+      <!-- Core Fase 3 (ver CORE_FASE3_CONTRATO.md): ArchitectureTest congela las fronteras
+           entre core.* y domain.fixy. -->
+      <groupId>com.tngtech.archunit</groupId>
+      <artifactId>archunit-junit5</artifactId>
+      <version>1.5.1</version>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 
   <build>

@@ -1,4 +1,4 @@
-package com.fixy.backend.domain;
+package com.fixy.backend.core.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;

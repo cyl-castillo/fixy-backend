@@ -1,4 +1,4 @@
-package com.fixy.backend.service;
+package com.fixy.backend.core.agent;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;

@@ -3,7 +3,9 @@ package com.fixy.backend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.agent.PromptLoader;
+import com.fixy.backend.core.agent.PromptRenderer;
+import com.fixy.backend.core.domain.DomainCatalog;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;

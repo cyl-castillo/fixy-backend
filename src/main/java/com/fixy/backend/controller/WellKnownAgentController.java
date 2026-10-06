@@ -1,7 +1,7 @@
 package com.fixy.backend.controller;
 
 import com.fixy.backend.dto.WellKnownAgentResponse;
-import com.fixy.backend.domain.DomainCatalog;
+import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.service.ServiceCatalogService;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;

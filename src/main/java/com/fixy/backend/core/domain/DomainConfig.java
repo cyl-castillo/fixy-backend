@@ -1,7 +1,7 @@
-package com.fixy.backend.config;
+package com.fixy.backend.core.domain;
 
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.Playbook;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.Playbook;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 

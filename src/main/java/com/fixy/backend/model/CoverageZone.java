@@ -1,7 +1,7 @@
 package com.fixy.backend.model;
 
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.ZoneDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.ZoneDef;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;

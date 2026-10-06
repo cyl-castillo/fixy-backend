@@ -1,4 +1,4 @@
-package com.fixy.backend.domain;
+package com.fixy.backend.core.domain;
 
 import java.util.List;
 import java.util.Optional;

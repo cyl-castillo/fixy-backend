@@ -1,4 +1,4 @@
-package com.fixy.backend.service;
+package com.fixy.backend.core.agent;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -185,7 +186,7 @@ public class LlmGateway {
       return null;
     }
     try {
-      Map<String, Object> payload = AgentService.buildResponsesPayload(openAiModel, prompt);
+      Map<String, Object> payload = buildResponsesPayload(openAiModel, prompt);
       String raw = openAiClient.post()
           .uri("/responses")
           .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
@@ -206,6 +207,27 @@ public class LlmGateway {
       log.warn("openai call failed: {}", ex.getMessage());
       return null;
     }
+  }
+
+  /**
+   * Construye el body de /responses. Los modelos gpt-5 son reasoning models: por default
+   * usan "reasoning effort" medio, lo que agrega latencia de razonamiento invisible antes de
+   * responder. Para un intake conversacional de baja latencia fijamos "low" explícitamente.
+   * gpt-4.1 y anteriores ignoran/no tienen este campo si se omite, así que solo se agrega
+   * cuando el modelo es de la familia gpt-5.
+   */
+  public static Map<String, Object> buildResponsesPayload(String model, String prompt) {
+    if (model != null && model.toLowerCase(Locale.ROOT).startsWith("gpt-5")) {
+      return Map.of(
+          "model", model,
+          "input", prompt,
+          "reasoning", Map.of("effort", "low")
+      );
+    }
+    return Map.of(
+        "model", model,
+        "input", prompt
+    );
   }
 
   /**

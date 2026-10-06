@@ -2,9 +2,13 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fixy.backend.domain.CategoryDef;
-import com.fixy.backend.domain.DomainCatalog;
-import com.fixy.backend.domain.Playbook;
+import com.fixy.backend.core.agent.LlmGateway;
+import com.fixy.backend.core.agent.PromptLoader;
+import com.fixy.backend.core.agent.TurnPolicy;
+import com.fixy.backend.core.domain.CategoryDef;
+import com.fixy.backend.core.domain.DomainCatalog;
+import com.fixy.backend.core.domain.Playbook;
+import com.fixy.backend.domain.fixy.HomeServicesPolicy;
 import com.fixy.backend.dto.IntakeRequest;
 import com.fixy.backend.dto.IntakeResponse;
 import com.fixy.backend.dto.ProviderCatalogItem;
