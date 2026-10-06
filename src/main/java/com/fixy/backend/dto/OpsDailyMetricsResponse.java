@@ -78,6 +78,12 @@ import java.util.Map;
  * @param gates                       Tier 3 (contrato §A.7): compuertas del plan de 90 días
  *                                    (día 30/60/90) evaluadas sobre la ventana pedida, con los
  *                                    números crudos usados para que el frontend no recalcule.
+ * @param agentTurns                  Core Fase 3 (contrato CORE_FASE3_CONTRATO.md, pieza 4): los
+ *                                    turnos conversacionales del agente ({@code kind = TURN} de
+ *                                    {@code agent_turns}) con {@code createdAt} en la ventana.
+ *                                    Campo ADITIVO, al final del JSON.
+ * @param intake                      Core Fase 3: las clasificaciones de intake
+ *                                    ({@code kind = INTAKE}) de la ventana. Campo ADITIVO.
  */
 public record OpsDailyMetricsResponse(
     OffsetDateTime from,
@@ -104,8 +110,29 @@ public record OpsDailyMetricsResponse(
     List<ProviderResponseStats> providers,
     List<CategoryHealth> categories,
     Alerts alerts,
-    Gates gates
+    Gates gates,
+    AgentTurnsSummary agentTurns,
+    IntakeSummary intake
 ) {
+
+  /**
+   * Resumen de los turnos del agente en la ventana (solo {@code kind = TURN}). {@code fallback} =
+   * LLM_EMPTY + LLM_NO_REPLY + FALLBACK_* + ERROR_FALLBACK (el LLM no sirvió y contestó la
+   * heurística); {@code escalated} = LLM_ESCALATED + los turnos con el guard
+   * {@code heuristic_escalated}; {@code byOutcome} el desglose completo por veredicto.
+   */
+  public record AgentTurnsSummary(
+      long total,
+      long llmOk,
+      long fallback,
+      long escalated,
+      Map<String, Long> byOutcome
+  ) {
+  }
+
+  /** Clasificaciones de intake de la ventana ({@code kind = INTAKE}); {@code heuristic} = sin LLM. */
+  public record IntakeSummary(long total, long heuristic) {
+  }
 
   /** Embudo "del chat al cobro" (contrato §A.1). Cada etapa es un conteo de
    * leads del rango pedido (no acumulativo entre ventanas). */

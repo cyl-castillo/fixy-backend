@@ -1,6 +1,9 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.core.cases.AgentTurn;
+import com.fixy.backend.core.cases.AgentTurnRepository;
 import com.fixy.backend.dto.OpsDailyMetricsResponse;
+import com.fixy.backend.dto.OpsDailyMetricsResponse.AgentTurnsSummary;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.Alerts;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.CategoryHealth;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.Day30Gate;
@@ -8,6 +11,7 @@ import com.fixy.backend.dto.OpsDailyMetricsResponse.Day60Gate;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.Day90Gate;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.Funnel;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.Gates;
+import com.fixy.backend.dto.OpsDailyMetricsResponse.IntakeSummary;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.OfferResponses;
 import com.fixy.backend.dto.OpsDailyMetricsResponse.ProviderResponseStats;
 import com.fixy.backend.model.CustomerPayment;
@@ -41,7 +45,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 /**
@@ -89,7 +95,13 @@ public class OpsMetricsService {
   private final ProviderCatalogService providerCatalogService;
   private final ServiceCatalogService serviceCatalogService;
   private final Clock clock;
+  /** Core Fase 3: null en el constructor legacy (agentTurns/intake salen en cero). */
+  private final AgentTurnRepository agentTurnRepository;
 
+  /**
+   * Constructor legacy (10 args): lo llama un test existente con reloj fijo. Conserva su firma (Core
+   * Fase 3, ver CORE_FASE3_CONTRATO.md) y delega al real sin repositorio de agent_turns.
+   */
   public OpsMetricsService(
       LeadRepository leadRepository, LeadEventRepository leadEventRepository,
       LeadMessageRepository leadMessageRepository,
@@ -101,6 +113,25 @@ public class OpsMetricsService {
       ServiceCatalogService serviceCatalogService,
       Clock clock
   ) {
+    this(leadRepository, leadEventRepository, leadMessageRepository, customerPaymentRepository,
+        leadRatingRepository, providerRepository, providerOfferRepository, providerCatalogService,
+        serviceCatalogService, clock, null);
+  }
+
+  @Autowired
+  public OpsMetricsService(
+      LeadRepository leadRepository, LeadEventRepository leadEventRepository,
+      LeadMessageRepository leadMessageRepository,
+      CustomerPaymentRepository customerPaymentRepository,
+      LeadRatingRepository leadRatingRepository,
+      ProviderRepository providerRepository,
+      ProviderOfferRepository providerOfferRepository,
+      ProviderCatalogService providerCatalogService,
+      ServiceCatalogService serviceCatalogService,
+      Clock clock,
+      AgentTurnRepository agentTurnRepository
+  ) {
+    this.agentTurnRepository = agentTurnRepository;
     this.leadRepository = leadRepository;
     this.leadEventRepository = leadEventRepository;
     this.leadMessageRepository = leadMessageRepository;
@@ -306,8 +337,56 @@ public class OpsMetricsService {
         providers,
         categories,
         alerts,
-        gates
+        gates,
+        computeAgentTurns(from, to),
+        computeIntake(from, to)
     );
+  }
+
+  /** Veredictos TURN en los que el LLM no sirvió y contestó el fallback (ver {@link AgentTurnsSummary}). */
+  private static final Set<String> FALLBACK_OUTCOMES = Set.of(
+      AgentTurn.OUTCOME_LLM_EMPTY, AgentTurn.OUTCOME_LLM_NO_REPLY, AgentTurn.OUTCOME_FALLBACK_REPEAT,
+      AgentTurn.OUTCOME_FALLBACK_SEARCHING_CLAIM, AgentTurn.OUTCOME_FALLBACK_ZONE_QUESTION,
+      AgentTurn.OUTCOME_ERROR_FALLBACK);
+
+  /**
+   * Core Fase 3 (pieza 4): resumen de los turnos del agente en la ventana. Solo {@code kind = TURN}
+   * y sin excluir tráfico smoke a propósito: no es una métrica de negocio sino la salud del LLM, y
+   * los turnos smoke son los que se miran después de un deploy.
+   */
+  private AgentTurnsSummary computeAgentTurns(OffsetDateTime from, OffsetDateTime to) {
+    if (agentTurnRepository == null) {
+      return new AgentTurnsSummary(0, 0, 0, 0, Map.of());
+    }
+    Map<String, Long> byOutcome = outcomeCounts(AgentTurn.KIND_TURN, from, to);
+    long total = byOutcome.values().stream().mapToLong(Long::longValue).sum();
+    long llmOk = byOutcome.getOrDefault(AgentTurn.OUTCOME_LLM_OK, 0L);
+    long fallback = byOutcome.entrySet().stream()
+        .filter(e -> FALLBACK_OUTCOMES.contains(e.getKey()))
+        .mapToLong(Map.Entry::getValue).sum();
+    long escalated = byOutcome.getOrDefault(AgentTurn.OUTCOME_LLM_ESCALATED, 0L)
+        + agentTurnRepository.countWithGuard(AgentTurn.KIND_TURN, from, to, AgentTurn.GUARD_HEURISTIC_ESCALATED);
+    return new AgentTurnsSummary(total, llmOk, fallback, escalated, byOutcome);
+  }
+
+  /** Clasificaciones de intake de la ventana: total y cuántas no llamaron al LLM. */
+  private IntakeSummary computeIntake(OffsetDateTime from, OffsetDateTime to) {
+    if (agentTurnRepository == null) {
+      return new IntakeSummary(0, 0);
+    }
+    Map<String, Long> byOutcome = outcomeCounts(AgentTurn.KIND_INTAKE, from, to);
+    return new IntakeSummary(
+        byOutcome.values().stream().mapToLong(Long::longValue).sum(),
+        byOutcome.getOrDefault(AgentTurn.OUTCOME_HEURISTIC, 0L));
+  }
+
+  /** Conteo por veredicto, ordenado por nombre para que el JSON sea estable. */
+  private Map<String, Long> outcomeCounts(String kind, OffsetDateTime from, OffsetDateTime to) {
+    Map<String, Long> counts = new TreeMap<>();
+    for (Object[] row : agentTurnRepository.countByOutcome(kind, from, to)) {
+      counts.put((String) row[0], ((Number) row[1]).longValue());
+    }
+    return counts;
   }
 
   /** Ids de leads (del subconjunto dado) que tienen al menos un mensaje con
