@@ -8,6 +8,10 @@
 # (home-services.yml), así una zona o categoría nueva llega al schema y al prompt sin tocar este
 # archivo.
 
+# Identificador del vertical: es el `caseType` con el que nacen los casos (leads) de este playbook
+# (Core Fase 3, ver CORE_FASE3_CONTRATO.md).
+id: home-services
+
 # Encabezado del bloque de formato dentro del prompt del turno.
 outputFormatHeader: "FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta estructura:"
 
@@ -59,6 +63,12 @@ fields:
     type: string
     nullable: true
     description: "detalles relevantes o null"
+
+# Atributos libres del caso (Lead.attributes, Core Fase 3): lo que un vertical guarda además de los
+# campos fijos del turno. Cada uno: `name`, `type` (string | number | boolean) y opcionalmente
+# `enumSource` (categories, zones o lista literal). Playbook.validateAttribute rechaza claves no
+# declaradas y valores de otro tipo. Fixy no declara ninguno todavía (no hay campo nuevo).
+attributes: []
 
 # Acción opcional que el LLM puede pedir en el turno (Salto 2 del cerebro agéntico): cualquier
 # valor distinto de "escalate" (ausente, "none", desconocido) se trata como "none".

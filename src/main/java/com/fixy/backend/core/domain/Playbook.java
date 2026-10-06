@@ -74,11 +74,20 @@ public final class Playbook {
     }
   }
 
+  /**
+   * Un atributo libre del caso ({@code Lead.attributes}, Core Fase 3). {@code type} es
+   * {@code string}, {@code number} o {@code boolean}; {@code enumSource} (opcional) como en
+   * {@link Field}: {@code categories}, {@code zones} o una lista literal.
+   */
+  public record Attribute(String name, String type, Object enumSource) {}
+
+  private final String id;
   private final DomainCatalog catalog;
   private final String source;
   private final String outputFormatHeader;
   private final String replyDescription;
   private final List<Field> fields;
+  private final List<Attribute> attributes;
   private final List<String> actionTypes;
   private final String actionReasonDescription;
   private final String actionSummaryDescription;
@@ -90,6 +99,7 @@ public final class Playbook {
     this.catalog = catalog;
     this.source = source;
     YamlReader r = new YamlReader(source);
+    this.id = r.string(root, "id", "id");
     this.outputFormatHeader = r.string(root, "outputFormatHeader", "outputFormatHeader");
     this.replyDescription = r.string(r.map(root, "reply", "reply"), "description", "reply.description");
     this.fields = new ArrayList<>();
@@ -116,6 +126,34 @@ public final class Playbook {
           r.stringListOrEmpty(f, "enumExtra", where + ".enumExtra"),
           r.bool(f, "nullable", where + ".nullable", false),
           r.stringOrNull(f, "description")));
+    }
+    this.attributes = new ArrayList<>();
+    if (root.get("attributes") != null) {
+      // Sección opcional y puede estar vacía (el playbook de Fixy no declara ninguno todavía), por
+      // eso no pasa por r.mapList, que exige una lista no vacía.
+      if (!(root.get("attributes") instanceof List<?> declared)) {
+        throw new IllegalStateException(source + ": 'attributes' tiene que ser una lista");
+      }
+      for (Object item : declared) {
+        Map<String, Object> a = YamlReader.asMap(item, source + ": attributes[]");
+        String name = r.string(a, "name", "attributes[].name");
+        String where = "attributes[" + name + "]";
+        String type = r.string(a, "type", where + ".type");
+        if (!List.of("string", "number", "boolean").contains(type)) {
+          throw new IllegalStateException(source + ": " + where + ".type desconocido: " + type);
+        }
+        Object enumSource = a.get("enumSource");
+        if (enumSource != null && !(enumSource instanceof String) && !(enumSource instanceof List<?>)) {
+          throw new IllegalStateException(source + ": " + where + ".enumSource tiene que ser categories, zones o una lista");
+        }
+        if (enumSource instanceof String e && !e.equals("categories") && !e.equals("zones")) {
+          throw new IllegalStateException(source + ": " + where + ".enumSource desconocido: " + e);
+        }
+        if (enumSource instanceof List<?>) {
+          enumSource = r.stringList(a, "enumSource", where + ".enumSource");
+        }
+        attributes.add(new Attribute(name, type, enumSource));
+      }
     }
     Map<String, Object> actions = r.map(root, "actions", "actions");
     this.actionTypes = r.stringList(actions, "types", "actions.types");
@@ -160,8 +198,49 @@ public final class Playbook {
     }
   }
 
+  /** Identificador del vertical (p. ej. {@code home-services}): el {@code caseType} de sus casos. */
+  public String id() {
+    return id;
+  }
+
   public List<Field> fields() {
     return List.copyOf(fields);
+  }
+
+  /** Los atributos libres declarados para el caso (puede estar vacía). */
+  public List<Attribute> attributes() {
+    return List.copyOf(attributes);
+  }
+
+  /**
+   * Valida un atributo libre del caso contra lo declarado: la clave tiene que existir, el valor
+   * ser del tipo declarado (y estar en el enum si lo tiene).
+   *
+   * @throws IllegalArgumentException si la clave no está declarada o el valor es de otro tipo
+   */
+  public void validateAttribute(String name, Object value) {
+    Attribute declared = attributes.stream().filter(a -> a.name().equals(name)).findFirst()
+        .orElseThrow(() -> new IllegalArgumentException(
+            "atributo no declarado en el playbook '" + id + "': " + name
+                + " (declarados: " + attributes.stream().map(Attribute::name).toList() + ")"));
+    boolean typeOk = switch (declared.type()) {
+      case "string" -> value instanceof CharSequence;
+      case "number" -> value instanceof Number;
+      case "boolean" -> value instanceof Boolean;
+      default -> false;
+    };
+    if (!typeOk) {
+      throw new IllegalArgumentException("atributo '" + name + "' del playbook '" + id + "' tiene que ser "
+          + declared.type() + ", llegó " + (value == null ? "null" : value.getClass().getSimpleName()));
+    }
+    if (declared.enumSource() != null) {
+      List<String> allowed = enumValues(new Field(
+          name, declared.type(), declared.enumSource(), null, List.of(), List.of(), false, null));
+      if (!allowed.contains(String.valueOf(value))) {
+        throw new IllegalArgumentException("atributo '" + name + "' del playbook '" + id
+            + "' tiene que ser uno de " + allowed + ", llegó " + value);
+      }
+    }
   }
 
   public Optional<Field> field(String name) {

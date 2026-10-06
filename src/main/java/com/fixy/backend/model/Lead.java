@@ -1,6 +1,9 @@
 package com.fixy.backend.model;
 
+import com.fixy.backend.core.cases.AttributesConverter;
+import com.fixy.backend.core.domain.Playbook;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -11,6 +14,8 @@ import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Entity
 @Table(name = "leads")
@@ -191,6 +196,24 @@ public class Lead {
    * PROVIDER_RELEASED). Null una vez que hay técnico asignado. */
   private OffsetDateTime searchDeadlineAt;
 
+  /** Core Fase 3 (contrato CORE_FASE3_CONTRATO.md): el tipo de caso, el id del playbook del vertical
+   * que lo originó ({@code home-services}). Se inicializa en Java —y en {@link #prePersist}— porque
+   * Hibernate lista siempre la columna en el INSERT: el DEFAULT de la base nunca aplica cuando el
+   * valor es null. */
+  // columnDefinition con default: en dev (H2 + ddl-auto=update) Hibernate no puede agregar una
+  // columna NOT NULL sin default a una tabla con filas (mismo tropiezo que "disputed" arriba).
+  // Prod usa Flyway (V32 trae el DEFAULT); acá solo importa para el esquema generado.
+  @Column(nullable = false, length = 40, columnDefinition = "varchar(40) default 'home-services' not null")
+  private String caseType = Playbook.get().id();
+
+  /** Core Fase 3: atributos libres del caso, validados contra el playbook por
+   * {@code CaseService.setAttribute}. Texto JSON en la base (ver {@link AttributesConverter}); NO
+   * {@code @Lob} (Hibernate 6 + Postgres lo mapea a oid y leer {@code text} falla) ni
+   * {@code columnDefinition="text"} (en H2 2.x {@code TEXT} es CLOB). */
+  @Convert(converter = AttributesConverter.class)
+  @Column(nullable = false, length = 16000, columnDefinition = "varchar(16000) default '{}' not null")
+  private Map<String, Object> attributes = new LinkedHashMap<>();
+
   @PrePersist
   void prePersist() {
     OffsetDateTime now = OffsetDateTime.now();
@@ -199,6 +222,12 @@ public class Lead {
     if (status == null) {
       status = LeadStatus.NEW;
     }
+    if (caseType == null) {
+      caseType = Playbook.get().id();
+    }
+    if (attributes == null) {
+      attributes = new LinkedHashMap<>();
+    }
   }
 
   @PreUpdate
@@ -206,6 +235,10 @@ public class Lead {
     updatedAt = OffsetDateTime.now();
   }
 
+  public String getCaseType() { return caseType; }
+  public void setCaseType(String caseType) { this.caseType = caseType; }
+  public Map<String, Object> getAttributes() { return attributes; }
+  public void setAttributes(Map<String, Object> attributes) { this.attributes = attributes; }
   public Long getId() { return id; }
   public void setId(Long id) { this.id = id; }
   public String getProblem() { return problem; }
