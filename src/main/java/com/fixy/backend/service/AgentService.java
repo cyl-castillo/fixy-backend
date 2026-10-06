@@ -2,8 +2,10 @@ package com.fixy.backend.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fixy.backend.core.agent.AgentTurnRecorder;
 import com.fixy.backend.core.agent.LlmGateway;
 import com.fixy.backend.core.agent.PromptLoader;
+import com.fixy.backend.core.cases.AgentTurn;
 import com.fixy.backend.core.domain.CategoryDef;
 import com.fixy.backend.core.domain.DomainCatalog;
 import com.fixy.backend.core.domain.ZoneDef;
@@ -31,8 +33,12 @@ public class AgentService {
 
   private static final String INTAKE_PROMPT_TEMPLATE = PromptLoader.loadFormatTemplate("prompts/intake-classifier.md");
 
+  /** Core Fase 3: versión de la PLANTILLA del intake (no del render, que lleva datos del cliente). */
+  private static final String INTAKE_PROMPT_VERSION = AgentTurnRecorder.promptVersion(INTAKE_PROMPT_TEMPLATE);
+
   private final ObjectMapper objectMapper;
   private final LlmGateway llmGateway;
+  private final AgentTurnRecorder turnRecorder;
 
   /**
    * Constructor legacy (3 args), usado por tests existentes que no necesitan multi-proveedor
@@ -66,33 +72,62 @@ public class AgentService {
         cloudflareAccountId, cloudflareApiToken, cloudflareModel));
   }
 
-  /** Constructor real usado por Spring: comparte el único LlmGateway de la app (Core Fase 1,
-   * ver CORE_FASE1_CONTRATO.md) en vez de armar sus propios WebClients. */
-  @Autowired
+  /**
+   * Constructor legacy (2 args): mismo LlmGateway compartido que el de Spring pero sin registrar
+   * las llamadas (recorder no-op). Lo usan los constructores legacy de arriba (Core Fase 3, ver
+   * CORE_FASE3_CONTRATO.md: ningún constructor que un test llame cambia de firma).
+   */
   public AgentService(ObjectMapper objectMapper, LlmGateway llmGateway) {
+    this(objectMapper, llmGateway, AgentTurnRecorder.noop());
+  }
+
+  /** Constructor real usado por Spring: comparte el único LlmGateway de la app (Core Fase 1,
+   * ver CORE_FASE1_CONTRATO.md) en vez de armar sus propios WebClients, y registra cada
+   * clasificación en agent_turns (Core Fase 3). */
+  @Autowired
+  public AgentService(ObjectMapper objectMapper, LlmGateway llmGateway, AgentTurnRecorder turnRecorder) {
     this.objectMapper = objectMapper;
     this.llmGateway = llmGateway;
+    this.turnRecorder = turnRecorder;
   }
 
   public IntakeResponse classify(IntakeRequest request) {
+    return classify(request, null);
+  }
+
+  /**
+   * Igual que {@link #classify(IntakeRequest)}, atribuyendo la llamada al lead dado en agent_turns
+   * (Core Fase 3). {@code leadId} es null cuando todavía no hay lead (intake previo a crearlo) o
+   * cuando la clasificación no es de un lead (p. ej. la de un técnico).
+   */
+  public IntakeResponse classify(IntakeRequest request, Long leadId) {
     IntakeResponse response = null;
+    boolean llmAttempted = false;
     if ("workersai".equals(llmGateway.provider()) && llmGateway.hasCloudflareCredentials()) {
-      response = classifyWithWorkersAi(request);
+      llmAttempted = true;
+      response = classifyWithWorkersAi(request, leadId);
       if (response == null) {
         log.warn("workersai classify call failed or returned null, degrading to heuristic");
       }
     } else if (llmGateway.hasOpenAiKey()) {
-      response = classifyWithOpenAi(request);
+      llmAttempted = true;
+      response = classifyWithOpenAi(request, leadId);
     }
 
     if (response == null) {
+      if (!llmAttempted) {
+        // Sin LLM configurado: no hubo llamada, pero queda constancia de que clasificó la heurística.
+        turnRecorder.finish(
+            turnRecorder.start(AgentTurn.KIND_INTAKE, leadId, INTAKE_PROMPT_VERSION, request.message()),
+            null, AgentTurn.OUTCOME_HEURISTIC, List.of());
+      }
       response = classifyHeuristically(request);
     }
 
     return applyStructuredFields(request, response);
   }
 
-  private IntakeResponse classifyWithOpenAi(IntakeRequest request) {
+  private IntakeResponse classifyWithOpenAi(IntakeRequest request, Long leadId) {
     String prompt = INTAKE_PROMPT_TEMPLATE.formatted(
         safe(request.contactName()),
         safe(request.phone()),
@@ -105,15 +140,22 @@ public class AgentService {
         request.message()
     );
 
+    // Core Fase 3: veredicto de la llamada para agent_turns (un solo finish, en el finally).
+    AgentTurnRecorder.Handle handle =
+        turnRecorder.start(AgentTurn.KIND_INTAKE, leadId, INTAKE_PROMPT_VERSION, prompt);
+    String text = null;
+    String outcome = AgentTurn.OUTCOME_LLM_UNPARSEABLE;
     try {
-      String text = llmGateway.completeTextOpenAi(prompt);
+      text = llmGateway.completeTextOpenAi(prompt);
+      handle.stopClock();
 
       if (text == null || text.isBlank()) {
+        outcome = AgentTurn.OUTCOME_LLM_EMPTY;
         return null;
       }
 
       JsonNode result = objectMapper.readTree(text);
-      return new IntakeResponse(
+      IntakeResponse parsed = new IntakeResponse(
           result.path("leadType").asText("cliente"),
           DomainCatalog.get().refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           result.path("area").asText(detectArea(request.message())),
@@ -123,12 +165,16 @@ public class AgentService {
           result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
           "openai"
       );
+      outcome = AgentTurn.OUTCOME_LLM_OK;
+      return parsed;
     } catch (Exception ex) {
       // Si esto falla en silencio, el sistema degrada al heurístico sin dejar rastro.
       // WARN visible es la única señal de que OpenAI está rechazando la llamada (ej. 400 por
       // parámetro no soportado en un modelo nuevo).
       log.warn("openai classify call failed, degrading to heuristic: {}", ex.getMessage());
       return null;
+    } finally {
+      turnRecorder.finish(handle, text, outcome, List.of());
     }
   }
 
@@ -139,7 +185,7 @@ public class AgentService {
    * produce el prompt intake-classifier.md para OpenAI, así el resto del pipeline
    * (applyStructuredFields, etc.) no distingue de dónde vino la respuesta.
    */
-  private IntakeResponse classifyWithWorkersAi(IntakeRequest request) {
+  private IntakeResponse classifyWithWorkersAi(IntakeRequest request, Long leadId) {
     String prompt = INTAKE_PROMPT_TEMPLATE.formatted(
         safe(request.contactName()),
         safe(request.phone()),
@@ -152,19 +198,28 @@ public class AgentService {
         request.message()
     );
 
+    // Core Fase 3: veredicto de la llamada para agent_turns (un solo finish, en el finally).
+    AgentTurnRecorder.Handle handle =
+        turnRecorder.start(AgentTurn.KIND_INTAKE, leadId, INTAKE_PROMPT_VERSION, prompt);
+    String raw = null;
+    String outcome = AgentTurn.OUTCOME_LLM_UNPARSEABLE;
     try {
       // 1 solo retry ante timeout/error transitorio (latencia de CF es variable). Si vuelve a
       // fallar, el catch de abajo degrada a heurística — no vale la pena reintentar más veces
       // para un intake conversacional de baja latencia. (timeout 30s, max_tokens 400: ver
       // LlmGateway.completeJsonWorkersAi).
-      String raw = llmGateway.completeJsonWorkersAi(prompt, intakeJsonSchema());
+      raw = llmGateway.completeJsonWorkersAi(prompt, intakeJsonSchema());
+      handle.stopClock();
+      if (raw == null || raw.isBlank()) {
+        outcome = AgentTurn.OUTCOME_LLM_EMPTY;
+      }
 
       JsonNode result = parseWorkersAiResult(objectMapper, raw);
       if (result == null) {
         return null;
       }
 
-      return new IntakeResponse(
+      IntakeResponse parsed = new IntakeResponse(
           result.path("leadType").asText("cliente"),
           DomainCatalog.get().refineCategoryId(request.message(), result.path("serviceCategory").asText("otro")),
           normalizeAreaValue(result.path("area").asText(detectArea(request.message()))),
@@ -174,9 +229,13 @@ public class AgentService {
           result.path("suggestedReply").asText(buildSuggestedReply(request, readMissingFields(result.path("missingFields")))),
           "workersai"
       );
+      outcome = AgentTurn.OUTCOME_LLM_OK;
+      return parsed;
     } catch (Exception ex) {
       log.warn("workersai classify call failed, degrading to heuristic: {}", ex.getMessage());
       return null;
+    } finally {
+      turnRecorder.finish(handle, raw, outcome, List.of());
     }
   }
 

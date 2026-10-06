@@ -107,6 +107,19 @@ public class LlmGateway {
     return provider;
   }
 
+  /**
+   * El modelo del proveedor CONFIGURADO (el que usa {@link #completeText}/{@link #completeJson}:
+   * mismo despacho, cualquier valor que no sea ollama/workersai cae a OpenAI). Core Fase 3: lo
+   * registra {@code AgentTurnRecorder} junto con cada llamada.
+   */
+  public String model() {
+    return switch (provider) {
+      case "ollama" -> ollamaModel;
+      case "workersai" -> cloudflareModel;
+      default -> openAiModel;
+    };
+  }
+
   /** true si hay API key de OpenAI configurada. */
   public boolean hasOpenAiKey() {
     return openAiApiKey != null && !openAiApiKey.isBlank();

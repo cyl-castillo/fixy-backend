@@ -263,7 +263,7 @@ public class LeadService {
         && hasText(lead.getLocation())
         && !"sin definir".equalsIgnoreCase(lead.getLocation());
     if (!alreadyClassified) {
-      IntakeResponse classification = classify(buildClassificationMessage(lead), lead.getName(), lead.getPhone(), lead.getChannel());
+      IntakeResponse classification = classify(buildClassificationMessage(lead), lead.getName(), lead.getPhone(), lead.getChannel(), lead.getId());
       applyClassification(lead, classification);
     } else {
       // Aun asi recomputar campos derivados (missingFields, readyForMatching) en base al estado actual.
@@ -416,7 +416,7 @@ public class LeadService {
         request.urgency(),
         request.address(),
         request.details()
-    ));
+    ), lead.getId());
     applyClassification(lead, classification);
     String historyMessage = "Contexto publico enriquecido | " + String.join(" | ", changes);
     lead.setHistory(appendHistory(lead.getHistory(), historyMessage));
@@ -482,8 +482,8 @@ public class LeadService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "lead not found"));
   }
 
-  private IntakeResponse classify(String message, String name, String phone, String channel) {
-    return agentService.classify(new IntakeRequest(message, name, phone, channel));
+  private IntakeResponse classify(String message, String name, String phone, String channel, Long leadId) {
+    return agentService.classify(new IntakeRequest(message, name, phone, channel), leadId);
   }
 
   private IntakeResponse classify(LeadCreateRequest request) {
