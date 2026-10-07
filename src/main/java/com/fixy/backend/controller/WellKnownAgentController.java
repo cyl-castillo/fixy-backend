@@ -25,7 +25,7 @@ public class WellKnownAgentController {
       ServiceCatalogService serviceCatalogService,
       @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
       @Value("${fixy.public-api-base-url:https://api.fixy.com.uy}") String publicApiBaseUrl,
-      @Value("${fixy.contact.whatsapp:59893551242}") String contactWhatsapp
+      @Value("${fixy.contact.whatsapp:59896251101}") String contactWhatsapp
   ) {
     this.serviceCatalogService = serviceCatalogService;
     this.publicAppBaseUrl = publicAppBaseUrl.replaceAll("/+$", "");

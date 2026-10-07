@@ -245,4 +245,4 @@ fixy:
   contact:
     # Número público de WhatsApp de Fixy (mismo que /sumate y el resto del
     # sitio) — usado por /.well-known/fixy-agent.json (contrato §8).
-    whatsapp: ${FIXY_CONTACT_WHATSAPP:59893551242}
+    whatsapp: ${FIXY_CONTACT_WHATSAPP:59896251101}
