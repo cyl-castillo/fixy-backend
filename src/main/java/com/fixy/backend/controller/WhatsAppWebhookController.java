@@ -282,6 +282,16 @@ public class WhatsAppWebhookController {
     return null;
   }
 
+  /** Número al que se le responde al técnico: {@code whatsappNumber} y, si no
+   * lo cargó, {@code phone} — mismo criterio que el envío de la oferta en
+   * {@code LeadMatchingService} (2026-10-08: el técnico "Carlos" solo tenía
+   * phone y la confirmación del SÍ salía a {@code null}). */
+  static String providerWhatsapp(Provider provider) {
+    String wa = provider.getWhatsappNumber();
+    if (wa != null && !wa.isBlank()) return wa;
+    return provider.getPhone();
+  }
+
   private void acceptLead(Lead lead, Provider provider, String originalText) {
     Lead assigned;
     try {
@@ -290,12 +300,12 @@ public class WhatsAppWebhookController {
     } catch (ResponseStatusException ex) {
       // Otro canal (bandeja u otro proveedor) ya se quedó con el lead entre
       // que WhatsApp mandó el mensaje y que lo procesamos acá.
-      whatsappService.sendText(provider.getWhatsappNumber(),
+      whatsappService.sendText(providerWhatsapp(provider),
           "Ese trabajo ya fue tomado, gracias igual.");
       return;
     }
     // Aviso al proveedor: confirmación de recibido (canal específico de WhatsApp).
-    whatsappService.sendText(provider.getWhatsappNumber(),
+    whatsappService.sendText(providerWhatsapp(provider),
         "Listo, ya le avisamos al cliente. Su tel: " + assigned.getPhone()
             + (assigned.getNotes() != null && !assigned.getNotes().isBlank() ? "\nNotas: " + assigned.getNotes() : ""));
   }

@@ -49,17 +49,28 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
 
   /**
    * Transición atómica al aceptar una oportunidad: solo asigna si el lead
-   * SIGUE sin proveedor asignado y en un status matcheable. Devuelve cuántas
-   * filas tocó (1 = esta invocación ganó la asignación, 0 = otro proveedor
-   * ya lo tomó, o cambió de status entre el GET y el accept). Mismo patrón
-   * que {@code LeadPaymentRepository.markPaidIfNotAlready}: el primero que
+   * SIGUE sin proveedor asignado (o reservado para ESTE proveedor) y en un
+   * status matcheable. Devuelve cuántas filas tocó (1 = esta invocación ganó
+   * la asignación, 0 = otro proveedor ya lo tomó, o cambió de status entre el
+   * GET y el accept). Mismo patrón que
+   * {@code LeadPaymentRepository.markPaidIfNotAlready}: el primero que
    * escribe gana, sin locks explícitos ni race en memoria.
+   *
+   * <p>Bug del 2026-10-08 (primer SÍ real por WhatsApp, lead #275): el
+   * matching deja el lead PROVIDER_CONTACTED con {@code assignedProviderId}
+   * = el técnico contactado (ver {@code LeadMatchingService.contactTopMatch}
+   * y el javadoc de {@code findBySearchDeadlineAt...}), así que la condición
+   * "assignedProviderId is null" rechazaba con 409 justamente al técnico al
+   * que se le ofreció el trabajo. El panel no lo sufría porque acepta por
+   * {@code /leads/{id}/status}, no por este camino. Ahora el reservado puede
+   * aceptar; otro técnico sigue sin poder robarlo.
    */
   @Modifying(clearAutomatically = true, flushAutomatically = true)
   @Transactional
   @Query("update Lead l set l.status = com.fixy.backend.model.LeadStatus.ASSIGNED, "
       + "l.assignedProviderId = :providerId, l.assignedProvider = :providerName "
-      + "where l.id = :leadId and l.assignedProviderId is null and l.status in :matchableStatuses")
+      + "where l.id = :leadId and (l.assignedProviderId is null or l.assignedProviderId = :providerId) "
+      + "and l.status in :matchableStatuses")
   int assignIfUnclaimed(
       @Param("leadId") Long leadId,
       @Param("providerId") Long providerId,
