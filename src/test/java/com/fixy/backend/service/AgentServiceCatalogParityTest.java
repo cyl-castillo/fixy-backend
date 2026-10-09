@@ -73,7 +73,7 @@ class AgentServiceCatalogParityTest {
             "leadType", Map.of("type", "string", "enum", List.of("cliente", "proveedor")),
             "serviceCategory", Map.of("type", "string", "enum", List.of(
                 "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-                "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas", "mandados", "otro")),
+                "aires_acondicionados", "garrafa", "reparaciones", "pasteleria", "decoracion_fiestas", "mandados", "otro")),
             "area", Map.of("type", "string", "enum", List.of(
                 "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco", "Parque Miramar",
                 "San José de Carrasco", "Lomas de Solymar", "Colinas de Solymar", "Montes de Solymar",

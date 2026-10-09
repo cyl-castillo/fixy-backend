@@ -20,7 +20,7 @@ FORMATO DE SALIDA: SOLO un JSON válido, sin texto antes ni después, con esta e
 {
   "reply": "tu respuesta conversacional al cliente",
   "extracted": {
-    "category": "plomeria|barometrica|jardineria|aires_acondicionados|pasteleria|decoracion_fiestas|mandados|otro|null",
+    "category": "plomeria|barometrica|jardineria|aires_acondicionados|garrafa|pasteleria|decoracion_fiestas|mandados|otro|null",
     "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Montes de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
     "urgency": "alta|media|baja|null",
     "phone": "099XXXXXX o null",

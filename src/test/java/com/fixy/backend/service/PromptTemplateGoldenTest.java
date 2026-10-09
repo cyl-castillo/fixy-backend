@@ -144,7 +144,7 @@ class PromptTemplateGoldenTest {
 
     String intake = PromptRenderer.render(PromptLoader.loadRaw("prompts/intake-classifier.md"), catalog);
     assertThat(intake)
-        .contains("estas 11 categorias exactas")
+        .contains("estas 12 categorias exactas")
         .contains("- limpieza: limpieza de casas.")
         .contains("Ciudad de la Costa, Costa de Oro, sin definir.");
   }

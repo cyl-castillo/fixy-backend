@@ -68,7 +68,7 @@ class DomainCatalogLoadTest {
     DomainCatalog catalog = DomainCatalog.load(null);
     assertThat(catalog.source()).isEqualTo("classpath:domain/home-services.yml");
     assertThat(catalog.zones()).hasSize(12);
-    assertThat(catalog.categories()).hasSize(11);
+    assertThat(catalog.categories()).hasSize(12);
   }
 
   @Test

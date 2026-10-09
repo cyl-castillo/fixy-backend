@@ -218,6 +218,23 @@ categories:
     intakeHint: "si es instalación, service/limpieza o reparación (no enfría/no calienta), y qué equipo es (split, ventana)"
     classifierDescription: "instalacion, recarga de gas, splits que no enfrian o no calientan."
     menuDescription: "Instalación, service, no enfría o no calienta"
+  - id: garrafa
+    # Categoría 2026-10-09 (lead real #276, "Necesito cambiar la garrafa"): el cambio de la
+    # garrafa de supergas lo hace una distribuidora (HiperGas), no el mandadero. Va ANTES de
+    # reparaciones ("hogar") y de mandados; después de aires, que conserva "recarga de gas"
+    # (el gas del split sigue siendo aire). Precio provisorio: garrafa de 13 kg con entrega.
+    enumName: GARRAFA
+    label: "cambio de garrafa"
+    mvp: true
+    keywords:
+      ["garrafa", "garrafas", "supergas", "cambio de garrafa", "cambiar la garrafa",
+       "garrafa de gas", "gas de la cocina"]
+    priceMin: 1700
+    priceMax: 2300
+    intakeHint: "si tiene la garrafa vacía para el intercambio o necesita una nueva, dirección exacta y para cuándo; se paga contra entrega a la distribuidora"
+    classifierDescription: "cambio o intercambio de la garrafa de supergas a domicilio; la trae la distribuidora. NO es la recarga de gas de un split (eso es aires_acondicionados)."
+    coverageNote: "cambio de garrafa de supergas a domicilio"
+    menuDescription: "Cambio de garrafa de supergas a domicilio"
   - id: reparaciones
     enumName: REPARACIONES
     label: "reparaciones"
@@ -304,13 +321,12 @@ categories:
       ["mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras",
        "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab",
        "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite",
-       "hacer un trámite", "pagar una factura",
-       "garrafa", "supergas", "cambio de garrafa", "cambiar la garrafa", "garrafa de gas"]
+       "hacer un trámite", "pagar una factura"]
     priceMin: 200
     priceMax: 500
     intakeHint: "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte"
-    classifierDescription: "compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo, o cambie/intercambie la garrafa de supergas. NO es comprar un producto para instalarlo (eso va en su rubro: \"comprar un split\" es aires_acondicionados)."
-    coverageNote: "compras del súper, farmacia, feria, pagos en Abitab/Redpagos, correo, cambio de garrafa — por encargo"
+    classifierDescription: "compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo. NO es comprar un producto para instalarlo (eso va en su rubro: \"comprar un split\" es aires_acondicionados)."
+    coverageNote: "compras del súper, farmacia, feria, pagos en Abitab/Redpagos, correo — por encargo"
     promptNotes: |-
       Si el pedido es de mandados: además de zona y urgencia, pedile natural qué mandados son y para
       cuándo, e invitalo a pasar la lista acá mismo en el chat — escrita o con una foto de la lista de

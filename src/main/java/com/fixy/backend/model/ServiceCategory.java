@@ -43,6 +43,7 @@ public enum ServiceCategory {
   BAROMETRICA("barometrica"),
   JARDINERIA("jardineria"),
   AIRES_ACONDICIONADOS("aires_acondicionados"),
+  GARRAFA("garrafa"),
   REPARACIONES("reparaciones"),
   PASTELERIA("pasteleria"),
   DECORACION_FIESTAS("decoracion_fiestas"),

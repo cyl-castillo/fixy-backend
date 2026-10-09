@@ -36,7 +36,7 @@ class LeadAgentTurnContractTest {
                 "type", "object",
                 "properties", Map.of(
                     "category", Map.of("type", "string", "enum", List.of(
-                        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria",
+                        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "garrafa", "pasteleria",
                         "decoracion_fiestas", "mandados", "otro")),
                     "zone", Map.of("type", "string", "enum", List.of(
                         "Solymar", "Lagomar", "El Pinar", "Shangrilá", "Barra de Carrasco",
@@ -78,7 +78,7 @@ class LeadAgentTurnContractTest {
         {
           "reply": "tu respuesta conversacional al cliente",
           "extracted": {
-            "category": "plomeria|barometrica|jardineria|aires_acondicionados|pasteleria|decoracion_fiestas|mandados|otro|null",
+            "category": "plomeria|barometrica|jardineria|aires_acondicionados|garrafa|pasteleria|decoracion_fiestas|mandados|otro|null",
             "zone": "Solymar|Lagomar|El Pinar|Shangrilá|Barra de Carrasco|Parque Miramar|San José de Carrasco|Lomas de Solymar|Montes de Solymar|Colinas de Solymar|Aeroparque|Ciudad de la Costa|otro|null",
             "urgency": "alta|media|baja|null",
             "phone": "099XXXXXX o null",

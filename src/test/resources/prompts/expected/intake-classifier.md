@@ -5,17 +5,18 @@ leadType, serviceCategory, area, urgency, summary, missingFields, suggestedReply
 Usa valores en espanol minusculas simples.
 leadType debe ser cliente o proveedor.
 
-serviceCategory debe ser una de estas 10 categorias exactas (con ejemplos de que cubre cada una):
+serviceCategory debe ser una de estas 11 categorias exactas (con ejemplos de que cubre cada una):
 - plomeria: canillas, caños, perdidas de agua, duchas, destapaciones.
 - electricidad: cortes de luz, tableros, cortocircuitos, enchufes, chispas.
 - cerrajeria: llaves perdidas o trabadas, cerraduras, no poder entrar a la casa.
 - barometrica: pozos negros, camaras septicas, desborde de pozo.
 - jardineria: cortar pasto, podar arboles, mantenimiento de jardin.
 - aires_acondicionados: instalacion, recarga de gas, splits que no enfrian o no calientan.
+- garrafa: cambio o intercambio de la garrafa de supergas a domicilio; la trae la distribuidora. NO es la recarga de gas de un split (eso es aires_acondicionados).
 - reparaciones: muebles rotos, persianas, arreglos generales del hogar que no son de otro rubro.
 - pasteleria: LA COMIDA DULCE de un evento — tortas, tortas tematicas, mesa dulce, cupcakes, postres, candy bar.
 - decoracion_fiestas: LA AMBIENTACION VISUAL de un evento — globos, arcos de globos, backdrops, telones, guirnaldas, centros de mesa, decoracion y ambientacion de cumpleaños, 15, casamientos o eventos de empresa. NO es la comida (eso es pasteleria).
-- mandados: compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo, o cambie/intercambie la garrafa de supergas. NO es comprar un producto para instalarlo (eso va en su rubro: "comprar un split" es aires_acondicionados).
+- mandados: compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo. NO es comprar un producto para instalarlo (eso va en su rubro: "comprar un split" es aires_acondicionados).
 - otro: cualquier pedido que no encaje claramente en las anteriores, o pedidos vagos.
 
 Nota: para un cumpleaños, si piden TORTA/postres es pasteleria; si piden GLOBOS/ambientacion/decoracion es decoracion_fiestas. Si piden ambas cosas, elegí la que mas pese en el mensaje.

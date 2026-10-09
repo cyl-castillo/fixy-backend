@@ -36,6 +36,7 @@ class WhatsAppMenuCatalogTest {
             "barometrica|Barométrica|Pozos y cámaras sépticas",
             "jardineria|Jardinería|Corte de pasto, poda, mantenimiento",
             "aires_acondicionados|Aire acondicionado|Instalación, service, no enfría o no calienta",
+            "garrafa|Cambio de garrafa|Cambio de garrafa de supergas a domicilio",
             "pasteleria|Pastelería|Tortas, cumpleaños, mesa dulce",
             "decoracion_fiestas|Decoración de fiestas|Globos, ambientación, decoración de eventos",
             "mandados|Mandados y trámites|Súper, farmacia, trámites y pagos",

@@ -25,7 +25,7 @@ class ServiceCategoryConsistencyTest {
   @Test
   void allMvpCategoriesAreMarkedAsMvp() {
     assertThat(ServiceCategory.MVP_IDS).containsExactlyInAnyOrder(
-        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "pasteleria",
+        "plomeria", "barometrica", "jardineria", "aires_acondicionados", "garrafa", "pasteleria",
         "decoracion_fiestas", "mandados");
   }
 
@@ -35,7 +35,7 @@ class ServiceCategoryConsistencyTest {
     // que Fixy clasifica pero no matchea (electricidad, cerrajería, reparaciones).
     assertThat(ServiceCategory.ALL_IDS_INCLUDING_OTRO).containsExactlyInAnyOrder(
         "plomeria", "electricidad", "cerrajeria", "barometrica", "jardineria",
-        "aires_acondicionados", "reparaciones", "pasteleria", "decoracion_fiestas",
+        "aires_acondicionados", "garrafa", "reparaciones", "pasteleria", "decoracion_fiestas",
         "mandados", "otro");
   }
 
