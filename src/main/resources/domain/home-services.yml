@@ -304,12 +304,13 @@ categories:
       ["mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras",
        "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab",
        "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite",
-       "hacer un trámite", "pagar una factura"]
+       "hacer un trámite", "pagar una factura",
+       "garrafa", "supergas", "cambio de garrafa", "cambiar la garrafa", "garrafa de gas"]
     priceMin: 200
     priceMax: 500
     intakeHint: "qué mandados son (súper, farmacia, trámite, pago), para cuándo, y aclarar que lo comprado se paga contra entrega con el ticket — la tarifa del mandadero va aparte"
-    classifierDescription: "compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo. NO es comprar un producto para instalarlo (eso va en su rubro: \"comprar un split\" es aires_acondicionados)."
-    coverageNote: "compras del súper, farmacia, feria, pagos en Abitab/Redpagos, correo — por encargo"
+    classifierDescription: "compras y tramites POR ENCARGO — que alguien vaya al supermercado, la farmacia, la feria o el correo por el cliente, pague una factura en Abitab/Redpagos, retire o entregue algo, o cambie/intercambie la garrafa de supergas. NO es comprar un producto para instalarlo (eso va en su rubro: \"comprar un split\" es aires_acondicionados)."
+    coverageNote: "compras del súper, farmacia, feria, pagos en Abitab/Redpagos, correo, cambio de garrafa — por encargo"
     promptNotes: |-
       Si el pedido es de mandados: además de zona y urgencia, pedile natural qué mandados son y para
       cuándo, e invitalo a pasar la lista acá mismo en el chat — escrita o con una foto de la lista de

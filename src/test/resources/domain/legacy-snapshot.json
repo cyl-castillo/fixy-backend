@@ -157,7 +157,7 @@
     "id" : "mandados",
     "label" : "mandados y trámites",
     "mvp" : true,
-    "keywords" : [ "mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras", "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab", "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite", "hacer un trámite", "pagar una factura" ],
+    "keywords" : [ "mandado", "mandados", "mandadero", "hacer la compra", "hacer las compras", "compras del super", "compra del super", "supermercado", "farmacia", "feria", "abitab", "redpagos", "correo", "encargo", "un tramite", "un trámite", "hacer un tramite", "hacer un trámite", "pagar una factura", "garrafa", "supergas", "cambio de garrafa", "cambiar la garrafa", "garrafa de gas" ],
     "priceMin" : 200,
     "priceMax" : 500,
     "priceRangeLabel" : "$200–500",
