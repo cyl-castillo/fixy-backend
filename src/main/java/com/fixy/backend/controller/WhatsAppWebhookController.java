@@ -38,7 +38,9 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Webhook que recibe eventos de WhatsApp Cloud API:
  *  - GET: verificación inicial (hub.mode=subscribe + hub.verify_token + hub.challenge).
- *  - POST: notificaciones de mensajes entrantes y estados de envío.
+ *  - POST: notificaciones de mensajes entrantes (messages[]) y estados de
+ *    envío de nuestros mensajes (statuses[]: sent/delivered/read/failed —
+ *    ver handleStatus).
  *
  * Cuando llega un mensaje del proveedor:
  *  - "SI" / "ACEPTO" / botón quick reply id "SI" → marca lead asignado +
@@ -156,11 +158,96 @@ public class WhatsAppWebhookController {
   }
 
   private void processChange(JsonNode value) {
+    // statuses[]: resultado de NUESTROS envíos (sent/delivered/read/failed).
+    // Se procesan primero y aislados: un status roto nunca debe tirar el
+    // procesamiento de messages[] que venga en el mismo payload.
+    JsonNode statuses = value.path("statuses");
+    if (statuses.isArray()) {
+      for (JsonNode status : statuses) {
+        try {
+          handleStatus(status);
+        } catch (Exception ex) {
+          log.warn("whatsapp status process failed id={}: {}", status.path("id").asText(""), ex.getMessage());
+        }
+      }
+    }
     JsonNode messages = value.path("messages");
     if (!messages.isArray() || messages.isEmpty()) return;
     for (JsonNode msg : messages) {
       handleMessage(msg);
     }
+  }
+
+  /**
+   * Un elemento de {@code statuses[]} (Cloud API "Webhooks: statuses"):
+   * {@code id} (wamid del mensaje que mandamos), {@code status}
+   * (sent|delivered|read|failed), {@code timestamp}, {@code recipient_id} y,
+   * en failed, {@code errors[] {code, title, message, error_data.details}}.
+   *
+   * Siempre se loguea (INFO; failed en WARN con el detalle del error). Si el
+   * wamid está asociado a un lead (lo guarda el evento WHATSAPP_SENT al
+   * enviar la plantilla al técnico), un failed deja además el evento
+   * WHATSAPP_DELIVERY_FAILED en la timeline — idempotente por wamid, porque
+   * Meta reintenta el webhook si no le respondimos 200 a tiempo.
+   *
+   * Incidente que lo motivó (2026-10-08): la plantilla provider_lead_offer
+   * al técnico "Carlos" salió "OK id=wamid..." y nunca llegó al celular; al
+   * descartar statuses[] no había manera de ver el porqué.
+   *
+   * No notifica a nadie (solo log + timeline), así que el guard [smoke] de
+   * los avisos no aplica acá: el diagnóstico de entrega sirve igual para
+   * tráfico de prueba.
+   */
+  private void handleStatus(JsonNode status) {
+    String wamid = status.path("id").asText("");
+    String state = status.path("status").asText("");
+    String recipient = status.path("recipient_id").asText("");
+    String timestamp = status.path("timestamp").asText("");
+    if (wamid.isBlank() && state.isBlank()) return;
+
+    if (!"failed".equals(state)) {
+      log.info("whatsapp status id={} status={} recipient={} ts={}", wamid, state, recipient, timestamp);
+      return;
+    }
+
+    StringBuilder errorSummary = new StringBuilder();
+    JsonNode errors = status.path("errors");
+    if (errors.isArray()) {
+      for (JsonNode err : errors) {
+        String code = err.path("code").asText("");
+        String title = err.path("title").asText("");
+        String message = err.path("message").asText("");
+        String details = err.path("error_data").path("details").asText("");
+        log.warn("whatsapp status FAILED id={} recipient={} ts={} code={} title={} message={} details={}",
+            wamid, recipient, timestamp, code, title, message, details);
+        if (!errorSummary.isEmpty()) errorSummary.append("; ");
+        errorSummary.append(code);
+        if (!title.isBlank()) errorSummary.append(' ').append(title);
+        if (!details.isBlank() && !details.equalsIgnoreCase(title) && !details.equalsIgnoreCase(message)) {
+          errorSummary.append(" (").append(details).append(')');
+        } else if (!message.isBlank() && !message.equalsIgnoreCase(title)) {
+          errorSummary.append(" (").append(message).append(')');
+        }
+      }
+    }
+    if (errorSummary.isEmpty()) {
+      log.warn("whatsapp status FAILED id={} recipient={} ts={} sin errors[]", wamid, recipient, timestamp);
+      errorSummary.append("sin detalle de error");
+    }
+
+    Lead lead = leadTimelineService.findLeadByWhatsAppMessageId(wamid).orElse(null);
+    if (lead == null) {
+      log.info("whatsapp status FAILED id={} sin lead asociado (no hay evento WHATSAPP_SENT con ese wamid)", wamid);
+      return;
+    }
+    String marker = "(wamid=" + wamid + ")";
+    if (leadTimelineService.hasEventMentioning(LeadTimelineService.WHATSAPP_DELIVERY_FAILED, marker)) {
+      return;
+    }
+    leadTimelineService.appendEvent(lead, LeadTimelineService.WHATSAPP_DELIVERY_FAILED, "system",
+        truncate("WhatsApp a %s no entregado: %s %s".formatted(recipient, errorSummary, marker), 3900));
+    log.warn("whatsapp status FAILED id={} asociado al lead {}: evento WHATSAPP_DELIVERY_FAILED registrado",
+        wamid, lead.getId());
   }
 
   private void handleMessage(JsonNode msg) {

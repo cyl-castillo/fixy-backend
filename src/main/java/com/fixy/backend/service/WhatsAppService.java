@@ -86,14 +86,26 @@ public class WhatsAppService {
    * responde error y hay que usar sendTemplate.
    */
   public boolean sendText(String toRaw, String text) {
+    return sendTextReturningId(toRaw, text) != null;
+  }
+
+  /**
+   * Igual que {@link #sendText}, pero devuelve el wamid ({@code messages[0].id}
+   * de la respuesta de Meta) o {@code null} si no se envió. Ese id es la
+   * única clave con la que Meta reporta después, por el webhook
+   * ({@code statuses[]}), si el mensaje llegó o falló — quien lo necesite
+   * para diagnosticar entregas lo persiste (ver
+   * {@code LeadTimelineService.WHATSAPP_SENT}).
+   */
+  public String sendTextReturningId(String toRaw, String text) {
     if (!enabled) {
       log.warn("whatsapp disabled, skip sendText to {}", toRaw);
-      return false;
+      return null;
     }
     String to = normalize(toRaw);
     if (to == null) {
       log.warn("whatsapp sendText: invalid number {}", toRaw);
-      return false;
+      return null;
     }
     Map<String, Object> body = Map.of(
         "messaging_product", "whatsapp",
@@ -113,14 +125,25 @@ public class WhatsAppService {
    * @param parameters   valores para los placeholders {{1}}, {{2}}, ...
    */
   public boolean sendTemplate(String toRaw, String templateName, String languageCode, List<String> parameters) {
+    return sendTemplateReturningId(toRaw, templateName, languageCode, parameters) != null;
+  }
+
+  /**
+   * Igual que {@link #sendTemplate}, pero devuelve el wamid del mensaje
+   * aceptado por Meta o {@code null} si no se envió. Motivación (2026-10-08):
+   * la plantilla {@code provider_lead_offer} al técnico salió "OK id=wamid..."
+   * en el log y nunca llegó al celular; sin el wamid guardado no había forma
+   * de cruzar el {@code statuses[]} del webhook con el lead afectado.
+   */
+  public String sendTemplateReturningId(String toRaw, String templateName, String languageCode, List<String> parameters) {
     if (!enabled) {
       log.warn("whatsapp disabled, skip sendTemplate to {}", toRaw);
-      return false;
+      return null;
     }
     String to = normalize(toRaw);
     if (to == null) {
       log.warn("whatsapp sendTemplate: invalid number {}", toRaw);
-      return false;
+      return null;
     }
     List<Map<String, Object>> params = new ArrayList<>();
     if (parameters != null) {
@@ -189,7 +212,7 @@ public class WhatsAppService {
         "type", "interactive",
         "interactive", interactive
     );
-    return post(body, "sendInteractiveList to=" + to);
+    return post(body, "sendInteractiveList to=" + to) != null;
   }
 
   /** Path del endpoint de mensajes. Meta: /{apiVersion}/{phoneNumberId}/messages.
@@ -210,7 +233,11 @@ public class WhatsAppService {
     return new String[] { HttpHeaders.AUTHORIZATION, "Bearer " + accessToken };
   }
 
-  private boolean post(Map<String, Object> body, String contextDescription) {
+  /** POST al endpoint de mensajes. Devuelve el wamid ({@code messages[0].id})
+   * si Meta aceptó el mensaje, o {@code null} si falló o la respuesta no trajo
+   * mensaje. "Aceptado" no es "entregado": la entrega real la informa Meta
+   * después por el webhook, bajo {@code statuses[]} con este mismo id. */
+  private String post(Map<String, Object> body, String contextDescription) {
     try {
       String[] auth = authHeader();
       String response = client.post()
@@ -223,20 +250,24 @@ public class WhatsAppService {
           .block();
       if (response == null) {
         log.warn("whatsapp {}: empty response", contextDescription);
-        return false;
+        return null;
       }
       JsonNode root = objectMapper.readTree(response);
       JsonNode messages = root.path("messages");
       if (messages.isArray() && messages.size() > 0) {
-        log.info("whatsapp {} OK id={}", contextDescription, messages.get(0).path("id").asText());
-        return true;
+        String wamid = messages.get(0).path("id").asText("");
+        log.info("whatsapp {} OK id={}", contextDescription, wamid);
+        // Meta siempre devuelve id; si por lo que sea viniera vacío, igual
+        // reportamos "enviado" con un marcador para no romper a los callers
+        // booleanos (sendText/sendTemplate: != null).
+        return wamid.isBlank() ? "wamid.unknown" : wamid;
       }
       log.warn("whatsapp {} no-message in response: {}", contextDescription,
           response.length() > 300 ? response.substring(0, 300) : response);
-      return false;
+      return null;
     } catch (Exception ex) {
       log.warn("whatsapp {} failed: {}", contextDescription, ex.getMessage());
-      return false;
+      return null;
     }
   }
 

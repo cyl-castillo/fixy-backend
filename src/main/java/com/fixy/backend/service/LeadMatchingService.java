@@ -332,14 +332,23 @@ public class LeadMatchingService {
       String to = providerEntity.getWhatsappNumber();
       if (to == null || to.isBlank()) to = providerEntity.getPhone();
       if (to != null && !to.isBlank()) {
-        boolean sent = whatsappService.sendTemplate(
+        String wamid = whatsappService.sendTemplateReturningId(
             to,
             whatsappTemplateName,
             whatsappTemplateLang,
             providerTemplateParams(lead)
         );
-        if (!sent) {
+        if (wamid == null) {
           log.warn("autoMatch: WhatsApp template send failed para lead {} provider {}", lead.getId(), top.id());
+        } else {
+          // Guardamos el wamid en la timeline: es lo único que permite cruzar
+          // el "failed" que Meta reporta después por el webhook con ESTE lead
+          // (ver WhatsAppWebhookController, statuses[]). "Aceptado por Meta"
+          // no es "llegó al celular" (incidente 2026-10-08).
+          caseService.appendEvent(lead, LeadTimelineService.WHATSAPP_SENT, "system",
+              LeadTimelineService.whatsAppSentMessage(
+                  "Plantilla %s enviada por WhatsApp a %s (%s)".formatted(whatsappTemplateName, top.name(), to),
+                  wamid));
         }
       }
     }

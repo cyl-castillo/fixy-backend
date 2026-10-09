@@ -4,6 +4,7 @@ import com.fixy.backend.model.LeadEvent;
 import java.time.OffsetDateTime;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface LeadEventRepository extends JpaRepository<LeadEvent, Long> {
@@ -26,4 +27,11 @@ public interface LeadEventRepository extends JpaRepository<LeadEvent, Long> {
    * servicio por tipo. */
   List<LeadEvent> findByCreatedAtGreaterThanEqualAndCreatedAtLessThanAndTypeIn(
       OffsetDateTime from, OffsetDateTime to, Collection<String> types);
+
+  /** Evento más reciente de un tipo cuyo mensaje contiene el fragmento dado.
+   * Uso: cruzar el wamid que Meta reporta en {@code statuses[]} del webhook
+   * con el evento WHATSAPP_SENT que lo guardó al enviar (ver
+   * LeadTimelineService). El wamid es largo y único, así que el
+   * {@code Containing} no ambigua. */
+  Optional<LeadEvent> findFirstByTypeAndMessageContainingOrderByCreatedAtDesc(String type, String fragment);
 }
