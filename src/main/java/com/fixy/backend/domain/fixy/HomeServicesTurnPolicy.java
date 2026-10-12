@@ -274,6 +274,16 @@ public class HomeServicesTurnPolicy implements TurnPolicy {
   }
 
   @Override
+  public boolean claimsHandling(String reply) {
+    return HomeServicesPolicy.claimsHandling(reply);
+  }
+
+  @Override
+  public String askCategoryReply(String discardedCategoryId) {
+    return HomeServicesPolicy.askCategoryReply(discardedCategoryId);
+  }
+
+  @Override
   public boolean hasProviderOnTheLine(Lead lead) {
     return HomeServicesPolicy.hasProviderOnTheLine(lead);
   }

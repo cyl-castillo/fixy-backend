@@ -86,6 +86,15 @@ public interface TurnPolicy {
   /** true si la respuesta afirma que todavía se busca proveedor (falso si el pedido ya tiene uno encima). */
   boolean claimsStillSearching(String reply);
 
+  /** true si la respuesta afirma que Fixy YA está gestionando/buscando/contactando ("lo gestiono ahora",
+   * "te aviso en cuanto alguien tome el pedido"). Es falso cuando el pedido no es matcheable: ver
+   * {@code LeadAgentService}, regla "promesa sin categoría" (lead #276). */
+  boolean claimsHandling(String reply);
+
+  /** Pregunta determinista de rubro (categorías MVP del catálogo, en su orden). Si
+   * {@code discardedCategoryId} es una categoría que el LLM extrajo y el guard descartó, la propone primero. */
+  String askCategoryReply(String discardedCategoryId);
+
   /** true si el pedido ya tiene un proveedor concreto encima (contactado o asignado). */
   boolean hasProviderOnTheLine(Lead lead);
 

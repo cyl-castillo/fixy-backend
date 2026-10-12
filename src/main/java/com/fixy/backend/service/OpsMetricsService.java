@@ -347,7 +347,7 @@ public class OpsMetricsService {
   private static final Set<String> FALLBACK_OUTCOMES = Set.of(
       AgentTurn.OUTCOME_LLM_EMPTY, AgentTurn.OUTCOME_LLM_NO_REPLY, AgentTurn.OUTCOME_FALLBACK_REPEAT,
       AgentTurn.OUTCOME_FALLBACK_SEARCHING_CLAIM, AgentTurn.OUTCOME_FALLBACK_ZONE_QUESTION,
-      AgentTurn.OUTCOME_ERROR_FALLBACK);
+      AgentTurn.OUTCOME_FALLBACK_NO_CATEGORY, AgentTurn.OUTCOME_ERROR_FALLBACK);
 
   /**
    * Core Fase 3 (pieza 4): resumen de los turnos del agente en la ventana. Solo {@code kind = TURN}

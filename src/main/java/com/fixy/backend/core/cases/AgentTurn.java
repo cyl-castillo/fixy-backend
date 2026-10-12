@@ -44,6 +44,8 @@ public class AgentTurn {
   public static final String OUTCOME_FALLBACK_REPEAT = "FALLBACK_REPEAT";
   public static final String OUTCOME_FALLBACK_SEARCHING_CLAIM = "FALLBACK_SEARCHING_CLAIM";
   public static final String OUTCOME_FALLBACK_ZONE_QUESTION = "FALLBACK_ZONE_QUESTION";
+  /** El LLM prometió gestionar/buscar con el pedido SIN categoría matcheable: se posteó la pregunta de rubro. */
+  public static final String OUTCOME_FALLBACK_NO_CATEGORY = "FALLBACK_NO_CATEGORY";
   public static final String OUTCOME_ERROR_FALLBACK = "ERROR_FALLBACK";
   /** INTAKE: hubo respuesta del LLM pero no se pudo parsear. */
   public static final String OUTCOME_LLM_UNPARSEABLE = "LLM_UNPARSEABLE";
@@ -56,6 +58,7 @@ public class AgentTurn {
   public static final String GUARD_CONTACT_PHONE_ASK_APPENDED = "contact_phone_ask_appended";
   public static final String GUARD_SHORT_ANSWER_RECORDED = "short_answer_recorded";
   public static final String GUARD_HEURISTIC_ESCALATED = "heuristic_escalated";
+  public static final String GUARD_PROMISE_WITHOUT_CATEGORY = "promise_without_category";
 
   @Id
   @GeneratedValue(strategy = GenerationType.IDENTITY)

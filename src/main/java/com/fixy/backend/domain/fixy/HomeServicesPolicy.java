@@ -196,7 +196,13 @@ public final class HomeServicesPolicy {
   public static String detectCategoryFromMessages(List<String> messages) {
     String category = null;
     for (String message : messages) {
+      // Sin acentos como segundo intento: el catálogo trae keywords sin tilde ("barometr") y
+      // detectCategory no normaliza, así que "barométrica" (la etiqueta que la pregunta de rubro
+      // le muestra al vecino) no se clasificaba. Primero el texto tal cual, para no perder las
+      // keywords que sí llevan tilde ("cámara séptica").
       String detected = DomainCatalog.get().detectCategory(message)
+          .or(() -> message == null ? java.util.Optional.empty()
+              : DomainCatalog.get().detectCategory(stripAccents(message)))
           .map(CategoryDef::id)
           .orElse(null);
       if (detected == null) {
@@ -263,6 +269,59 @@ public final class HomeServicesPolicy {
     }
     String normalized = stripAccents(reply.toLowerCase(Locale.ROOT));
     return STILL_SEARCHING_PHRASES.stream().anyMatch(normalized::contains);
+  }
+
+  /**
+   * Frases con las que una respuesta afirma que Fixy YA está gestionando el pedido (lead #276:
+   * "Perfecto, lo gestiono ahora y te aviso en cuanto alguien tome el pedido" con el pedido sin
+   * categoría, o sea sin nadie buscando). Sobre texto sin acentos y en minúscula. Más amplio que
+   * {@link #claimsStillSearching}: acá también cuentan "gestiono" y "contactando".
+   */
+  private static final java.util.regex.Pattern CLAIMS_HANDLING = java.util.regex.Pattern.compile(
+      // "lo gestiono", "lo estoy gestionando", "ya lo estamos buscando"
+      "\\b(lo|la|los|las)\\s+(ya\\s+)?(estoy\\s+|estamos\\s+)?(gestion(o|amos|ando)|buscando)\\b"
+          // "lo busco ahora"
+          + "|\\b(lo|la)\\s+busco\\s+(ahora|ya)\\b"
+          // "gestiono ahora", "gestionamos ya"
+          + "|\\bgestion(o|amos)\\s+(ahora|ya)\\b"
+          // "estoy buscando", "sigo buscando", "estamos contactando", "seguimos gestionando"
+          + "|\\b(estoy|estamos|sigo|seguimos)\\s+(ya\\s+)?(buscando|contactando|gestionando)\\b"
+          // "voy a buscar", "vamos a contactar"
+          + "|\\b(voy|vamos)\\s+a\\s+(buscar|contactar|gestionar)\\b"
+          // "te aviso apenas/en cuanto alguien tome el pedido", "te avisamos cuando un proveedor acepte"
+          + "|\\bte\\s+avis(o|amos)\\s+(apenas|en\\s+cuanto|cuando|tan\\s+pronto)\\b"
+          + ".*\\b(alguien|proveedor|tecnico|profesional|tome|acepte|confirme|responda|encuentre|consiga)\\b");
+
+  /** true si la respuesta afirma que Fixy ya gestiona/busca/contacta (insensible a acentos y mayúsculas). */
+  public static boolean claimsHandling(String reply) {
+    if (reply == null || reply.isBlank()) {
+      return false;
+    }
+    return CLAIMS_HANDLING.matcher(stripAccents(reply.toLowerCase(Locale.ROOT))).find();
+  }
+
+  /**
+   * Pregunta de rubro para el pedido que no tiene categoría matcheable. La lista sale de
+   * {@link DomainCatalog#mvpLabels} (orden del catálogo, fuente única). Con una categoría que el
+   * LLM extrajo y el guard descartó (el vecino no la nombró) se la propone primero y se le pide que
+   * confirme con la palabra: así la respuesta entra por {@code detectCategoryFromMessages} y el
+   * guard anti-alucinación no se toca. La etiqueta se usa como palabra a responder; si el
+   * catálogo cambia una etiqueta que su clasificador no reconoce, {@code HomeServicesPolicyAskCategoryTest}
+   * lo detecta.
+   */
+  public static String askCategoryReply(String discardedCategoryId) {
+    List<String> labels = DomainCatalog.get().mvpLabels();
+    String options = labels.size() < 2
+        ? String.join(", ", labels)
+        : String.join(", ", labels.subList(0, labels.size() - 1)) + " o " + labels.get(labels.size() - 1);
+    java.util.Optional<CategoryDef> proposed = DomainCatalog.get().categoryById(discardedCategoryId)
+        .filter(c -> c.mvp());
+    if (proposed.isPresent()) {
+      String label = proposed.get().label();
+      return "Me parece que es *" + label + "*; si es así, respondé «" + label
+          + "». Si no, decime si es " + options + ".";
+    }
+    return "Para buscarte a alguien necesito saber el rubro. ¿Es " + options + "?";
   }
 
   /**

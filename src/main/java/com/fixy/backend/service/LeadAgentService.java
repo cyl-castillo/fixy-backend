@@ -355,6 +355,9 @@ public class LeadAgentService {
         return;
       }
       Map<String, String> extracted = result.extracted();
+      // Categoría que el LLM extrajo y el guard de abajo tiró (el vecino no la nombró): no se fija,
+      // pero la regla "promesa sin categoría" la propone en la pregunta de rubro (lead #276).
+      String discardedCategory = null;
       // Guard determinista contra zonas alucinadas: el 8B extrajo dos veces
       // en prod (leads #111 y #112) una zona que solo aparecía en las
       // preguntas del PROPIO agente, aún con la regla dura en el prompt.
@@ -376,6 +379,7 @@ public class LeadAgentService {
       // texto del CLIENTE.
       if (extracted != null && extracted.get("category") != null
           && !categoryMentionedByCustomer(leadId, extracted.get("category"))) {
+        discardedCategory = extracted.get("category");
         extracted = new java.util.HashMap<>(extracted);
         extracted.remove("category");
         trace.guards.add(AgentTurn.GUARD_CATEGORY_DISCARDED);
@@ -414,6 +418,33 @@ public class LeadAgentService {
         return;
       }
       String reply = result.reply();
+      // Guard determinista de PROMESA SIN CATEGORÍA (lead #276, mismo patrón que la tercera promesa
+      // vacía del 03/09): el pedido termina el turno sin categoría matcheable —vacía, "otro" o no
+      // MVP— y el LLM igual contesta "lo gestiono ahora, te aviso cuando alguien tome el pedido".
+      // Sin categoría el matching no corre: nadie está buscando, la promesa es falsa. Se reemplaza
+      // por la pregunta determinista de rubro (con la categoría descartada propuesta primero). Si
+      // esa pregunta ya se hizo y el vecino no nombró rubro, no se repite: se escala igual que el
+      // pedido sin clasificar (escalateUnclassifiedRequest: dice qué cubre Fixy y avisa al equipo,
+      // o silencio si ya se hizo). Con proveedor ya encima no aplica: eso lo cubre claimsStillSearching.
+      boolean noCategoryPromise = false;
+      if (!turnPolicy.hasProviderOnTheLine(lead) && turnPolicy.claimsHandling(reply)
+          && !isMatchableCategory(extracted == null ? null : extracted.get("category"))
+          && !isMatchableCategory(lead.getDetectedCategory())) {
+        trace.guards.add(AgentTurn.GUARD_PROMISE_WITHOUT_CATEGORY);
+        trace.outcome = AgentTurn.OUTCOME_FALLBACK_NO_CATEGORY;
+        String question = turnPolicy.askCategoryReply(discardedCategory);
+        log.info("LLM promete gestionar con el pedido sin categoría en lead {} (descartada={}): pregunta de rubro",
+            leadId, discardedCategory);
+        if (isStuckRepeatingItself(leadId, question)) {
+          escalateUnclassifiedRequest(leadId, lead, trace);
+          if (extracted != null && !extracted.isEmpty()) {
+            applyExtractedFields(leadId, extracted);
+          }
+          return;
+        }
+        reply = question;
+        noCategoryPromise = true;
+      }
       // Pedido de WhatsApp (mejora diaria 2026-07-28, ver CONTACT_PHONE_ASK):
       // con categoría y zona resueltas y sin teléfono, se anexa UNA vez.
       boolean zoneKnownForReply = (lead.getLocation() != null && !lead.getLocation().isBlank())
@@ -428,7 +459,8 @@ public class LeadAgentService {
       boolean escalates = result.action() != null && result.action().isEscalate();
       // Escalar gana sobre LLM_OK aunque la respuesta también se postee; si algo de acá para abajo
       // lanza, el catch de abajo pisa esto con ERROR_FALLBACK.
-      trace.outcome = escalates ? AgentTurn.OUTCOME_LLM_ESCALATED
+      trace.outcome = noCategoryPromise ? AgentTurn.OUTCOME_FALLBACK_NO_CATEGORY
+          : escalates ? AgentTurn.OUTCOME_LLM_ESCALATED
           : result.rawPosted() ? AgentTurn.OUTCOME_LLM_RAW_POSTED
           : AgentTurn.OUTCOME_LLM_OK;
       if (extracted != null && !extracted.isEmpty()) {
@@ -905,6 +937,13 @@ public class LeadAgentService {
    * de mensajes del lead). */
   boolean zoneMentionedByCustomer(Long leadId, String zone) {
     return turnPolicy.isZoneMentionedByCustomer(leadId, zone);
+  }
+
+  /** true si la categoría participa en matching real (no vacía, no "otro", MVP): mismo criterio que
+   * {@code LeadMatchingService.hasMatchingRequirements}, sin la parte de zona. */
+  private boolean isMatchableCategory(String category) {
+    String cat = category == null ? "" : category.toLowerCase(java.util.Locale.ROOT).trim();
+    return !cat.isBlank() && !"otro".equals(cat) && turnPolicy.isMvpCategory(cat);
   }
 
   /** Una categoría extraída por el LLM solo se acepta si el CLIENTE dio algún
