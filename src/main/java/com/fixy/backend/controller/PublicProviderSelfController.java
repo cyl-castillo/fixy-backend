@@ -340,7 +340,7 @@ public class PublicProviderSelfController {
     Provider provider = selfService.authenticate(providerId, token);
     selfService.requireAssignedLead(provider, leadId);
     // El proveedor manda mensaje vía LeadMessageService.postFromOps con sender=provider.
-    LeadMessageResponse posted = messageService.postFromOps(leadId, "provider", request.text());
+    LeadMessageResponse posted = messageService.postFromProvider(leadId, request.text());
     // Caso lead #200: si el cliente sigue sin WhatsApp, este es EL momento
     // de insistir una única vez — hay una respuesta real esperándolo.
     leadAgentService.afterProviderMessage(leadId);

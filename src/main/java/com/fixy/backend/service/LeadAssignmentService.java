@@ -27,15 +27,18 @@ public class LeadAssignmentService {
   private final LeadRepository leadRepository;
   private final LeadTimelineService timelineService;
   private final LeadMessageService messageService;
+  private final CustomerWhatsAppNotifier customerWhatsAppNotifier;
 
   public LeadAssignmentService(
       LeadRepository leadRepository,
       LeadTimelineService timelineService,
-      LeadMessageService messageService
+      LeadMessageService messageService,
+      CustomerWhatsAppNotifier customerWhatsAppNotifier
   ) {
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
     this.messageService = messageService;
+    this.customerWhatsAppNotifier = customerWhatsAppNotifier;
   }
 
   /**
@@ -79,6 +82,10 @@ public class LeadAssignmentService {
     // proveedor la mandó, mismo copy que la otra ruta de aceptación
     // (ProviderSelfService.updateLeadStatus ASSIGNED desde PROVIDER_CONTACTED).
     messageService.postFromOps(lead.getId(), "fixy", acceptedMessage(provider, lead.getArrivalWindow()));
+    // El vecino de un pedido web que dejó teléfono se entera por WhatsApp
+    // (plantilla; lead #280). No-op para leads de canal whatsapp o sin teléfono.
+    customerWhatsAppNotifier.notify(lead, provider.getName(),
+        CustomerWhatsAppNotifier.acceptedNews(lead.getArrivalWindow()));
     return lead;
   }
 

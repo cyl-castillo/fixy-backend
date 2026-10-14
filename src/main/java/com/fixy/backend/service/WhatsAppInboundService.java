@@ -5,10 +5,15 @@ import com.fixy.backend.dto.PublicChatStartRequest;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.repository.LeadRepository;
+import java.text.Normalizer;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Punto de entrada del flujo CLIENTE de WhatsApp: mensajes de un numero
@@ -24,6 +29,12 @@ import org.springframework.stereotype.Service;
  * terminal (COMPLETED o CANCELLED). Si no hay ninguno, se crea un lead nuevo.
  * Es deliberadamente simple — un cliente con un pedido viejo ya completado
  * que escribe de nuevo abre un lead nuevo, no reabre el historico.
+ *
+ * Excepción (2026-10-13, lead #280): un vecino con un pedido WEB abierto cuyo
+ * teléfono coincide (comparado normalizado: el lead guarda "093640983", Meta
+ * trae "59893640983") que le escribe a Fixy —típicamente respondiendo la
+ * plantilla de {@link CustomerWhatsAppNotifier}— continúa ESE pedido, y el
+ * lead pasa a canal whatsapp para que el texto libre vuelva a salir por acá.
  */
 @Service
 public class WhatsAppInboundService {
@@ -34,17 +45,29 @@ public class WhatsAppInboundService {
   private final LeadService leadService;
   private final LeadMessageService leadMessageService;
   private final LeadAgentService leadAgentService;
+  private final LeadTimelineService timelineService;
+  private final LeadScheduleService leadScheduleService;
+  private final CustomerMessageRouter customerMessageRouter;
+  private final WhatsAppService whatsAppService;
 
   public WhatsAppInboundService(
       LeadRepository leadRepository,
       LeadService leadService,
       LeadMessageService leadMessageService,
-      LeadAgentService leadAgentService
+      LeadAgentService leadAgentService,
+      LeadTimelineService timelineService,
+      LeadScheduleService leadScheduleService,
+      CustomerMessageRouter customerMessageRouter,
+      WhatsAppService whatsAppService
   ) {
     this.leadRepository = leadRepository;
     this.leadService = leadService;
     this.leadMessageService = leadMessageService;
     this.leadAgentService = leadAgentService;
+    this.timelineService = timelineService;
+    this.leadScheduleService = leadScheduleService;
+    this.customerMessageRouter = customerMessageRouter;
+    this.whatsAppService = whatsAppService;
   }
 
   /**
@@ -58,9 +81,13 @@ public class WhatsAppInboundService {
     if (normalized == null || text == null || text.isBlank()) {
       return;
     }
-    Lead lead = findActiveLead(normalized);
+    Lead lead = findActiveLeadForCustomerMessage(normalized);
     if (lead == null) {
       startNewConversation(normalized, text);
+      return;
+    }
+    switchToWhatsAppChannel(lead, normalized);
+    if (answerPendingScheduleProposal(lead, normalized, text)) {
       return;
     }
     continueConversation(lead, text);
@@ -117,6 +144,110 @@ public class WhatsAppInboundService {
     return null;
   }
 
+  /** Pedidos web abiertos más viejos que esto no se "reviven" por un mensaje
+   * de WhatsApp: un lead trabado en NEW hace meses no debe secuestrar una
+   * conversación nueva. */
+  private static final java.time.Duration WEB_LEAD_MATCH_WINDOW = java.time.Duration.ofDays(30);
+  private static final List<LeadStatus> TERMINAL_STATUSES = List.of(LeadStatus.COMPLETED, LeadStatus.CANCELLED);
+
+  /**
+   * Lead al que pertenece un mensaje entrante de un vecino: el más reciente
+   * entre el lead de canal whatsapp (match exacto, como siempre) y cualquier
+   * lead abierto de los últimos 30 días cuyo teléfono, normalizado igual que
+   * {@link WhatsAppService#normalize}, coincide. Normalizar en la búsqueda y no
+   * en los datos: los teléfonos guardados no se tocan.
+   */
+  private Lead findActiveLeadForCustomerMessage(String normalizedPhone) {
+    Lead best = findActiveLead(normalizedPhone);
+    List<Lead> open = leadRepository.findOpenWithPhoneSince(
+        TERMINAL_STATUSES, OffsetDateTime.now().minus(WEB_LEAD_MATCH_WINDOW));
+    for (Lead candidate : open) {
+      if (normalizedPhone.equals(WhatsAppService.normalize(candidate.getPhone()))) {
+        if (best == null || candidate.getId() > best.getId()) {
+          best = candidate;
+        }
+        break; // viene ordenado del más nuevo al más viejo
+      }
+    }
+    return best;
+  }
+
+  /**
+   * El vecino de un pedido web nos escribió por WhatsApp: desde ahora el lead
+   * es de canal whatsapp, así {@code LeadMessageService.postFromAgent} y
+   * {@code postFromProvider} le reenvían el texto libre dentro de la ventana de
+   * 24 h y {@link CustomerWhatsAppNotifier} deja de mandarle plantillas.
+   */
+  private void switchToWhatsAppChannel(Lead lead, String normalizedPhone) {
+    if ("whatsapp".equals(lead.getChannel())) {
+      return;
+    }
+    String previous = lead.getChannel() == null || lead.getChannel().isBlank() ? "sin canal" : lead.getChannel();
+    lead.setChannel("whatsapp");
+    leadRepository.save(lead);
+    timelineService.appendEvent(lead, CHANNEL_SWITCHED_EVENT, "system",
+        "El vecino escribió por WhatsApp (" + normalizedPhone + "): el pedido pasa de " + previous
+            + " a whatsapp y sigue por ahí.");
+    log.info("whatsapp: lead #{} pasa de canal {} a whatsapp", lead.getId(), previous);
+  }
+
+  public static final String CHANNEL_SWITCHED_EVENT = "CHANNEL_SWITCHED_TO_WHATSAPP";
+
+  private static final Set<String> YES_ANSWERS = Set.of(
+      "si", "sii", "siii", "dale", "ok", "okey", "oka", "listo", "confirmo", "confirmado",
+      "de acuerdo", "perfecto", "esta bien", "si dale", "si confirmo", "si gracias", "si ok", "si perfecto");
+  private static final Set<String> NO_ANSWERS = Set.of(
+      "no", "noo", "no puedo", "no me sirve", "no me queda", "no me viene", "no gracias",
+      "no me queda bien", "no me sirve ese horario", "no puedo ese dia");
+
+  /** true = acepta, false = rechaza, null = no es un SÍ/NO claro. Compara el
+   * texto completo (sin acentos, minúsculas, sin puntuación ni emoji): "sí, pero
+   * a las 5" NO es un sí, es una contrapropuesta para el agente / el técnico. */
+  static Boolean parseScheduleAnswer(String text) {
+    if (text == null) return null;
+    String plain = Normalizer.normalize(text, Normalizer.Form.NFD)
+        .replaceAll("\\p{M}", "")
+        .toLowerCase(java.util.Locale.ROOT)
+        .replaceAll("[^a-z0-9 ]", " ")
+        .replaceAll("\\s+", " ")
+        .trim();
+    if (YES_ANSWERS.contains(plain)) return Boolean.TRUE;
+    if (NO_ANSWERS.contains(plain)) return Boolean.FALSE;
+    return null;
+  }
+
+  /**
+   * Respuesta determinista a "Respondé SÍ o NO por acá": si el lead tiene una
+   * propuesta de horario pendiente y el mensaje es un SÍ/NO claro, va directo
+   * a {@link LeadScheduleService#respond} (el mismo camino que el botón del
+   * chat web) sin pasar por el agente, que no sabe de propuestas. Devuelve
+   * true si el mensaje quedó atendido.
+   */
+  private boolean answerPendingScheduleProposal(Lead lead, String from, String text) {
+    Boolean accept = parseScheduleAnswer(text);
+    if (accept == null || !leadScheduleService.hasPendingProposal(lead.getId())) {
+      return false;
+    }
+    try {
+      leadMessageService.postFromWhatsAppCustomer(lead.getId(), text);
+    } catch (ResponseStatusException ex) {
+      // anti-repetido / rate limit del chat: el SÍ/NO igual se procesa
+      log.info("whatsapp: sí/no del lead {} no se guardó en el chat: {}", lead.getId(), ex.getReason());
+    }
+    try {
+      Map<String, Object> result = leadScheduleService.respond(lead.getId(), accept);
+      String proposal = String.valueOf(result.get("proposal"));
+      whatsAppService.sendText(from, accept
+          ? "✅ Listo, quedó confirmado: " + proposal + ". Si necesitás algo más, escribime por acá."
+          : "Entendido, ya le aviso que ese horario no te queda bien. Pueden coordinar otro por acá.");
+    } catch (ResponseStatusException ex) {
+      // Carrera (respondida justo antes por el chat web): que lo vea el flujo normal.
+      log.info("whatsapp: la propuesta del lead {} ya no estaba pendiente: {}", lead.getId(), ex.getReason());
+      customerMessageRouter.route(lead.getId(), text);
+    }
+    return true;
+  }
+
   private void startNewConversation(String from, String firstMessage) {
     Lead lead = createBlankLead(from);
     if (lead == null) {
@@ -140,6 +271,8 @@ public class WhatsAppInboundService {
 
   private void continueConversation(Lead lead, String text) {
     leadMessageService.postFromWhatsAppCustomer(lead.getId(), text);
-    leadAgentService.respondToCustomerAsync(lead.getId());
+    // Mismo ruteo que el chat web: con proveedor ya asignado la conversación es
+    // humano-humano (relay al técnico); antes de eso, turno del agente.
+    customerMessageRouter.route(lead.getId(), text);
   }
 }

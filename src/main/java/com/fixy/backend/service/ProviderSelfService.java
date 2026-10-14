@@ -102,6 +102,7 @@ public class ProviderSelfService {
   private final CustomerPaymentService customerPaymentService;
   private final LeadClosingService leadClosingService;
   private final LeadMessageService leadMessageService;
+  private final CustomerWhatsAppNotifier customerWhatsAppNotifier;
   private final PushNotificationService pushNotificationService;
   private final ProviderCatalogService providerCatalogService;
   private final SearchDeadlineService searchDeadlineService;
@@ -130,6 +131,7 @@ public class ProviderSelfService {
       CustomerPaymentService customerPaymentService,
       LeadClosingService leadClosingService,
       LeadMessageService leadMessageService,
+      CustomerWhatsAppNotifier customerWhatsAppNotifier,
       PushNotificationService pushNotificationService,
       ProviderCatalogService providerCatalogService,
       SearchDeadlineService searchDeadlineService,
@@ -148,6 +150,7 @@ public class ProviderSelfService {
     this.customerPaymentService = customerPaymentService;
     this.leadClosingService = leadClosingService;
     this.leadMessageService = leadMessageService;
+    this.customerWhatsAppNotifier = customerWhatsAppNotifier;
     this.pushNotificationService = pushNotificationService;
     this.providerCatalogService = providerCatalogService;
     this.searchDeadlineService = searchDeadlineService;
@@ -335,6 +338,8 @@ public class ProviderSelfService {
             } catch (Exception ex) {
               // best-effort, como el resto de los push
             }
+            customerWhatsAppNotifier.notify(lead, provider.getName(),
+                CustomerWhatsAppNotifier.acceptedNews(lead.getArrivalWindow()));
           }
           if (before == LeadStatus.PROVIDER_CONTACTED) {
             // Tier 2 (contrato §A.2): cierra la oferta abierta del par como
@@ -696,6 +701,7 @@ public class ProviderSelfService {
     } catch (Exception ex) {
       // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
     }
+    customerWhatsAppNotifier.notify(lead, providerName, CustomerWhatsAppNotifier.onTheWayNews());
     return lead;
   }
 
@@ -740,6 +746,7 @@ public class ProviderSelfService {
     } catch (Exception ex) {
       // best-effort, nunca debe romper el flujo (mismo patrón que el resto de push)
     }
+    customerWhatsAppNotifier.notify(lead, providerName, CustomerWhatsAppNotifier.scheduleProposedNews(proposal));
     return lead;
   }
 

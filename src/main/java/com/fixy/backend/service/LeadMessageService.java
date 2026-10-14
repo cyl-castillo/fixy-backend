@@ -41,6 +41,7 @@ public class LeadMessageService {
   private final LeadTimelineService timelineService;
   private final WhatsAppService whatsappService;
   private final PushNotificationService pushNotificationService;
+  private final CustomerWhatsAppNotifier customerWhatsAppNotifier;
 
   private final int maxMessagesPerWindow;
   private final Duration messageWindow;
@@ -54,6 +55,7 @@ public class LeadMessageService {
       LeadTimelineService timelineService,
       WhatsAppService whatsappService,
       PushNotificationService pushNotificationService,
+      CustomerWhatsAppNotifier customerWhatsAppNotifier,
       @Value("${fixy.chat.max-messages-per-window:10}") int maxMessagesPerWindow,
       @Value("${fixy.chat.window-seconds:60}") long windowSeconds
   ) {
@@ -63,6 +65,7 @@ public class LeadMessageService {
     this.timelineService = timelineService;
     this.whatsappService = whatsappService;
     this.pushNotificationService = pushNotificationService;
+    this.customerWhatsAppNotifier = customerWhatsAppNotifier;
     this.maxMessagesPerWindow = maxMessagesPerWindow;
     this.messageWindow = Duration.ofSeconds(windowSeconds);
   }
@@ -306,6 +309,43 @@ public class LeadMessageService {
       notifyCustomerOfNews(lead, text);
     }
     return toResponse(saved, lead);
+  }
+
+  /**
+   * Texto libre del proveedor al cliente (panel o respuesta por WhatsApp del
+   * proveedor). Igual que {@code postFromOps(.., "provider", ..)} más el aviso
+   * al vecino por WhatsApp: si el lead es de canal whatsapp se le reenvía el
+   * texto (ventana de 24 h abierta por su último mensaje); si es un pedido
+   * web con teléfono, plantilla {@code customer_order_update} (lead #280: el
+   * técnico respondió y el vecino nunca lo vio). Es un método aparte y no un
+   * hook en postFromOps porque ProviderSelfService también postea con
+   * sender=provider los avisos de "va en camino" y de propuesta de horario,
+   * que ya notifican con su propia frase.
+   */
+  public LeadMessageResponse postFromProvider(Long leadId, String rawText) {
+    LeadMessageResponse posted = postFromOps(leadId, "provider", rawText, "all");
+    try {
+      Lead lead = leadRepository.findById(leadId).orElse(null);
+      if (lead == null) {
+        return posted;
+      }
+      String providerName = lead.getAssignedProvider();
+      if ((providerName == null || providerName.isBlank()) && lead.getAssignedProviderId() != null) {
+        providerName = providerRepository.findById(lead.getAssignedProviderId())
+            .map(Provider::getName).orElse(null);
+      }
+      if ("whatsapp".equals(lead.getChannel())
+          && lead.getPhone() != null && !lead.getPhone().isBlank()) {
+        String label = providerName == null || providerName.isBlank() ? "Tu proveedor" : providerName;
+        whatsappService.sendText(lead.getPhone(), label + ": " + rawText.trim());
+      } else {
+        customerWhatsAppNotifier.notify(lead, providerName,
+            CustomerWhatsAppNotifier.providerReplyNews(rawText));
+      }
+    } catch (Exception ex) {
+      // best-effort: el mensaje ya quedó guardado en el chat
+    }
+    return posted;
   }
 
   /**

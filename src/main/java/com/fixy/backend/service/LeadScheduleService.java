@@ -51,6 +51,13 @@ public class LeadScheduleService {
     this.pushNotificationService = pushNotificationService;
   }
 
+  /** true si la última propuesta de horario del lead sigue sin respuesta. */
+  public boolean hasPendingProposal(Long leadId) {
+    List<LeadEvent> proposals = leadEventRepository
+        .findByLeadIdAndTypeOrderByCreatedAtDesc(leadId, SCHEDULE_PROPOSED_EVENT_TYPE);
+    return !proposals.isEmpty() && !isAlreadyAnswered(leadId, proposals.get(0).getCreatedAt());
+  }
+
   /**
    * Responde la última propuesta pendiente. 409 si no hay propuesta o si ya
    * fue respondida (el doble toque no duplica eventos ni mensajes).

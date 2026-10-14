@@ -298,7 +298,7 @@ public class WhatsAppWebhookController {
       rejectLead(lead, provider, text);
     } else {
       // Relay al cliente.
-      leadMessageService.postFromOps(lead.getId(), "provider", text);
+      leadMessageService.postFromProvider(lead.getId(), text);
     }
   }
 

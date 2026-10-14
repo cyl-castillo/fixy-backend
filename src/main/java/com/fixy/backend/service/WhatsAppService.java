@@ -136,6 +136,20 @@ public class WhatsAppService {
    * de cruzar el {@code statuses[]} del webhook con el lead afectado.
    */
   public String sendTemplateReturningId(String toRaw, String templateName, String languageCode, List<String> parameters) {
+    return sendTemplateReturningId(toRaw, templateName, languageCode, parameters, null);
+  }
+
+  /**
+   * Plantilla con body y, opcionalmente, un botón URL con sufijo dinámico
+   * (2026-10-13, {@code customer_order_update}: "Ver mi pedido" →
+   * {@code https://www.fixy.com.uy/c/{{1}}}). {@code urlButtonSuffix} null o
+   * vacío = sin componente de botón. Si la plantilla aprobada TIENE botón
+   * dinámico, Meta exige el parámetro: omitirlo falla el envío; si NO lo
+   * tiene, mandarlo también falla — por eso es configurable del lado del
+   * caller (ver {@code CustomerWhatsAppNotifier}).
+   */
+  public String sendTemplateReturningId(String toRaw, String templateName, String languageCode,
+      List<String> bodyParams, String urlButtonSuffix) {
     if (!enabled) {
       log.warn("whatsapp disabled, skip sendTemplate to {}", toRaw);
       return null;
@@ -145,26 +159,41 @@ public class WhatsAppService {
       log.warn("whatsapp sendTemplate: invalid number {}", toRaw);
       return null;
     }
+    return post(buildTemplateBody(to, templateName, languageCode, bodyParams, urlButtonSuffix),
+        "sendTemplate " + templateName + " to=" + to);
+  }
+
+  /** Payload de {@code type=template} del Cloud API. Package-private y
+   * estático para poder verificar el JSON exacto sin red. */
+  static Map<String, Object> buildTemplateBody(String to, String templateName, String languageCode,
+      List<String> bodyParams, String urlButtonSuffix) {
     List<Map<String, Object>> params = new ArrayList<>();
-    if (parameters != null) {
-      for (String p : parameters) {
+    if (bodyParams != null) {
+      for (String p : bodyParams) {
         params.add(Map.of("type", "text", "text", p == null ? "" : p));
       }
     }
-    List<Map<String, Object>> components = params.isEmpty()
-        ? List.of()
-        : List.of(Map.of("type", "body", "parameters", params));
+    List<Map<String, Object>> components = new ArrayList<>();
+    if (!params.isEmpty()) {
+      components.add(Map.of("type", "body", "parameters", params));
+    }
+    if (urlButtonSuffix != null && !urlButtonSuffix.isBlank()) {
+      components.add(Map.of(
+          "type", "button",
+          "sub_type", "url",
+          "index", "0",
+          "parameters", List.of(Map.of("type", "text", "text", urlButtonSuffix))));
+    }
     Map<String, Object> template = new java.util.HashMap<>();
     template.put("name", templateName);
     template.put("language", Map.of("code", languageCode == null ? "es" : languageCode));
     if (!components.isEmpty()) template.put("components", components);
-    Map<String, Object> body = Map.of(
+    return Map.of(
         "messaging_product", "whatsapp",
         "to", to,
         "type", "template",
         "template", template
     );
-    return post(body, "sendTemplate " + templateName + " to=" + to);
   }
 
   /** Una fila de una interactive list: id (lo que vuelve en el webhook al

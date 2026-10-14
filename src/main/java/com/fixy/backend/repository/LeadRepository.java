@@ -27,6 +27,19 @@ public interface LeadRepository extends JpaRepository<Lead, Long> {
    */
   List<Lead> findByPhoneAndChannelOrderByCreatedAtDesc(String phone, String channel);
 
+  /**
+   * Leads no terminales con teléfono (cualquier canal) creados desde {@code since},
+   * más nuevos primero. Los teléfonos se guardan como los tipeó el vecino
+   * ("093640983") y el webhook de WhatsApp trae E.164 ("59893640983"), así que
+   * el match por igualdad exacta no sirve: el filtro por teléfono normalizado se
+   * hace en el servicio sobre este conjunto acotado (ver WhatsAppInboundService).
+   */
+  @Query("select l from Lead l where l.phone is not null and l.phone <> '' "
+      + "and l.status not in :terminalStatuses and l.createdAt >= :since order by l.createdAt desc")
+  List<Lead> findOpenWithPhoneSince(
+      @Param("terminalStatuses") java.util.Collection<LeadStatus> terminalStatuses,
+      @Param("since") OffsetDateTime since);
+
   /** Refundación fase 2 (contrato §B.3): pedidos originados en un plan Casa
    * a distancia, para la página del dueño. */
   List<Lead> findByRemoteCarePlanIdOrderByCreatedAtDesc(Long remoteCarePlanId);

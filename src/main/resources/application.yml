@@ -74,6 +74,15 @@ fixy:
     app-secret: ${WHATSAPP_APP_SECRET:}
     template-name: ${WHATSAPP_TEMPLATE_NAME:provider_lead_notification}
     template-lang: ${WHATSAPP_TEMPLATE_LANG:es}
+    # Plantilla Utility para avisar al VECINO (pedido web con teléfono) cuando
+    # el técnico acepta/responde/propone horario/sale en camino. Ver
+    # CustomerWhatsAppNotifier. url-button=true manda el botón "Ver mi pedido"
+    # con sufijo {leadId}/{accessToken}; ponerlo en false si Meta aprobó la
+    # plantilla sin botón dinámico (con URL fija o sin botón).
+    customer-template-name: ${WHATSAPP_CUSTOMER_TEMPLATE_NAME:customer_order_update}
+    customer-template-lang: ${WHATSAPP_CUSTOMER_TEMPLATE_LANG:es}
+    customer-template-url-button: ${WHATSAPP_CUSTOMER_TEMPLATE_URL_BUTTON:true}
+    customer-template-enabled: ${WHATSAPP_CUSTOMER_TEMPLATE_ENABLED:true}
     menu:
       enabled: ${WHATSAPP_MENU_ENABLED:true}
       button-label: ${WHATSAPP_MENU_BUTTON_LABEL:Ver opciones}
