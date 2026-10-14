@@ -35,7 +35,7 @@ import org.springframework.stereotype.Service;
  * <p>Condiciones para enviar (todas): canal de plantilla habilitado y
  * WhatsApp configurado; teléfono del lead válido; el lead NO es de canal
  * {@code whatsapp} (esos reciben texto libre); y no se mandó ya esta plantilla
- * a ese lead en los últimos 10 minutos (dedupe por evento de timeline). Los
+ * a ese lead en los últimos 3 minutos (dedupe por evento de timeline; 10 se comía la respuesta del técnico que llega a los pocos minutos de aceptar). Los
  * leads {@code [smoke]} SÍ se notifican: el teléfono es de quien hizo la
  * prueba. Nunca lanza.
  */
@@ -47,7 +47,7 @@ public class CustomerWhatsAppNotifier {
   /** Evento de timeline cuando Meta rechaza (o no se pudo enviar) la plantilla. */
   public static final String TEMPLATE_FAILED_EVENT = "WHATSAPP_CUSTOMER_TEMPLATE_FAILED";
 
-  static final Duration DEDUPE_WINDOW = Duration.ofMinutes(10);
+  static final Duration DEDUPE_WINDOW = Duration.ofMinutes(3);
   static final int MAX_NOVEDAD_LENGTH = 200;
   static final int MAX_QUOTED_REPLY_LENGTH = 140;
   private static final int MAX_PROVIDER_NAME_LENGTH = 60;

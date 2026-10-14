@@ -178,7 +178,7 @@ class CustomerWhatsAppNotifierTest {
   }
 
   @Test
-  void dedupeDeDiezMinutos_yVuelveAEnviarPasadaLaVentana() {
+  void dedupeDeTresMinutos_yVuelveAEnviarPasadaLaVentana() {
     Lead lead = webLead("098100006");
 
     notifier.notify(lead, "Carnot", "aceptó tu pedido y te confirma día y hora por acá.");
@@ -187,7 +187,7 @@ class CustomerWhatsAppNotifierTest {
     verify(whatsappService, times(1)).sendTemplateReturningId(any(), any(), any(), any(), any());
     assertThat(events(lead, LeadTimelineService.WHATSAPP_SENT)).hasSize(1);
 
-    // Se envejece el evento a 11 minutos: la ventana pasó.
+    // Se envejece el evento a 11 minutos: la ventana (3) pasó.
     em.flush();
     jdbcTemplate.update("update lead_events set created_at = dateadd('MINUTE', -11, current_timestamp) where lead_id = ?",
         lead.getId());
