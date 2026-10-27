@@ -956,6 +956,28 @@ public class TelegramNotifyService {
     return !alreadyNotified;
   }
 
+  /**
+   * Fixy Barrio B1: reclamo nuevo en PENDING_REVIEW. Telegram es solo salida: el link lleva a
+   * /admin?tab=barrio, donde se modera. Guard "[smoke]" sobre la descripción libre (la descripción
+   * NO se incluye en el mensaje). Async: nunca debe demorar la respuesta al vecino.
+   */
+  @Async
+  public void notifyBarrioReport(Long reportId, String categoryLabel, String zone, String description) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(description)) return;
+    post("🚧 Nuevo reclamo del barrio #%d: %s en %s. Moderalo: %s/admin?tab=barrio"
+        .formatted(reportId, safe(categoryLabel), safe(zone), publicAppBaseUrl));
+  }
+
+  /** Fixy Barrio B1: un vecino dice que ya lo arreglaron (foto de cierre pendiente de revisión). */
+  @Async
+  public void notifyBarrioClosure(Long reportId, String categoryLabel, String zone, String comment) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(comment)) return;
+    post("✅ Cierre del reclamo #%d (%s en %s): un vecino dice que ya lo arreglaron. Revisá la foto: %s/admin?tab=barrio"
+        .formatted(reportId, safe(categoryLabel), safe(zone), publicAppBaseUrl));
+  }
+
   private void send(Lead lead, String text) {
     send(lead, NOTIFIED_EVENT_TYPE, text, "Aviso de oportunidad enviado a Telegram");
   }

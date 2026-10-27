@@ -1,5 +1,6 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.service.BarrioApiException;
 import com.fixy.backend.service.PhoneInUseException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.OffsetDateTime;
@@ -28,6 +29,20 @@ public class ApiExceptionHandler {
   @ExceptionHandler(PhoneInUseException.class)
   public ResponseEntity<Map<String, Object>> handlePhoneInUse(PhoneInUseException exception) {
     return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "phone-in-use"));
+  }
+
+  /** Fixy Barrio (B1): código estable en body plano, {@code {"error":"fuera_de_zona"}} con 422. */
+  @ExceptionHandler(BarrioApiException.class)
+  public ResponseEntity<Map<String, Object>> handleBarrio(BarrioApiException exception) {
+    return ResponseEntity.status(exception.status())
+        .body(Map.of("error", exception.code(), "message", exception.getMessage()));
+  }
+
+  /** Foto más grande que el límite multipart: 413 con el mismo sobre que el resto de la API. */
+  @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+  public ResponseEntity<Map<String, Object>> handleTooLarge(HttpServletRequest request) {
+    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE).body(buildError(
+        "payload_too_large", "archivo demasiado grande (max 8 MB)", null, false, request.getRequestURI()));
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
