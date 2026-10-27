@@ -1,0 +1,19 @@
+# Fixy Barrio (B1): centroides APROXIMADOS de los barrios de Ciudad de la Costa. Sirven para
+# poner un nombre de barrio al reclamo (centroide más cercano; a más de max_distance_km cae a
+# "Ciudad de la Costa"). No son límites oficiales: editá lat/lng a gusto, no hace falta tocar
+# código. El orden no importa. Cobertura (caja) y regla de 2,5 km viven en BarrioGeo.
+default_zone: "Ciudad de la Costa"
+max_distance_km: 2.5
+zones:
+  - { name: "Shangrilá",            lat: -34.8330, lng: -56.0270 }
+  - { name: "San José de Carrasco", lat: -34.8180, lng: -56.0080 }
+  - { name: "Lomas de Carrasco",    lat: -34.8040, lng: -56.0150 }
+  - { name: "Solymar",              lat: -34.8350, lng: -55.9800 }
+  - { name: "Lomas de Solymar",     lat: -34.8080, lng: -55.9850 }
+  - { name: "Médanos de Solymar",   lat: -34.8230, lng: -55.9700 }
+  - { name: "Colinas de Solymar",   lat: -34.7970, lng: -55.9700 }
+  - { name: "Montes de Solymar",    lat: -34.8060, lng: -55.9520 }
+  - { name: "Parque de Solymar",    lat: -34.8290, lng: -55.9560 }
+  - { name: "Lagomar",              lat: -34.8270, lng: -55.9330 }
+  - { name: "El Pinar",             lat: -34.7900, lng: -55.9000 }
+  - { name: "Pinamar",              lat: -34.8240, lng: -55.8850 }
