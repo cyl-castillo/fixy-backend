@@ -42,7 +42,11 @@ public class WhatsAppService {
 
   private static final Logger log = LoggerFactory.getLogger(WhatsAppService.class);
 
+  private static final int MAX_MEDIA_BYTES = 12 * 1024 * 1024;
+
   private final WebClient client;
+  /** Para bajar media: el buffer por defecto de WebClient (256 KB) no alcanza para una foto. */
+  private final WebClient mediaClient;
   private final ObjectMapper objectMapper;
   private final String phoneNumberId;
   private final String accessToken;
@@ -71,6 +75,10 @@ public class WhatsAppService {
     this.client = WebClient.builder()
         .baseUrl(baseUrl)
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+        .build();
+    this.mediaClient = WebClient.builder()
+        .baseUrl(baseUrl)
+        .codecs(c -> c.defaultCodecs().maxInMemorySize(MAX_MEDIA_BYTES))
         .build();
     log.info("WhatsAppService initialized: enabled={} apiVersion={} authScheme={}",
         enabled, apiVersion, this.authScheme);
@@ -242,6 +250,57 @@ public class WhatsAppService {
         "interactive", interactive
     );
     return post(body, "sendInteractiveList to=" + to) != null;
+  }
+
+  /** Media entrante ya bajada: bytes + mime type que declaró Meta. */
+  public record MediaDownload(byte[] bytes, String mimeType) {}
+
+  /**
+   * Baja un media entrante (foto de un mensaje {@code image}) por Graph API: {@code GET /{api-version}/{media-id}}
+   * devuelve {@code {url, mime_type}} y esa URL (efímera) se baja con el MISMO token. Devuelve
+   * {@code null} si WhatsApp está deshabilitado o algo falla (nunca lanza: el caller le pide al
+   * vecino que reenvíe la foto).
+   */
+  public MediaDownload downloadMedia(String mediaId) {
+    if (!enabled) {
+      log.warn("whatsapp disabled, skip downloadMedia {}", mediaId);
+      return null;
+    }
+    if (mediaId == null || !mediaId.matches("[A-Za-z0-9_-]{1,100}")) {
+      log.warn("whatsapp downloadMedia: media id invalido");
+      return null;
+    }
+    try {
+      String[] auth = authHeader();
+      String meta = mediaClient.get()
+          .uri("/" + apiVersion + "/" + mediaId)
+          .header(auth[0], auth[1])
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(15))
+          .block();
+      if (meta == null) return null;
+      JsonNode node = objectMapper.readTree(meta);
+      String url = node.path("url").asText("");
+      String mime = node.path("mime_type").asText("");
+      if (url.isBlank()) {
+        log.warn("whatsapp downloadMedia {}: respuesta sin url", mediaId);
+        return null;
+      }
+      byte[] bytes = mediaClient.get()
+          .uri(java.net.URI.create(url))
+          .header(auth[0], auth[1])
+          .retrieve()
+          .bodyToMono(byte[].class)
+          .timeout(Duration.ofSeconds(30))
+          .block();
+      if (bytes == null || bytes.length == 0) return null;
+      log.info("whatsapp downloadMedia {} OK ({} bytes, {})", mediaId, bytes.length, mime);
+      return new MediaDownload(bytes, mime);
+    } catch (Exception ex) {
+      log.warn("whatsapp downloadMedia {} failed: {}", mediaId, ex.getMessage());
+      return null;
+    }
   }
 
   /** Path del endpoint de mensajes. Meta: /{apiVersion}/{phoneNumberId}/messages.

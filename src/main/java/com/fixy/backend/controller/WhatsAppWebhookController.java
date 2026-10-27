@@ -9,6 +9,7 @@ import com.fixy.backend.model.ProviderLeadDecline;
 import com.fixy.backend.repository.LeadRepository;
 import com.fixy.backend.repository.ProviderLeadDeclineRepository;
 import com.fixy.backend.repository.ProviderRepository;
+import com.fixy.backend.service.BarrioWhatsAppService;
 import com.fixy.backend.service.LeadAgentService;
 import com.fixy.backend.service.LeadAssignmentService;
 import com.fixy.backend.service.LeadMessageService;
@@ -83,6 +84,7 @@ public class WhatsAppWebhookController {
   private final LeadAssignmentService leadAssignmentService;
   private final ProviderLeadDeclineRepository providerLeadDeclineRepository;
   private final LeadAgentService leadAgentService;
+  private final BarrioWhatsAppService barrioWhatsAppService;
 
   public WhatsAppWebhookController(
       ObjectMapper objectMapper,
@@ -95,6 +97,7 @@ public class WhatsAppWebhookController {
       LeadAssignmentService leadAssignmentService,
       ProviderLeadDeclineRepository providerLeadDeclineRepository,
       LeadAgentService leadAgentService,
+      BarrioWhatsAppService barrioWhatsAppService,
       @Value("${fixy.whatsapp.webhook-verify-token:}") String verifyToken,
       @Value("${fixy.whatsapp.app-secret:}") String appSecret
   ) {
@@ -108,6 +111,7 @@ public class WhatsAppWebhookController {
     this.leadAssignmentService = leadAssignmentService;
     this.providerLeadDeclineRepository = providerLeadDeclineRepository;
     this.leadAgentService = leadAgentService;
+    this.barrioWhatsAppService = barrioWhatsAppService;
     this.verifyToken = verifyToken;
     this.appSecret = appSecret;
   }
@@ -256,14 +260,30 @@ public class WhatsAppWebhookController {
     String type = msg.path("type").asText("");
 
     String text = extractMessageText(msg, type);
+    Provider provider = providerRepository.findByContactNumber(WhatsAppService.denormalize(from))
+        .or(() -> providerRepository.findByContactNumber(from))
+        .orElse(null);
+
+    // Fixy Barrio (B1): ANTES del ruteo de siempre y solo para quien NO es proveedor del padrón.
+    // Las imágenes y ubicaciones ya no se ignoran: entran al borrador de reclamo del barrio.
+    if (provider == null) {
+      BarrioWhatsAppService.Result barrio = barrioWhatsAppService.handle(
+          from, type, msg, text, extractInteractiveReplyId(msg, type),
+          whatsappInboundService.hasActiveConversation(from));
+      if (barrio == BarrioWhatsAppService.Result.HANDLED) {
+        return;
+      }
+      if (barrio == BarrioWhatsAppService.Result.FREE_TEXT) {
+        whatsappInboundService.promptFreeText(from);
+        return;
+      }
+    }
+
     if (text == null || text.isBlank()) {
       log.info("whatsapp incoming from {} type={} sin texto, ignoramos", from, type);
       return;
     }
 
-    Provider provider = providerRepository.findByContactNumber(WhatsAppService.denormalize(from))
-        .or(() -> providerRepository.findByContactNumber(from))
-        .orElse(null);
     if (provider == null) {
       // No es un proveedor conocido: lo tratamos como CLIENTE. Si tocó una
       // fila del menú de apertura (ver WhatsAppMenuService), rutear por id

@@ -134,6 +134,12 @@ public class WhatsAppInboundService {
     leadMessageService.postFromAgent(lead.getId(), "Contame con tus palabras qué necesitás.");
   }
 
+  /** ¿El vecino tiene un pedido de Fixy abierto? Lo usa el circuito Barrio para no pisar una conversación en curso. */
+  public boolean hasActiveConversation(String from) {
+    String normalized = WhatsAppService.normalize(from);
+    return normalized != null && findActiveLeadForCustomerMessage(normalized) != null;
+  }
+
   private Lead findActiveLead(String phone) {
     List<Lead> candidates = leadRepository.findByPhoneAndChannelOrderByCreatedAtDesc(phone, "whatsapp");
     for (Lead lead : candidates) {
