@@ -84,6 +84,10 @@ fixy:
     business-registration:
       max-requests-per-window: 200
       window-seconds: 60
+  barrio:
+    rate-limit:
+      max-requests-per-window: 1000
+      window-seconds: 60
   chat:
     max-messages-per-window: 100
     window-seconds: 60
