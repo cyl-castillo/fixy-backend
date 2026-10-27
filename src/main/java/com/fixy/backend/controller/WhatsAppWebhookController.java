@@ -406,6 +406,8 @@ public class WhatsAppWebhookController {
     leadRepository.save(lead);
     leadTimelineService.appendEvent(lead, "PROVIDER_REJECTED", "provider",
         provider.getName() + " no puede: " + truncate(originalText, 100));
+    leadAssignmentService.recordProviderResponse(lead.getId(), provider,
+        com.fixy.backend.model.ProviderOfferResponse.DECLINED);
 
     // Registrar el decline ANTES de re-ofertar (mismo criterio que
     // ProviderSelfService.releaseAfterProviderCancel): así findMatchesForLead

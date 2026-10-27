@@ -3,7 +3,11 @@ package com.fixy.backend.service;
 import com.fixy.backend.model.Lead;
 import com.fixy.backend.model.LeadStatus;
 import com.fixy.backend.model.Provider;
+import com.fixy.backend.model.ProviderOfferResponse;
 import com.fixy.backend.repository.LeadRepository;
+import com.fixy.backend.repository.ProviderOfferRepository;
+import com.fixy.backend.repository.ProviderRepository;
+import java.time.OffsetDateTime;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,6 +24,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class LeadAssignmentService {
 
+  private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LeadAssignmentService.class);
+
   /** Statuses desde los que un lead puede pasar a ASSIGNED. */
   private static final List<LeadStatus> MATCHABLE_STATUSES =
       List.of(LeadStatus.NEW, LeadStatus.IN_REVIEW, LeadStatus.PROVIDER_CONTACTED);
@@ -28,17 +34,57 @@ public class LeadAssignmentService {
   private final LeadTimelineService timelineService;
   private final LeadMessageService messageService;
   private final CustomerWhatsAppNotifier customerWhatsAppNotifier;
+  private final ProviderOfferRepository providerOfferRepository;
+  private final ProviderRepository providerRepository;
 
   public LeadAssignmentService(
       LeadRepository leadRepository,
       LeadTimelineService timelineService,
       LeadMessageService messageService,
-      CustomerWhatsAppNotifier customerWhatsAppNotifier
+      CustomerWhatsAppNotifier customerWhatsAppNotifier,
+      ProviderOfferRepository providerOfferRepository,
+      ProviderRepository providerRepository
   ) {
     this.leadRepository = leadRepository;
     this.timelineService = timelineService;
     this.messageService = messageService;
     this.customerWhatsAppNotifier = customerWhatsAppNotifier;
+    this.providerOfferRepository = providerOfferRepository;
+    this.providerRepository = providerRepository;
+  }
+
+  /**
+   * Registra que el proveedor RESPONDIÓ una oferta (aceptó o rechazó): cierra
+   * la oferta abierta del par (lead, proveedor) con la respuesta y actualiza
+   * {@code providers.last_responded_at}. Camino único para WhatsApp y bandeja:
+   * hasta 2026-10-27 solo el cambio de estado desde el panel
+   * ({@code ProviderSelfService}) lo hacía, así que las 8 ofertas de prod
+   * quedaron con response NULL y el ranking / medianOfferResponseMinutes no
+   * veían ninguna respuesta (aceptaciones reales de los leads 277 y 280).
+   * Sin oferta abierta (pozo abierto) igual cuenta como respuesta del
+   * proveedor para last_responded_at.
+   */
+  public void recordProviderResponse(Long leadId, Provider provider, ProviderOfferResponse response) {
+    OffsetDateTime now = OffsetDateTime.now();
+    try {
+      closeOffer(leadId, provider, response, now);
+    } catch (RuntimeException ex) {
+      // Es registro de métricas: nunca debe tumbar la aceptación/rechazo ya hecha.
+      log.warn("no se pudo registrar la respuesta {} del proveedor {} al lead {}: {}",
+          response, provider.getId(), leadId, ex.getMessage());
+    }
+  }
+
+  private void closeOffer(Long leadId, Provider provider, ProviderOfferResponse response, OffsetDateTime now) {
+    providerOfferRepository
+        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, provider.getId())
+        .ifPresent(offer -> {
+          offer.setRespondedAt(now);
+          offer.setResponse(response);
+          providerOfferRepository.save(offer);
+        });
+    providerRepository.touchLastRespondedAt(provider.getId(), now);
+    provider.setLastRespondedAt(now);
   }
 
   /**
@@ -78,6 +124,7 @@ public class LeadAssignmentService {
       leadRepository.save(lead);
     }
     timelineService.appendEvent(lead, "PROVIDER_ACCEPTED", "provider", eventDetail);
+    recordProviderResponse(leadId, provider, ProviderOfferResponse.ACCEPTED);
     // Tier 2 (contrato §B.2): mensaje de aceptación con franja si el
     // proveedor la mandó, mismo copy que la otra ruta de aceptación
     // (ProviderSelfService.updateLeadStatus ASSIGNED desde PROVIDER_CONTACTED).

@@ -49,7 +49,6 @@ public class ProviderOpportunityService {
   private final ProviderCatalogService catalogService;
   private final LeadAssignmentService leadAssignmentService;
   private final LeadTimelineService timelineService;
-  private final ProviderOfferRepository providerOfferRepository;
 
   public ProviderOpportunityService(
       LeadRepository leadRepository,
@@ -66,7 +65,9 @@ public class ProviderOpportunityService {
     this.catalogService = catalogService;
     this.leadAssignmentService = leadAssignmentService;
     this.timelineService = timelineService;
-    this.providerOfferRepository = providerOfferRepository;
+    // providerOfferRepository: ya no se usa acá (el cierre de ofertas vive en
+    // LeadAssignmentService.recordProviderResponse); el parámetro se conserva
+    // para no romper los tests que construyen el servicio con new.
   }
 
   public List<ProviderOpportunitySummary> listFor(Provider provider) {
@@ -132,24 +133,15 @@ public class ProviderOpportunityService {
     decline.setLeadId(leadId);
     decline.setProviderId(provider.getId());
     declineRepository.save(decline);
-    // Tier 2 (contrato §A.2): cierra la oferta abierta del par como DECLINED.
-    closeOpenOfferAsDeclined(leadId, provider.getId());
+    // Tier 2 (contrato §A.2): cierra la oferta abierta del par como DECLINED
+    // y marca last_responded_at (camino único en LeadAssignmentService).
+    leadAssignmentService.recordProviderResponse(leadId, provider, ProviderOfferResponse.DECLINED);
 
     Lead lead = leadRepository.findById(leadId).orElse(null);
     if (lead != null) {
       timelineService.appendEvent(lead, "PROVIDER_DECLINED", "provider",
           provider.getName() + " rechazó la oportunidad");
     }
-  }
-
-  private void closeOpenOfferAsDeclined(Long leadId, Long providerId) {
-    providerOfferRepository
-        .findFirstByLeadIdAndProviderIdAndRespondedAtIsNullOrderByOfferedAtDesc(leadId, providerId)
-        .ifPresent(offer -> {
-          offer.setRespondedAt(OffsetDateTime.now());
-          offer.setResponse(ProviderOfferResponse.DECLINED);
-          providerOfferRepository.save(offer);
-        });
   }
 
   /**
