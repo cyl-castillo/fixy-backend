@@ -976,6 +976,22 @@ public class TelegramNotifyService {
         .formatted(reportId, safe(categoryLabel), safe(zone), ai, publicAppBaseUrl));
   }
 
+  /** Avisá IA F2: la IA publicó sola un reclamo claro; Carlos puede despublicarlo desde /admin. */
+  @Async
+  public void notifyBarrioAutoPublished(Long reportId, String categoryLabel, String zone, String description,
+      long confidencePct, Long mergedIntoId) {
+    if (!enabled) return;
+    if (com.fixy.backend.model.SmokeTraffic.marks(description)) return;
+    post(autoPublishedText(reportId, categoryLabel, zone, confidencePct, mergedIntoId, publicAppBaseUrl));
+  }
+
+  static String autoPublishedText(Long reportId, String categoryLabel, String zone, long confidencePct,
+      Long mergedIntoId, String baseUrl) {
+    String merged = mergedIntoId == null ? "" : " (fusionado en #" + mergedIntoId + ")";
+    return "✅ Publicado por la IA (%d %%) — %s en %s%s (reclamo #%d). Si está mal: %s/admin?tab=barrio → Despublicar"
+        .formatted(confidencePct, safe(categoryLabel), safe(zone), merged, reportId, baseUrl);
+  }
+
   /** Fixy Barrio B1: un vecino dice que ya lo arreglaron (foto de cierre pendiente de revisión). */
   @Async
   public void notifyBarrioClosure(Long reportId, String categoryLabel, String zone, String comment) {
@@ -1051,7 +1067,7 @@ public class TelegramNotifyService {
     return trimmed.substring(0, maxLen).trim();
   }
 
-  private String safe(String value) {
+  private static String safe(String value) {
     return value == null || value.isBlank() ? "sin definir" : value;
   }
 }

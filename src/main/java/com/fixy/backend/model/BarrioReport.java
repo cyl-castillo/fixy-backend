@@ -114,6 +114,10 @@ public class BarrioReport {
   @Column(name = "human_decided_at")
   private OffsetDateTime humanDecidedAt;
 
+  /** Cuándo la IA lo publicó sola (Fase 2). Solo ops. */
+  @Column(name = "auto_published_at")
+  private OffsetDateTime autoPublishedAt;
+
   public Long getId() { return id; }
   public String getCategory() { return category; }
   public void setCategory(String category) { this.category = category; }
@@ -167,6 +171,8 @@ public class BarrioReport {
   public void setAiAttempts(int aiAttempts) { this.aiAttempts = aiAttempts; }
   public String getHumanDecision() { return humanDecision; }
   public void setHumanDecision(String humanDecision) { this.humanDecision = humanDecision; }
+  public OffsetDateTime getAutoPublishedAt() { return autoPublishedAt; }
+  public void setAutoPublishedAt(OffsetDateTime autoPublishedAt) { this.autoPublishedAt = autoPublishedAt; }
   public OffsetDateTime getHumanDecidedAt() { return humanDecidedAt; }
   public void setHumanDecidedAt(OffsetDateTime humanDecidedAt) { this.humanDecidedAt = humanDecidedAt; }
 }

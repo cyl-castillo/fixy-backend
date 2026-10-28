@@ -25,4 +25,12 @@ class BarrioAiReviewSwitchTest {
     r.setAiVerdict("SIN_IA");
     assertThat(BarrioAiReviewService.telegramLine(r)).contains("sin revisión");
   }
+
+  @Test
+  void textoTelegramDeAutoPublicado() {
+    assertThat(TelegramNotifyService.autoPublishedText(7L, "Bache", "Lagomar", 93, null, "https://x.test"))
+        .isEqualTo("✅ Publicado por la IA (93 %) — Bache en Lagomar (reclamo #7). Si está mal: https://x.test/admin?tab=barrio → Despublicar");
+    assertThat(TelegramNotifyService.autoPublishedText(8L, "Bache", "Lagomar", 90, 3L, "https://x.test"))
+        .contains("(fusionado en #3)");
+  }
 }

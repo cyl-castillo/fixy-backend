@@ -17,12 +17,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 /**
  * IA revisora de Avisá, Fase 1 / modo sombra (AVISA_IA_F1_CONTRATO.md): mira la foto de un reclamo
  * y guarda una opinión; {@link BarrioAiVerdict} la traduce a APROBAR / DUDOSO. NO aprueba ni
- * rechaza nada ({@code auto-approve} está reservado para la Fase 2, sin acción). Corre fuera de
+ * rechaza nunca; en la Fase 2 puede auto-publicar los casos claros ({@link BarrioAutoPublishPolicy}). Corre fuera de
  * transacción (la llamada dura hasta 45 s): cada {@code save} commitea solo.
  */
 @Service
@@ -56,6 +57,8 @@ public class BarrioAiReviewService {
   private final TelegramNotifyService telegram;
   private final ObjectMapper mapper;
   private final boolean enabled;
+  private final BarrioSettingsService settings;
+  private final BarrioService barrio;
 
   @Autowired
   public BarrioAiReviewService(
@@ -66,9 +69,12 @@ public class BarrioAiReviewService {
       TelegramNotifyService telegram,
       ObjectMapper mapper,
       @Value("${fixy.barrio.ai-review.enabled:true}") boolean enabled,
-      // Reservado para la Fase 2 (auto-aprobación). En la Fase 1 NO tiene ninguna acción.
-      @Value("${fixy.barrio.ai-review.auto-approve:false}") boolean autoApprove
+      BarrioSettingsService settings,
+      // Lazy: BarrioService depende de este servicio (alta) y este de BarrioService (auto-publicar).
+      @Lazy BarrioService barrio
   ) {
+    this.settings = settings;
+    this.barrio = barrio;
     this.reports = reports;
     this.photos = photos;
     this.llm = llm;
@@ -125,7 +131,39 @@ public class BarrioAiReviewService {
 
     boolean stillPending = BarrioReport.PENDING_REVIEW.equals(report.getStatus());
     if (stillPending && (!BarrioAiVerdict.ERROR.equals(verdict) || attempts >= MAX_ATTEMPTS)) {
-      notifyTelegram(report);
+      afterReview(report);
+    }
+  }
+
+  /** Decide (código, no IA) si se auto-publica; si no, el aviso de pendiente de siempre. */
+  private void afterReview(BarrioReport report) {
+    BarrioAutoPublishPolicy.Decision decision = BarrioAutoPublishPolicy.Decision.NO;
+    try {
+      decision = BarrioAutoPublishPolicy.decide(settings.autoPublish(), report.getAiVerdict(),
+          report.getAiConfidence(), settings.minConfidence(), report.getStatus(), report.getDescription(),
+          barrio.publishedTodayByAi(), settings.dailyCap());
+      if (decision == BarrioAutoPublishPolicy.Decision.PUBLISH) {
+        var published = barrio.autoPublish(report.getId());
+        if (published.isPresent()) {
+          log.info("barrio IA #{}: auto-publicado ({})", report.getId(), published.get().status());
+          notifyAutoPublished(report, published.get().mergedIntoId());
+          return;
+        }
+        return; // alguien lo decidió en el medio: ya no está pendiente, no hay nada que avisar
+      }
+    } catch (RuntimeException e) {
+      log.warn("barrio IA #{}: auto-publicación falló, queda pendiente: {}", report.getId(), e.getMessage());
+      decision = BarrioAutoPublishPolicy.Decision.NO;
+    }
+    notifyTelegram(report, decision == BarrioAutoPublishPolicy.Decision.DAILY_CAP_REACHED);
+  }
+
+  private void notifyAutoPublished(BarrioReport r, Long mergedIntoId) {
+    try {
+      telegram.notifyBarrioAutoPublished(r.getId(), BarrioService.labelOf(r.getCategory()), r.getZone(),
+          r.getDescription(), pct(r.getAiConfidence()), mergedIntoId);
+    } catch (RuntimeException e) {
+      log.warn("telegram barrio auto-publicado #{} falló: {}", r.getId(), e.getMessage());
     }
   }
 
@@ -151,9 +189,13 @@ public class BarrioAiReviewService {
   }
 
   public void notifyTelegram(BarrioReport r) {
+    notifyTelegram(r, false);
+  }
+
+  void notifyTelegram(BarrioReport r, boolean dailyCapReached) {
     try {
       telegram.notifyBarrioReport(r.getId(), BarrioService.labelOf(r.getCategory()), r.getZone(),
-          r.getDescription(), telegramLine(r));
+          r.getDescription(), telegramLine(r) + (dailyCapReached ? " (tope diario de la IA alcanzado)" : ""));
     } catch (RuntimeException e) {
       log.warn("telegram barrio report #{} falló: {}", r.getId(), e.getMessage());
     }

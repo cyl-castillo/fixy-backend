@@ -289,6 +289,34 @@ public class BarrioService {
   public ApproveResponse approve(Long id) {
     BarrioReport report = requirePending(id);
     OffsetDateTime now = OffsetDateTime.now();
+    applyApproval(report, now);
+    report.setHumanDecision(BarrioReport.MERGED.equals(report.getStatus()) ? "MERGED" : "APPROVED");
+    report.setHumanDecidedAt(now);
+    report.setUpdatedAt(now);
+    reports.save(report);
+    return new ApproveResponse(report.getStatus(), report.getMergedIntoId());
+  }
+
+  /**
+   * Auto-publicación de la IA (Fase 2): MISMA lógica que approve (dedupe incluido) pero sin
+   * human_*. Relee y revalida PENDING_REVIEW dentro de la transacción; devuelve empty si ya no lo está.
+   */
+  @Transactional
+  public Optional<ApproveResponse> autoPublish(Long id) {
+    BarrioReport report = reports.findById(id).orElse(null);
+    if (report == null || !BarrioReport.PENDING_REVIEW.equals(report.getStatus())) {
+      return Optional.empty();
+    }
+    OffsetDateTime now = OffsetDateTime.now();
+    applyApproval(report, now);
+    report.setAutoPublishedAt(now);
+    report.setUpdatedAt(now);
+    reports.save(report);
+    return Optional.of(new ApproveResponse(report.getStatus(), report.getMergedIntoId()));
+  }
+
+  /** Núcleo común de approve / autoPublish: PUBLISHED, o MERGED en un publicado a ≤ 40 m. */
+  private void applyApproval(BarrioReport report, OffsetDateTime now) {
     Optional<BarrioReport> dup = findDuplicate(report);
     if (dup.isPresent()) {
       BarrioReport target = dup.get();
@@ -305,11 +333,70 @@ public class BarrioService {
       report.setStatus(BarrioReport.PUBLISHED);
       report.setPublishedAt(now);
     }
+  }
+
+  /** Auto-publicados de hoy (día de Montevideo), para el tope diario. */
+  public long publishedTodayByAi() {
+    java.time.Instant now = java.time.Instant.now();
+    return reports.countByAutoPublishedAtGreaterThanEqualAndAutoPublishedAtLessThan(
+        OffsetDateTime.ofInstant(BarrioAutoPublishPolicy.dayStart(now), BarrioAutoPublishPolicy.ZONE),
+        OffsetDateTime.ofInstant(BarrioAutoPublishPolicy.dayEnd(now), BarrioAutoPublishPolicy.ZONE));
+  }
+
+  @Transactional(readOnly = true)
+  public List<OpsReport> autoPublished() {
+    OffsetDateTime now = OffsetDateTime.now();
+    return reports.findAutoPublishedUnreviewed().stream().map(r -> toOps(r, now)).toList();
+  }
+
+  /** Carlos revisó un auto-publicado y está bien. 409 si no fue auto-publicado o ya se decidió. */
+  @Transactional
+  public ApproveResponse confirm(Long id) {
+    BarrioReport report = reports.findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "reclamo no encontrado"));
+    if (report.getAutoPublishedAt() == null || report.getHumanDecision() != null) {
+      throw new BarrioApiException(HttpStatus.CONFLICT, "estado_invalido", "el reclamo no está esperando confirmación");
+    }
+    OffsetDateTime now = OffsetDateTime.now();
     report.setHumanDecision(BarrioReport.MERGED.equals(report.getStatus()) ? "MERGED" : "APPROVED");
     report.setHumanDecidedAt(now);
     report.setUpdatedAt(now);
     reports.save(report);
     return new ApproveResponse(report.getStatus(), report.getMergedIntoId());
+  }
+
+  /**
+   * Saca de la vista pública un reclamo PUBLISHED (o MERGED auto-publicado) y lo deja REJECTED. Si era
+   * MERGED resta lo aportado al destino (mínimo 1); el created_at del destino NO se revierte.
+   */
+  @Transactional
+  public ApproveResponse unpublish(Long id, String reason) {
+    BarrioReport report = reports.findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "reclamo no encontrado"));
+    boolean published = BarrioReport.PUBLISHED.equals(report.getStatus());
+    boolean autoMerged = BarrioReport.MERGED.equals(report.getStatus()) && report.getAutoPublishedAt() != null;
+    if (!published && !autoMerged) {
+      throw new BarrioApiException(HttpStatus.CONFLICT, "estado_invalido", "el reclamo no se puede despublicar");
+    }
+    String clean = reason == null ? null : reason.trim();
+    if (clean != null && clean.length() > REJECT_REASON_MAX) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reason demasiado largo");
+    }
+    OffsetDateTime now = OffsetDateTime.now();
+    if (autoMerged && report.getMergedIntoId() != null) {
+      reports.findById(report.getMergedIntoId()).ifPresent(target -> {
+        target.setSupporters(Math.max(1, target.getSupporters() - Math.max(1, report.getSupporters())));
+        target.setUpdatedAt(now);
+        reports.save(target);
+      });
+    }
+    report.setStatus(BarrioReport.REJECTED);
+    report.setRejectReason(clean == null || clean.isEmpty() ? null : clean);
+    report.setHumanDecision("REJECTED");
+    report.setHumanDecidedAt(now);
+    report.setUpdatedAt(now);
+    reports.save(report);
+    return new ApproveResponse(report.getStatus(), null);
   }
 
   @Transactional
@@ -496,7 +583,8 @@ public class BarrioService {
         r.getId(), r.getCategory(), labelOf(r.getCategory()), r.getZone(),
         r.getLat(), r.getLng(), photos.urlFor(r.getPhotoPath()), r.getCreatedAt(),
         daysOpen(r, now), r.getSupporters(), r.getStatus(), r.getDescription(),
-        maskPhone(r.getReporterPhone()), r.getChannel(), dup, toAi(r));
+        maskPhone(r.getReporterPhone()), r.getChannel(), dup, toAi(r),
+        r.getAutoPublishedAt(), r.getMergedIntoId());
   }
 
   /**
@@ -530,9 +618,16 @@ public class BarrioService {
         if (humanApproved) doubtApproved++; else doubtRejected++;
       }
     }
+    long autoPublished = 0, autoConfirmed = 0, autoUnpublished = 0;
+    for (BarrioReport r : reports.findByAutoPublishedAtIsNotNull()) {
+      autoPublished++;
+      if ("REJECTED".equals(r.getHumanDecision())) autoUnpublished++;
+      else if (r.getHumanDecision() != null) autoConfirmed++;
+    }
     long decided = approveApproved + approveRejected + doubtApproved + doubtRejected;
     return new AiAgreement(reviewed.size(), decided, approveApproved + doubtRejected,
-        approveRejected, doubtApproved, approveApproved, doubtRejected, undecided);
+        approveRejected, doubtApproved, approveApproved, doubtRejected, undecided,
+        autoPublished, autoConfirmed, autoUnpublished);
   }
 
   /** Todo el teléfono menos los últimos 3 dígitos. */

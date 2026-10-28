@@ -63,7 +63,9 @@ public final class BarrioDtos {
       String reporterPhone,
       String channel,
       Long possibleDuplicateOf,
-      OpsAi ai
+      OpsAi ai,
+      OffsetDateTime autoPublishedAt,
+      Long mergedIntoId
   ) {}
 
   /** Opinión de la IA revisora (Avisá IA F1). Solo ops; null mientras la IA todavía no revisó. */
@@ -85,8 +87,19 @@ public final class BarrioDtos {
       long aiDoubtHumanApproved,
       long aiApproveHumanApproved,
       long aiDoubtHumanRejected,
-      long pendingNoDecision
+      long pendingNoDecision,
+      long autoPublished,
+      long autoConfirmed,
+      long autoUnpublished
   ) {}
+
+  public record AiSettings(boolean autoPublish, double minConfidence, int dailyCap, long publishedToday) {}
+
+  public record AiSettingsRequest(Boolean autoPublish) {}
+
+  public record UnpublishRequest(String reason) {}
+
+  public record AutoPublishedList(List<OpsReport> reports) {}
 
   public record OpsClosure(
       Long id,

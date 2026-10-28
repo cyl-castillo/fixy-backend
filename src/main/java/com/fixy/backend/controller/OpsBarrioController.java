@@ -7,7 +7,15 @@ import com.fixy.backend.dto.BarrioDtos.OpsPending;
 import com.fixy.backend.dto.BarrioDtos.OpsReport;
 import com.fixy.backend.dto.BarrioDtos.PatchRequest;
 import com.fixy.backend.dto.BarrioDtos.RejectRequest;
+import com.fixy.backend.dto.BarrioDtos.AiSettings;
+import com.fixy.backend.dto.BarrioDtos.AiSettingsRequest;
+import com.fixy.backend.dto.BarrioDtos.UnpublishRequest;
 import com.fixy.backend.service.BarrioService;
+import com.fixy.backend.service.BarrioSettingsService;
+import java.util.List;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,9 +30,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class OpsBarrioController {
 
   private final BarrioService barrio;
+  private final BarrioSettingsService settings;
 
-  public OpsBarrioController(BarrioService barrio) {
+  public OpsBarrioController(BarrioService barrio, BarrioSettingsService settings) {
     this.barrio = barrio;
+    this.settings = settings;
   }
 
   @GetMapping("/pending")
@@ -35,6 +45,40 @@ public class OpsBarrioController {
   @GetMapping("/ai-agreement")
   public AiAgreement aiAgreement() {
     return barrio.aiAgreement();
+  }
+
+  @GetMapping("/ai-settings")
+  public AiSettings aiSettings() {
+    return currentSettings();
+  }
+
+  @PutMapping("/ai-settings")
+  public AiSettings putAiSettings(@RequestBody AiSettingsRequest body) {
+    if (body == null || body.autoPublish() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "autoPublish es obligatorio");
+    }
+    settings.setAutoPublish(body.autoPublish());
+    return currentSettings();
+  }
+
+  @GetMapping("/auto-published")
+  public List<OpsReport> autoPublished() {
+    return barrio.autoPublished();
+  }
+
+  @PostMapping("/reports/{id}/confirm")
+  public ApproveResponse confirm(@PathVariable Long id) {
+    return barrio.confirm(id);
+  }
+
+  @PostMapping("/reports/{id}/unpublish")
+  public ApproveResponse unpublish(@PathVariable Long id, @RequestBody(required = false) UnpublishRequest body) {
+    return barrio.unpublish(id, body == null ? null : body.reason());
+  }
+
+  private AiSettings currentSettings() {
+    return new AiSettings(settings.autoPublish(), settings.minConfidence(), settings.dailyCap(),
+        barrio.publishedTodayByAi());
   }
 
   @PostMapping("/reports/{id}/approve")
