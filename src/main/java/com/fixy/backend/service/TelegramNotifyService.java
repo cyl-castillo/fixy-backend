@@ -963,10 +963,17 @@ public class TelegramNotifyService {
    */
   @Async
   public void notifyBarrioReport(Long reportId, String categoryLabel, String zone, String description) {
+    notifyBarrioReport(reportId, categoryLabel, zone, description, null);
+  }
+
+  /** Igual, con la opinión de la IA revisora (Avisá IA F1) como línea extra; null = sin línea. */
+  @Async
+  public void notifyBarrioReport(Long reportId, String categoryLabel, String zone, String description, String aiLine) {
     if (!enabled) return;
     if (com.fixy.backend.model.SmokeTraffic.marks(description)) return;
-    post("🚧 Nuevo reclamo del barrio #%d: %s en %s. Moderalo: %s/admin?tab=barrio"
-        .formatted(reportId, safe(categoryLabel), safe(zone), publicAppBaseUrl));
+    String ai = aiLine == null || aiLine.isBlank() ? "" : "\n" + aiLine;
+    post("🚧 Nuevo reclamo del barrio #%d: %s en %s.%s\nModeralo: %s/admin?tab=barrio"
+        .formatted(reportId, safe(categoryLabel), safe(zone), ai, publicAppBaseUrl));
   }
 
   /** Fixy Barrio B1: un vecino dice que ya lo arreglaron (foto de cierre pendiente de revisión). */

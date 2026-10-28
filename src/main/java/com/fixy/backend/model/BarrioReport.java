@@ -85,6 +85,35 @@ public class BarrioReport {
   @Column(name = "updated_at", nullable = false)
   private OffsetDateTime updatedAt;
 
+  // IA revisora (Fase 1, modo sombra). Solo ops: jamás en la API pública.
+  @Column(name = "ai_verdict", length = 12)
+  private String aiVerdict;
+
+  @Column(name = "ai_confidence")
+  private Double aiConfidence;
+
+  @Column(name = "ai_reasons", columnDefinition = "text")
+  private String aiReasons;
+
+  @Column(name = "ai_suggested_category", length = 16)
+  private String aiSuggestedCategory;
+
+  @Column(name = "ai_summary", columnDefinition = "text")
+  private String aiSummary;
+
+  @Column(name = "ai_reviewed_at")
+  private OffsetDateTime aiReviewedAt;
+
+  @Column(name = "ai_attempts", nullable = false)
+  private int aiAttempts = 0;
+
+  /** APPROVED | REJECTED | MERGED, lo que decidió el humano en ops. */
+  @Column(name = "human_decision", length = 12)
+  private String humanDecision;
+
+  @Column(name = "human_decided_at")
+  private OffsetDateTime humanDecidedAt;
+
   public Long getId() { return id; }
   public String getCategory() { return category; }
   public void setCategory(String category) { this.category = category; }
@@ -122,4 +151,22 @@ public class BarrioReport {
   public void setClosurePhotoPath(String closurePhotoPath) { this.closurePhotoPath = closurePhotoPath; }
   public OffsetDateTime getUpdatedAt() { return updatedAt; }
   public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
+  public String getAiVerdict() { return aiVerdict; }
+  public void setAiVerdict(String aiVerdict) { this.aiVerdict = aiVerdict; }
+  public Double getAiConfidence() { return aiConfidence; }
+  public void setAiConfidence(Double aiConfidence) { this.aiConfidence = aiConfidence; }
+  public String getAiReasons() { return aiReasons; }
+  public void setAiReasons(String aiReasons) { this.aiReasons = aiReasons; }
+  public String getAiSuggestedCategory() { return aiSuggestedCategory; }
+  public void setAiSuggestedCategory(String aiSuggestedCategory) { this.aiSuggestedCategory = aiSuggestedCategory; }
+  public String getAiSummary() { return aiSummary; }
+  public void setAiSummary(String aiSummary) { this.aiSummary = aiSummary; }
+  public OffsetDateTime getAiReviewedAt() { return aiReviewedAt; }
+  public void setAiReviewedAt(OffsetDateTime aiReviewedAt) { this.aiReviewedAt = aiReviewedAt; }
+  public int getAiAttempts() { return aiAttempts; }
+  public void setAiAttempts(int aiAttempts) { this.aiAttempts = aiAttempts; }
+  public String getHumanDecision() { return humanDecision; }
+  public void setHumanDecision(String humanDecision) { this.humanDecision = humanDecision; }
+  public OffsetDateTime getHumanDecidedAt() { return humanDecidedAt; }
+  public void setHumanDecidedAt(OffsetDateTime humanDecidedAt) { this.humanDecidedAt = humanDecidedAt; }
 }

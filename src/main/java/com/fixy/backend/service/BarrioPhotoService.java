@@ -105,6 +105,22 @@ public class BarrioPhotoService {
     }
   }
 
+  /** Bytes de una foto ya guardada (para la IA revisora). Lanza IllegalStateException si no se puede leer. */
+  public byte[] read(String relative) {
+    if (relative == null || relative.isBlank()) {
+      throw new IllegalStateException("foto sin path");
+    }
+    Path target = uploadsRoot.resolve(relative).normalize();
+    if (!target.startsWith(uploadsRoot.resolve(DIR))) {
+      throw new IllegalStateException("path de foto inválido");
+    }
+    try {
+      return Files.readAllBytes(target);
+    } catch (IOException e) {
+      throw new IllegalStateException("no se pudo leer la foto: " + relative);
+    }
+  }
+
   public String urlFor(String relative) {
     if (relative == null || relative.isBlank()) return null;
     return urlPrefix + "/" + relative;

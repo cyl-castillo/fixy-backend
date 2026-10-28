@@ -1,5 +1,6 @@
 package com.fixy.backend.controller;
 
+import com.fixy.backend.dto.BarrioDtos.AiAgreement;
 import com.fixy.backend.dto.BarrioDtos.ApproveResponse;
 import com.fixy.backend.dto.BarrioDtos.ClosureReviewResponse;
 import com.fixy.backend.dto.BarrioDtos.OpsPending;
@@ -29,6 +30,11 @@ public class OpsBarrioController {
   @GetMapping("/pending")
   public OpsPending pending() {
     return barrio.pending();
+  }
+
+  @GetMapping("/ai-agreement")
+  public AiAgreement aiAgreement() {
+    return barrio.aiAgreement();
   }
 
   @PostMapping("/reports/{id}/approve")

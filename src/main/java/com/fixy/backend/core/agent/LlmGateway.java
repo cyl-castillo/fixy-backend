@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -48,6 +49,8 @@ public class LlmGateway {
 
   private static final Logger log = LoggerFactory.getLogger(LlmGateway.class);
 
+  static final String DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
+
   private final ObjectMapper objectMapper;
   private final WebClient openAiClient;
   private final WebClient ollamaClient;
@@ -61,6 +64,17 @@ public class LlmGateway {
   private final String cloudflareModel;
   private final boolean enabled;
 
+  /** Constructor legacy (10 args, tests): OpenAI real. */
+  public LlmGateway(
+      ObjectMapper objectMapper, String openAiApiKey, String openAiModel, boolean enabled,
+      String provider, String ollamaBaseUrl, String ollamaModel, String cloudflareAccountId,
+      String cloudflareApiToken, String cloudflareModel
+  ) {
+    this(objectMapper, openAiApiKey, openAiModel, enabled, provider, ollamaBaseUrl, ollamaModel,
+        cloudflareAccountId, cloudflareApiToken, cloudflareModel, DEFAULT_OPENAI_BASE_URL);
+  }
+
+  @Autowired
   public LlmGateway(
       ObjectMapper objectMapper,
       @Value("${fixy.openai.api-key:}") String openAiApiKey,
@@ -71,7 +85,8 @@ public class LlmGateway {
       @Value("${fixy.ollama.model:qwen2.5:3b}") String ollamaModel,
       @Value("${fixy.cloudflare.account-id:}") String cloudflareAccountId,
       @Value("${fixy.cloudflare.api-token:}") String cloudflareApiToken,
-      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel
+      @Value("${fixy.cloudflare.model:@cf/meta/llama-3.3-70b-instruct-fp8-fast}") String cloudflareModel,
+      @Value("${fixy.openai.base-url:" + DEFAULT_OPENAI_BASE_URL + "}") String openAiBaseUrl
   ) {
     this.objectMapper = objectMapper;
     this.openAiApiKey = openAiApiKey;
@@ -85,7 +100,8 @@ public class LlmGateway {
     log.info("LlmGateway initialized: provider={} enabled={} cloudflareModel={} ollamaModel={}",
         this.provider, this.enabled, cloudflareModel, ollamaModel);
     this.openAiClient = WebClient.builder()
-        .baseUrl("https://api.openai.com/v1")
+        .baseUrl(openAiBaseUrl == null || openAiBaseUrl.isBlank() ? DEFAULT_OPENAI_BASE_URL : openAiBaseUrl)
+        .codecs(c -> c.defaultCodecs().maxInMemorySize(2 * 1024 * 1024))
         .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
         .build();
     this.ollamaClient = WebClient.builder()
@@ -186,6 +202,65 @@ public class LlmGateway {
    */
   public String completeJsonWorkersAi(String userContent, Map<String, Object> jsonSchema) {
     return callWorkersAiJson(null, userContent, jsonSchema, 400, 0.3, 30);
+  }
+
+  /**
+   * JSON estructurado con una imagen, SOLO OpenAI (Responses API): {@code input_text} +
+   * {@code input_image} (data URL) y salida con json_schema estricto. Devuelve el JSON como texto
+   * o {@code null} si no hay key, falla la llamada o no hay texto (el llamador decide; acá no hay
+   * fallback a otro proveedor). Timeout 45 s, sin reintento interno: reintenta el scheduler.
+   * Reusa {@link #parseResponsesBody} (recorre todo {@code output[]}).
+   */
+  public String completeJsonWithImage(
+      String systemPrompt, String userText, byte[] image, String mime, Map<String, Object> jsonSchema) {
+    if (!hasOpenAiKey() || image == null || image.length == 0) {
+      return null;
+    }
+    try {
+      String raw = openAiClient.post()
+          .uri("/responses")
+          .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
+          .bodyValue(buildImageJsonPayload(openAiModel, systemPrompt, userText, image, mime, jsonSchema))
+          .retrieve()
+          .bodyToMono(String.class)
+          .timeout(Duration.ofSeconds(45))
+          .block();
+      if (raw == null || raw.isBlank()) {
+        log.warn("openai: respuesta vacía de /responses con imagen (modelo {})", openAiModel);
+        return null;
+      }
+      return parseResponsesBody(raw);
+    } catch (Exception ex) {
+      log.warn("openai image call failed: {}", ex.getMessage());
+      return null;
+    }
+  }
+
+  /** Body de /responses con imagen y json_schema strict. Estático y sin red: testeable. */
+  public static Map<String, Object> buildImageJsonPayload(
+      String model, String systemPrompt, String userText, byte[] image, String mime,
+      Map<String, Object> jsonSchema) {
+    String dataUrl = "data:" + (mime == null || mime.isBlank() ? "image/jpeg" : mime)
+        + ";base64," + java.util.Base64.getEncoder().encodeToString(image);
+    Map<String, Object> payload = new java.util.LinkedHashMap<>();
+    payload.put("model", model);
+    if (systemPrompt != null && !systemPrompt.isBlank()) {
+      payload.put("instructions", systemPrompt);
+    }
+    payload.put("input", List.of(Map.of(
+        "role", "user",
+        "content", List.of(
+            Map.of("type", "input_text", "text", userText),
+            Map.of("type", "input_image", "image_url", dataUrl)))));
+    payload.put("text", Map.of("format", Map.of(
+        "type", "json_schema",
+        "name", "barrio_review",
+        "strict", true,
+        "schema", jsonSchema)));
+    if (model != null && model.toLowerCase(Locale.ROOT).startsWith("gpt-5")) {
+      payload.put("reasoning", Map.of("effort", "low"));
+    }
+    return payload;
   }
 
   private static String concat(String systemPrompt, String userContent) {

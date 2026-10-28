@@ -62,7 +62,30 @@ public final class BarrioDtos {
       String description,
       String reporterPhone,
       String channel,
-      Long possibleDuplicateOf
+      Long possibleDuplicateOf,
+      OpsAi ai
+  ) {}
+
+  /** Opinión de la IA revisora (Avisá IA F1). Solo ops; null mientras la IA todavía no revisó. */
+  public record OpsAi(
+      String verdict,
+      Double confidence,
+      List<String> reasons,
+      String suggestedCategory,
+      String summary,
+      OffsetDateTime reviewedAt
+  ) {}
+
+  /** Coincidencia IA vs. decisión humana (modo sombra). */
+  public record AiAgreement(
+      long reviewed,
+      long decided,
+      long agree,
+      long aiApproveHumanRejected,
+      long aiDoubtHumanApproved,
+      long aiApproveHumanApproved,
+      long aiDoubtHumanRejected,
+      long pendingNoDecision
   ) {}
 
   public record OpsClosure(

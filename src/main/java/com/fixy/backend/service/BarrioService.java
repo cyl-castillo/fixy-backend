@@ -1,10 +1,12 @@
 package com.fixy.backend.service;
 
+import com.fixy.backend.dto.BarrioDtos.AiAgreement;
 import com.fixy.backend.dto.BarrioDtos.ApproveResponse;
 import com.fixy.backend.dto.BarrioDtos.CategoryCount;
 import com.fixy.backend.dto.BarrioDtos.ClosureResponse;
 import com.fixy.backend.dto.BarrioDtos.ClosureReviewResponse;
 import com.fixy.backend.dto.BarrioDtos.CreateResponse;
+import com.fixy.backend.dto.BarrioDtos.OpsAi;
 import com.fixy.backend.dto.BarrioDtos.OpsClosure;
 import com.fixy.backend.dto.BarrioDtos.OpsPending;
 import com.fixy.backend.dto.BarrioDtos.OpsReport;
@@ -31,6 +33,7 @@ import java.time.Duration;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -62,18 +65,35 @@ public class BarrioService {
   private final BarrioClosureClaimRepository closures;
   private final BarrioPhotoService photos;
   private final TelegramNotifyService telegram;
+  /** null = sin IA revisora (constructor legacy de los tests): el aviso sale enseguida como siempre. */
+  private final BarrioAiReviewService aiReview;
   private final int maxWritesPerWindow;
   private final Duration window;
   private final Map<String, Deque<Instant>> writesByIp = new ConcurrentHashMap<>();
 
+  /** Constructor legacy (6 args, tests): sin IA revisora. */
   public BarrioService(
       BarrioReportRepository reports,
       BarrioClosureClaimRepository closures,
       BarrioPhotoService photos,
       TelegramNotifyService telegram,
+      int maxWritesPerWindow,
+      long windowSeconds
+  ) {
+    this(reports, closures, photos, telegram, null, maxWritesPerWindow, windowSeconds);
+  }
+
+  @Autowired
+  public BarrioService(
+      BarrioReportRepository reports,
+      BarrioClosureClaimRepository closures,
+      BarrioPhotoService photos,
+      TelegramNotifyService telegram,
+      BarrioAiReviewService aiReview,
       @Value("${fixy.barrio.rate-limit.max-requests-per-window:10}") int maxWritesPerWindow,
       @Value("${fixy.barrio.rate-limit.window-seconds:600}") long windowSeconds
   ) {
+    this.aiReview = aiReview;
     this.reports = reports;
     this.closures = closures;
     this.photos = photos;
@@ -128,12 +148,24 @@ public class BarrioService {
     report.setChannel(channel);
     report.setCreatedAt(now);
     report.setUpdatedAt(now);
+    // IA revisora: si va a revisar, el aviso a Telegram sale DESPUÉS de la revisión (la manda el
+    // scheduler, o al agotar intentos). Si no hay IA (apagada / sin key) → SIN_IA y aviso enseguida.
+    boolean aiWillReview = aiReview != null && aiReview.isActive();
+    if (aiReview != null && !aiWillReview) {
+      report.setAiVerdict(BarrioAiVerdict.SIN_IA);
+    }
     BarrioReport saved = reports.save(report);
     Long dup = findDuplicate(saved).map(BarrioReport::getId).orElse(null);
-    try {
-      telegram.notifyBarrioReport(saved.getId(), labelOf(category), saved.getZone(), description);
-    } catch (RuntimeException e) {
-      log.warn("telegram barrio report #{} falló: {}", saved.getId(), e.getMessage());
+    if (!aiWillReview) {
+      try {
+        if (aiReview != null) {
+          aiReview.notifyTelegram(saved);
+        } else {
+          telegram.notifyBarrioReport(saved.getId(), labelOf(category), saved.getZone(), description);
+        }
+      } catch (RuntimeException e) {
+        log.warn("telegram barrio report #{} falló: {}", saved.getId(), e.getMessage());
+      }
     }
     return new CreateResponse(saved.getId(), saved.getStatus(), dup);
   }
@@ -273,6 +305,8 @@ public class BarrioService {
       report.setStatus(BarrioReport.PUBLISHED);
       report.setPublishedAt(now);
     }
+    report.setHumanDecision(BarrioReport.MERGED.equals(report.getStatus()) ? "MERGED" : "APPROVED");
+    report.setHumanDecidedAt(now);
     report.setUpdatedAt(now);
     reports.save(report);
     return new ApproveResponse(report.getStatus(), report.getMergedIntoId());
@@ -287,6 +321,8 @@ public class BarrioService {
     }
     report.setStatus(BarrioReport.REJECTED);
     report.setRejectReason(clean == null || clean.isEmpty() ? null : clean);
+    report.setHumanDecision("REJECTED");
+    report.setHumanDecidedAt(OffsetDateTime.now());
     report.setUpdatedAt(OffsetDateTime.now());
     reports.save(report);
     return new ApproveResponse(report.getStatus(), null);
@@ -460,7 +496,43 @@ public class BarrioService {
         r.getId(), r.getCategory(), labelOf(r.getCategory()), r.getZone(),
         r.getLat(), r.getLng(), photos.urlFor(r.getPhotoPath()), r.getCreatedAt(),
         daysOpen(r, now), r.getSupporters(), r.getStatus(), r.getDescription(),
-        maskPhone(r.getReporterPhone()), r.getChannel(), dup);
+        maskPhone(r.getReporterPhone()), r.getChannel(), dup, toAi(r));
+  }
+
+  /**
+   * Opinión de la IA para ops. null = "revisando": aún sin veredicto, o ERROR con intentos por
+   * delante (el scheduler reintenta). ERROR con intentos agotados sí se expone ("no pudo revisar").
+   */
+  static OpsAi toAi(BarrioReport r) {
+    String v = r.getAiVerdict();
+    if (v == null) return null;
+    if (BarrioAiVerdict.ERROR.equals(v) && r.getAiAttempts() < BarrioAiReviewService.MAX_ATTEMPTS) return null;
+    return new OpsAi(v, r.getAiConfidence(), BarrioAiReviewService.splitReasons(r.getAiReasons()),
+        r.getAiSuggestedCategory(), r.getAiSummary(), r.getAiReviewedAt());
+  }
+
+  /** Coincidencia de la IA con la decisión humana (MERGED cuenta como aprobado). */
+  @Transactional(readOnly = true)
+  public AiAgreement aiAgreement() {
+    long approveApproved = 0, approveRejected = 0, doubtApproved = 0, doubtRejected = 0, undecided = 0;
+    List<BarrioReport> reviewed = reports.findByAiVerdictIn(
+        List.of(BarrioAiVerdict.APROBAR, BarrioAiVerdict.DUDOSO));
+    for (BarrioReport r : reviewed) {
+      String h = r.getHumanDecision();
+      if (h == null) {
+        undecided++;
+        continue;
+      }
+      boolean humanApproved = !"REJECTED".equals(h);
+      if (BarrioAiVerdict.APROBAR.equals(r.getAiVerdict())) {
+        if (humanApproved) approveApproved++; else approveRejected++;
+      } else {
+        if (humanApproved) doubtApproved++; else doubtRejected++;
+      }
+    }
+    long decided = approveApproved + approveRejected + doubtApproved + doubtRejected;
+    return new AiAgreement(reviewed.size(), decided, approveApproved + doubtRejected,
+        approveRejected, doubtApproved, approveApproved, doubtRejected, undecided);
   }
 
   /** Todo el teléfono menos los últimos 3 dígitos. */
