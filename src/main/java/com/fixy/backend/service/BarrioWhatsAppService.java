@@ -54,7 +54,7 @@ public class BarrioWhatsAppService {
       BarrioService barrio,
       BarrioPhotoService photos,
       WhatsAppService whatsapp,
-      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl
+      @Value("${fixy.barrio.public-base-url:https://avisa.fixy.com.uy}") String publicAppBaseUrl
   ) {
     this.drafts = drafts;
     this.barrio = barrio;
@@ -175,7 +175,7 @@ public class BarrioWhatsAppService {
         CreateResponse created = barrio.create(d.getCategory(), d.getLat(), d.getLng(), d.getPhotoPath(),
             null, d.getPhone(), "whatsapp");
         if (d.getId() != null) drafts.delete(d);
-        whatsapp.sendText(from, "Recibido, reclamo #%d. Lo revisamos y en unas horas aparece en el mapa: %s/barrio/r/%d"
+        whatsapp.sendText(from, "Recibido, reclamo #%d. Lo revisamos y en unas horas aparece en el mapa: %s/r/%d"
             .formatted(created.id(), publicAppBaseUrl, created.id()));
       } catch (RuntimeException e) {
         log.warn("barrio whatsapp: no se pudo crear el reclamo del borrador {}: {}", d.getPhone(), e.getMessage());

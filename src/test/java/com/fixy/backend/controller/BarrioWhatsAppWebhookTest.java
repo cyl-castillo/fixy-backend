@@ -160,7 +160,7 @@ class BarrioWhatsAppWebhookTest {
     assertThat(r.getZone()).isEqualTo("Lagomar");
     assertThat(r.getReporterPhone()).isEqualTo(phone);
     verify(whatsapp).sendText(eq(phone),
-        contains("Recibido, reclamo #" + r.getId() + ". Lo revisamos y en unas horas aparece en el mapa: https://www.fixy.com.uy/barrio/r/" + r.getId()));
+        contains("Recibido, reclamo #" + r.getId() + ". Lo revisamos y en unas horas aparece en el mapa: https://avisa.fixy.com.uy/r/" + r.getId()));
 
     // La foto guardada no conserva el EXIF de lo que mandó el celular.
     byte[] saved = Files.readAllBytes(Path.of("target/barrio-test-uploads").resolve(r.getPhotoPath()));

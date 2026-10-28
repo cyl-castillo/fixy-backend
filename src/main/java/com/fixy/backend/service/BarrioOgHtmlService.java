@@ -27,8 +27,8 @@ public class BarrioOgHtmlService {
 
   private static final String FALLBACK_HTML = "<!doctype html><html lang=\"es\"><head>"
       + "<meta charset=\"UTF-8\" />"
-      + "<link rel=\"canonical\" href=\"https://www.fixy.com.uy/\" />"
-      + "<title>Fixy — Servicios del hogar en Ciudad de la Costa</title>"
+      + "<link rel=\"canonical\" href=\"https://avisa.fixy.com.uy/\" />"
+      + "<title>Avisá — Reclamos vecinales en Ciudad de la Costa</title>"
       + "</head><body><div id=\"root\"></div></body></html>";
   private static final Pattern OG_META_TAG = Pattern.compile(
       "<meta[^>]*(?:property=\"og:[^\"]*\"|name=\"twitter:card\")[^>]*/?>\\s*", Pattern.CASE_INSENSITIVE);
@@ -45,8 +45,8 @@ public class BarrioOgHtmlService {
 
   public BarrioOgHtmlService(
       BarrioService barrio,
-      @Value("${fixy.frontend.index-path:/var/www/fixy-app/current/index.html}") String indexPath,
-      @Value("${fixy.public-app-base-url:https://www.fixy.com.uy}") String publicAppBaseUrl,
+      @Value("${fixy.barrio.index-path:/var/www/avisa-app/current/index.html}") String indexPath,
+      @Value("${fixy.barrio.public-base-url:https://avisa.fixy.com.uy}") String publicAppBaseUrl,
       @Value("${fixy.public-api-base-url:https://api.fixy.com.uy}") String publicApiBaseUrl
   ) {
     this.barrio = barrio;
@@ -65,7 +65,7 @@ public class BarrioOgHtmlService {
     }
     String title = buildTitle(report);
     String description = buildDescription(report);
-    String url = publicAppBaseUrl + "/barrio/r/" + report.id();
+    String url = publicAppBaseUrl + "/r/" + report.id();
     String image = absoluteImage(report.photoUrl());
 
     String html = OG_META_TAG.matcher(baseHtml).replaceAll("");
@@ -95,7 +95,7 @@ public class BarrioOgHtmlService {
         ? "Los vecinos lo reportaron y ya está arreglado."
         : "Reclamo vecinal en el mapa del barrio.";
     String supporters = r.supporters() > 1 ? " " + r.supporters() + " vecinos lo reportaron." : "";
-    return base + supporters + " Mirá el mapa del barrio en Fixy.";
+    return base + supporters + " Mirá el mapa del barrio en Avisá.";
   }
 
   /** Escapa solo lo significativo para HTML (&, <, >, comillas): los acentos y la raya van como UTF-8 literal. */
@@ -121,7 +121,7 @@ public class BarrioOgHtmlService {
     Matcher m = EMPTY_ROOT_DIV.matcher(html);
     if (!m.find()) return html;
     String block = "<main><h1>" + esc(title) + "</h1><p>" + esc(description)
-        + "</p><p><a href=\"" + esc(url) + "\">Ver este reclamo en Fixy</a></p></main>";
+        + "</p><p><a href=\"" + esc(url) + "\">Ver este reclamo en Avisá</a></p></main>";
     return html.substring(0, m.start()) + "<div id=\"root\">" + block + "</div>" + html.substring(m.end());
   }
 

@@ -359,7 +359,7 @@ class BarrioApiTest {
         mvc.perform(get("/api/public/barrio/reports/{id}", id)).andReturn().getResponse().getContentAsString(), "$.id")).longValue();
     assertThat(html).contains("<meta property=\"og:title\" content=\"Bache en Solymar — lleva 0 días\"")
         .contains("og:image\" content=\"https://api.fixy.com.uy/uploads/barrio/")
-        .contains("og:url\" content=\"https://www.fixy.com.uy/barrio/r/" + target + "\"")
+        .contains("og:url\" content=\"https://avisa.fixy.com.uy/r/" + target + "\"")
         .doesNotContain("Ramón");
   }
 

@@ -69,6 +69,7 @@ public class SecurityConfig {
     CorsConfiguration configuration = new CorsConfiguration();
     configuration.setAllowedOrigins(List.of(
         "https://www.fixy.com.uy",
+        "https://avisa.fixy.com.uy",
         "https://fixy.com.uy",
         "https://cyl-castillo.github.io",
         "http://127.0.0.1:5173",
