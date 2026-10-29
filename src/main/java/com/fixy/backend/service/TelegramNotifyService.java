@@ -995,10 +995,17 @@ public class TelegramNotifyService {
   /** Fixy Barrio B1: un vecino dice que ya lo arreglaron (foto de cierre pendiente de revisión). */
   @Async
   public void notifyBarrioClosure(Long reportId, String categoryLabel, String zone, String comment) {
+    notifyBarrioClosure(reportId, categoryLabel, zone, comment, null);
+  }
+
+  /** Con la línea de pruebas del cierre ("Pruebas: FUERTES (IA 91 %: …)"), que se manda tras la revisión. */
+  @Async
+  public void notifyBarrioClosure(Long reportId, String categoryLabel, String zone, String comment, String evidenceLine) {
     if (!enabled) return;
     if (com.fixy.backend.model.SmokeTraffic.marks(comment)) return;
-    post("✅ Cierre del reclamo #%d (%s en %s): un vecino dice que ya lo arreglaron. Revisá la foto: %s/admin?tab=barrio"
-        .formatted(reportId, safe(categoryLabel), safe(zone), publicAppBaseUrl));
+    post("✅ Cierre del reclamo #%d (%s en %s): un vecino dice que ya lo arreglaron.%s Revisá la foto: %s/admin?tab=barrio"
+        .formatted(reportId, safe(categoryLabel), safe(zone),
+            evidenceLine == null || evidenceLine.isBlank() ? "" : "\n" + safe(evidenceLine) + "\n", publicAppBaseUrl));
   }
 
   private void send(Lead lead, String text) {

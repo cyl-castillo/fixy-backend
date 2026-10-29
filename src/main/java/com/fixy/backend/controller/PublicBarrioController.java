@@ -64,9 +64,12 @@ public class PublicBarrioController {
       @PathVariable Long id,
       @RequestParam(value = "photo", required = false) MultipartFile photo,
       @RequestParam(value = "comment", required = false) String comment,
+      @RequestParam(value = "lat", required = false) Double lat,
+      @RequestParam(value = "lng", required = false) Double lng,
+      @RequestParam(value = "accuracy", required = false) Double accuracy,
       HttpServletRequest request
   ) {
-    return barrio.submitClosure(clientIp(request), id, photo, comment);
+    return barrio.submitClosure(clientIp(request), id, photo, comment, lat, lng, accuracy);
   }
 
   /**

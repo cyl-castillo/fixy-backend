@@ -67,7 +67,7 @@ public class AgentTurn {
   /** Null: intake sin lead. Nunca el id de un provider_lead. */
   private Long leadId;
 
-  @Column(nullable = false, length = 16)
+  @Column(nullable = false, length = 32)
   private String kind;
 
   /** El valor de {@code LlmGateway.provider()}: openai | workersai | ollama | none. */

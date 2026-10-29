@@ -11,6 +11,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.HexFormat;
 import java.util.Iterator;
 import javax.imageio.IIOImage;
@@ -60,12 +63,20 @@ public class BarrioPhotoService {
 
   /** Foto subida por la web: 413 si pasa de 8 MB, 400 si no es jpg/png/webp decodificable. */
   public String store(MultipartFile file) {
+    return storeWithMeta(file).path();
+  }
+
+  /** Lo que se guardó y lo que se pudo saber de la foto ORIGINAL (path, fecha EXIF, huella). */
+  public record StoredPhoto(String path, OffsetDateTime takenAt, long dhash) {}
+
+  /** Igual que {@link #store(MultipartFile)} pero además lee la fecha EXIF y calcula el dHash (cierres C1). */
+  public StoredPhoto storeWithMeta(MultipartFile file) {
     if (file != null && file.getSize() > MAX_BYTES) {
       throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "foto demasiado grande (max 8 MB)");
     }
     ImageUploadValidator.validate(file, MAX_BYTES);
     try {
-      return store(file.getBytes());
+      return storeWithMeta(file.getBytes());
     } catch (IOException e) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "no se pudo leer la foto");
     }
@@ -73,13 +84,23 @@ public class BarrioPhotoService {
 
   /** Foto cruda (descarga de WhatsApp o ya leída): procesa y guarda; devuelve el path relativo. */
   public String store(byte[] raw) {
+    return storeWithMeta(raw).path();
+  }
+
+  /**
+   * Procesa y guarda; la fecha EXIF se lee del original ANTES de re-codificar (el re-codificado
+   * borra toda la metadata) y el dHash se calcula sobre la imagen ya normalizada.
+   */
+  public StoredPhoto storeWithMeta(byte[] raw) {
     if (raw == null || raw.length == 0) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "archivo vacio");
     }
     if (raw.length > MAX_BYTES) {
       throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "foto demasiado grande (max 8 MB)");
     }
+    OffsetDateTime takenAt = ExifDate.read(raw);
     byte[] jpeg = process(raw);
+    long dhash = BarrioImageHash.dhash(jpeg);
     String relative = DIR + "/" + randomHex(12) + ".jpg";
     Path target = uploadsRoot.resolve(relative).normalize();
     if (!target.startsWith(uploadsRoot)) {
@@ -91,7 +112,7 @@ public class BarrioPhotoService {
     } catch (IOException e) {
       throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "no se pudo guardar la foto");
     }
-    return relative;
+    return new StoredPhoto(relative, takenAt, dhash);
   }
 
   public void deleteQuietly(String relative) {
@@ -243,6 +264,43 @@ public class BarrioPhotoService {
     return HexFormat.of().formatHex(buf);
   }
 
+  /** Localiza el bloque TIFF del APP1/Exif de un JPEG: {inicio, fin} o null si no hay. */
+  static int[] findTiff(byte[] d) {
+    try {
+      if (d.length < 4 || (d[0] & 0xFF) != 0xFF || (d[1] & 0xFF) != 0xD8) return null;
+      int pos = 2;
+      while (pos + 4 <= d.length) {
+        if ((d[pos] & 0xFF) != 0xFF) return null;
+        int marker = d[pos + 1] & 0xFF;
+        if (marker == 0xDA || marker == 0xD9) return null;
+        int len = ((d[pos + 2] & 0xFF) << 8) | (d[pos + 3] & 0xFF);
+        if (marker == 0xE1 && len >= 14 && pos + 4 + 6 <= d.length
+            && d[pos + 4] == 'E' && d[pos + 5] == 'x' && d[pos + 6] == 'i' && d[pos + 7] == 'f') {
+          return new int[] {pos + 10, Math.min(d.length, pos + 2 + len)};
+        }
+        pos += 2 + len;
+      }
+    } catch (RuntimeException ignored) {
+      // EXIF corrupto
+    }
+    return null;
+  }
+
+  static int u16(byte[] d, int p, boolean le) {
+    int a = d[p] & 0xFF;
+    int b = d[p + 1] & 0xFF;
+    return le ? (b << 8) | a : (a << 8) | b;
+  }
+
+  static long u32(byte[] d, int p, boolean le) {
+    long v = 0;
+    for (int i = 0; i < 4; i++) {
+      int b = d[le ? p + 3 - i : p + i] & 0xFF;
+      v = (v << 8) | b;
+    }
+    return v;
+  }
+
   /** Lector mínimo del tag Orientation (0x0112) del EXIF de un JPEG. 1 si no hay o no es legible. */
   static final class ExifOrientation {
     private ExifOrientation() {
@@ -250,23 +308,12 @@ public class BarrioPhotoService {
 
     static int read(byte[] d) {
       try {
-        if (d.length < 4 || (d[0] & 0xFF) != 0xFF || (d[1] & 0xFF) != 0xD8) return 1;
-        int pos = 2;
-        while (pos + 4 <= d.length) {
-          if ((d[pos] & 0xFF) != 0xFF) return 1;
-          int marker = d[pos + 1] & 0xFF;
-          if (marker == 0xDA || marker == 0xD9) return 1;
-          int len = ((d[pos + 2] & 0xFF) << 8) | (d[pos + 3] & 0xFF);
-          if (marker == 0xE1 && len >= 14 && pos + 4 + 6 <= d.length
-              && d[pos + 4] == 'E' && d[pos + 5] == 'x' && d[pos + 6] == 'i' && d[pos + 7] == 'f') {
-            return readTiff(d, pos + 10, Math.min(d.length, pos + 2 + len));
-          }
-          pos += 2 + len;
-        }
+        int[] range = findTiff(d);
+        return range == null ? 1 : readTiff(d, range[0], range[1]);
       } catch (RuntimeException ignored) {
         // EXIF corrupto: se asume orientación normal
+        return 1;
       }
-      return 1;
     }
 
     private static int readTiff(byte[] d, int tiff, int end) {
@@ -286,20 +333,81 @@ public class BarrioPhotoService {
       }
       return 1;
     }
+  }
 
-    private static int u16(byte[] d, int p, boolean le) {
-      int a = d[p] & 0xFF;
-      int b = d[p + 1] & 0xFF;
-      return le ? (b << 8) | a : (a << 8) | b;
+  /**
+   * Lector mínimo de la fecha de la foto: DateTimeOriginal (0x9003, sub-IFD Exif apuntado por 0x8769)
+   * o, si no está, DateTime (0x0132 del IFD0). El EXIF no trae zona: se interpreta en Montevideo.
+   * null si no hay o es ilegible.
+   */
+  static final class ExifDate {
+    static final ZoneId ZONE = ZoneId.of("America/Montevideo");
+    private static final java.time.format.DateTimeFormatter FMT =
+        java.time.format.DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss");
+
+    private ExifDate() {
     }
 
-    private static long u32(byte[] d, int p, boolean le) {
-      long v = 0;
-      for (int i = 0; i < 4; i++) {
-        int b = d[le ? p + 3 - i : p + i] & 0xFF;
-        v = (v << 8) | b;
+    static OffsetDateTime read(byte[] d) {
+      try {
+        int[] range = findTiff(d);
+        if (range == null) return null;
+        int tiff = range[0];
+        int end = range[1];
+        if (tiff + 8 > end) return null;
+        boolean le = d[tiff] == 'I' && d[tiff + 1] == 'I';
+        if (!le && !(d[tiff] == 'M' && d[tiff + 1] == 'M')) return null;
+        int ifd0 = tiff + (int) u32(d, tiff + 4, le);
+        String original = null;
+        String plain = null;
+        long exifPtr = -1;
+        int count = entries(d, ifd0, tiff, end, le);
+        for (int i = 0; i < count; i++) {
+          int e = ifd0 + 2 + i * 12;
+          int tag = u16(d, e, le);
+          if (tag == 0x0132) plain = ascii(d, e, tiff, end, le);
+          else if (tag == 0x8769) exifPtr = u32(d, e + 8, le);
+        }
+        if (exifPtr > 0) {
+          int sub = tiff + (int) exifPtr;
+          int n = entries(d, sub, tiff, end, le);
+          for (int i = 0; i < n; i++) {
+            int e = sub + 2 + i * 12;
+            if (u16(d, e, le) == 0x9003) original = ascii(d, e, tiff, end, le);
+          }
+        }
+        OffsetDateTime parsed = parse(original);
+        return parsed != null ? parsed : parse(plain);
+      } catch (RuntimeException ignored) {
+        return null;
       }
-      return v;
+    }
+
+    /** Cantidad de entradas del IFD en {@code ifd} (0 si se sale del bloque). */
+    private static int entries(byte[] d, int ifd, int tiff, int end, boolean le) {
+      if (ifd < tiff || ifd + 2 > end) return 0;
+      int count = u16(d, ifd, le);
+      return ifd + 2 + count * 12 <= end ? count : 0;
+    }
+
+    private static String ascii(byte[] d, int entry, int tiff, int end, boolean le) {
+      if (u16(d, entry + 2, le) != 2) return null; // tipo ASCII
+      long n = u32(d, entry + 4, le);
+      if (n < 19 || n > 64) return null;
+      int start = n <= 4 ? entry + 8 : tiff + (int) u32(d, entry + 8, le);
+      if (start < tiff || start + n > end) return null;
+      return new String(d, start, (int) n, java.nio.charset.StandardCharsets.US_ASCII).trim().replace("\0", "");
+    }
+
+    private static OffsetDateTime parse(String s) {
+      if (s == null) return null;
+      String t = s.replace("\u0000", "").trim();
+      if (t.length() < 19) return null;
+      try {
+        return LocalDateTime.parse(t.substring(0, 19), FMT).atZone(ZONE).toOffsetDateTime();
+      } catch (java.time.DateTimeException e) {
+        return null;
+      }
     }
   }
 }

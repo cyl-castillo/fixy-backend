@@ -213,14 +213,27 @@ public class LlmGateway {
    */
   public String completeJsonWithImage(
       String systemPrompt, String userText, byte[] image, String mime, Map<String, Object> jsonSchema) {
-    if (!hasOpenAiKey() || image == null || image.length == 0) {
+    if (image == null || image.length == 0) {
+      return null;
+    }
+    return completeJsonWithImages(systemPrompt, userText, List.of(image), mime, jsonSchema);
+  }
+
+  /**
+   * Igual que {@link #completeJsonWithImage} pero con varias imágenes, en el orden dado (cierres de
+   * Avisá: 1 = antes, 2 = después). Una sola imagen es un caso de este método.
+   */
+  public String completeJsonWithImages(
+      String systemPrompt, String userText, List<byte[]> images, String mime, Map<String, Object> jsonSchema) {
+    if (!hasOpenAiKey() || images == null || images.isEmpty()
+        || images.stream().anyMatch(i -> i == null || i.length == 0)) {
       return null;
     }
     try {
       String raw = openAiClient.post()
           .uri("/responses")
           .header(HttpHeaders.AUTHORIZATION, "Bearer " + openAiApiKey)
-          .bodyValue(buildImageJsonPayload(openAiModel, systemPrompt, userText, image, mime, jsonSchema))
+          .bodyValue(buildImagesJsonPayload(openAiModel, systemPrompt, userText, images, mime, jsonSchema))
           .retrieve()
           .bodyToMono(String.class)
           .timeout(Duration.ofSeconds(45))
@@ -240,18 +253,25 @@ public class LlmGateway {
   public static Map<String, Object> buildImageJsonPayload(
       String model, String systemPrompt, String userText, byte[] image, String mime,
       Map<String, Object> jsonSchema) {
-    String dataUrl = "data:" + (mime == null || mime.isBlank() ? "image/jpeg" : mime)
-        + ";base64," + java.util.Base64.getEncoder().encodeToString(image);
+    return buildImagesJsonPayload(model, systemPrompt, userText, List.of(image), mime, jsonSchema);
+  }
+
+  /** Body de /responses con N {@code input_image} (en orden) y json_schema strict. */
+  public static Map<String, Object> buildImagesJsonPayload(
+      String model, String systemPrompt, String userText, List<byte[]> images, String mime,
+      Map<String, Object> jsonSchema) {
+    String prefix = "data:" + (mime == null || mime.isBlank() ? "image/jpeg" : mime) + ";base64,";
+    List<Object> parts = new java.util.ArrayList<>();
+    parts.add(Map.of("type", "input_text", "text", userText));
+    for (byte[] image : images) {
+      parts.add(Map.of("type", "input_image", "image_url", prefix + java.util.Base64.getEncoder().encodeToString(image)));
+    }
     Map<String, Object> payload = new java.util.LinkedHashMap<>();
     payload.put("model", model);
     if (systemPrompt != null && !systemPrompt.isBlank()) {
       payload.put("instructions", systemPrompt);
     }
-    payload.put("input", List.of(Map.of(
-        "role", "user",
-        "content", List.of(
-            Map.of("type", "input_text", "text", userText),
-            Map.of("type", "input_image", "image_url", dataUrl)))));
+    payload.put("input", List.of(Map.of("role", "user", "content", parts)));
     payload.put("text", Map.of("format", Map.of(
         "type", "json_schema",
         "name", "barrio_review",

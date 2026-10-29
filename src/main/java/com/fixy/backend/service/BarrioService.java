@@ -7,7 +7,10 @@ import com.fixy.backend.dto.BarrioDtos.ClosureResponse;
 import com.fixy.backend.dto.BarrioDtos.ClosureReviewResponse;
 import com.fixy.backend.dto.BarrioDtos.CreateResponse;
 import com.fixy.backend.dto.BarrioDtos.OpsAi;
+import com.fixy.backend.dto.BarrioDtos.ClosureAgreement;
 import com.fixy.backend.dto.BarrioDtos.OpsClosure;
+import com.fixy.backend.dto.BarrioDtos.OpsClosureAi;
+import com.fixy.backend.dto.BarrioDtos.OpsClosureEvidence;
 import com.fixy.backend.dto.BarrioDtos.OpsPending;
 import com.fixy.backend.dto.BarrioDtos.OpsReport;
 import com.fixy.backend.dto.BarrioDtos.PublicReport;
@@ -67,6 +70,8 @@ public class BarrioService {
   private final TelegramNotifyService telegram;
   /** null = sin IA revisora (constructor legacy de los tests): el aviso sale enseguida como siempre. */
   private final BarrioAiReviewService aiReview;
+  /** null = sin IA de cierres (constructores legacy de los tests): el aviso del cierre sale enseguida. */
+  private final BarrioClosureReviewService closureReview;
   private final int maxWritesPerWindow;
   private final Duration window;
   private final Map<String, Deque<Instant>> writesByIp = new ConcurrentHashMap<>();
@@ -80,7 +85,20 @@ public class BarrioService {
       int maxWritesPerWindow,
       long windowSeconds
   ) {
-    this(reports, closures, photos, telegram, null, maxWritesPerWindow, windowSeconds);
+    this(reports, closures, photos, telegram, null, null, maxWritesPerWindow, windowSeconds);
+  }
+
+  /** Constructor legacy (7 args): sin IA de cierres. */
+  public BarrioService(
+      BarrioReportRepository reports,
+      BarrioClosureClaimRepository closures,
+      BarrioPhotoService photos,
+      TelegramNotifyService telegram,
+      BarrioAiReviewService aiReview,
+      int maxWritesPerWindow,
+      long windowSeconds
+  ) {
+    this(reports, closures, photos, telegram, aiReview, null, maxWritesPerWindow, windowSeconds);
   }
 
   @Autowired
@@ -90,10 +108,12 @@ public class BarrioService {
       BarrioPhotoService photos,
       TelegramNotifyService telegram,
       BarrioAiReviewService aiReview,
+      BarrioClosureReviewService closureReview,
       @Value("${fixy.barrio.rate-limit.max-requests-per-window:10}") int maxWritesPerWindow,
       @Value("${fixy.barrio.rate-limit.window-seconds:600}") long windowSeconds
   ) {
     this.aiReview = aiReview;
+    this.closureReview = closureReview;
     this.reports = reports;
     this.closures = closures;
     this.photos = photos;
@@ -236,9 +256,23 @@ public class BarrioService {
     return new Stats(open, resolved, avg, cats, zones);
   }
 
-  /** Cierre ("ya lo arreglaron"): foto obligatoria, solo sobre PUBLISHED, queda para que ops lo apruebe. */
+  /** Cierre sin ubicación (compat): equivale a {@code sin_ubicacion}. */
   @Transactional
   public ClosureResponse submitClosure(String clientIp, Long reportId, MultipartFile photo, String comment) {
+    return submitClosure(clientIp, reportId, photo, comment, null, null, null);
+  }
+
+  /**
+   * Cierre ("ya lo arreglaron"): foto obligatoria, solo sobre PUBLISHED, queda para que ops lo apruebe.
+   * Junta pruebas independientes (AVISA_CIERRE_C1_CONTRATO.md): distancia al reclamo desde la ubicación
+   * del celular, fecha EXIF de la foto original y huella dHash contra el reclamo y otros cierres. La
+   * ubicación es opcional (inválida o ausente = {@code sin_ubicacion}) y nunca se expone en la API pública.
+   */
+  @Transactional
+  public ClosureResponse submitClosure(
+      String clientIp, Long reportId, MultipartFile photo, String comment,
+      Double lat, Double lng, Double accuracy
+  ) {
     enforceRateLimit(clientIp);
     BarrioReport report = reports.findById(reportId)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "reclamo no encontrado"));
@@ -250,20 +284,69 @@ public class BarrioService {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "la foto es obligatoria");
     }
     String cleanComment = cleanDescription(comment);
-    String photoPath = photos.store(photo);
+    BarrioPhotoService.StoredPhoto stored = photos.storeWithMeta(photo);
     BarrioClosureClaim claim = new BarrioClosureClaim();
     claim.setReportId(reportId);
-    claim.setPhotoPath(photoPath);
+    claim.setPhotoPath(stored.path());
     claim.setComment(cleanComment);
     claim.setStatus(BarrioClosureClaim.PENDING_REVIEW);
     claim.setCreatedAt(OffsetDateTime.now());
+    claim.setPhotoTakenAt(stored.takenAt());
+    claim.setPhotoDhash(stored.dhash());
+    if (validLocation(lat, lng)) {
+      claim.setLat(lat);
+      claim.setLng(lng);
+      claim.setDistanceM(BarrioGeo.haversineMeters(lat, lng, report.getLat(), report.getLng()));
+      if (accuracy != null && Double.isFinite(accuracy) && accuracy >= 0) {
+        claim.setAccuracyM(accuracy);
+      }
+    }
+    claim.setDhashMinDistance(minDhashDistance(report, reportId, stored.dhash()));
+    boolean aiWillReview = closureReview != null && closureReview.isActive();
+    if (closureReview != null && !aiWillReview) {
+      claim.setAiVerdict(BarrioClosureReviewService.SIN_IA);
+    }
+    BarrioClosureEvidence.Result evidence = BarrioClosureEvidence.evaluate(
+        BarrioClosureReviewService.factsOf(claim, report), claim.getAiVerdict(), null, 0,
+        BarrioClosureReviewService.MAX_ATTEMPTS);
+    claim.setEvidenceVerdict(evidence.verdict());
+    claim.setEvidenceReasons(String.join(",", evidence.reasons()));
     closures.save(claim);
-    try {
-      telegram.notifyBarrioClosure(reportId, labelOf(report.getCategory()), report.getZone(), cleanComment);
-    } catch (RuntimeException e) {
-      log.warn("telegram barrio cierre #{} falló: {}", reportId, e.getMessage());
+    // Con IA, el aviso sale DESPUÉS de la revisión (scheduler, o al agotar intentos).
+    if (!aiWillReview) {
+      try {
+        if (closureReview != null) {
+          closureReview.notifyTelegram(claim, report);
+        } else {
+          telegram.notifyBarrioClosure(reportId, labelOf(report.getCategory()), report.getZone(), cleanComment);
+        }
+      } catch (RuntimeException e) {
+        log.warn("telegram barrio cierre #{} falló: {}", reportId, e.getMessage());
+      }
     }
     return new ClosureResponse(BarrioClosureClaim.PENDING_REVIEW);
+  }
+
+  private static boolean validLocation(Double lat, Double lng) {
+    return lat != null && lng != null && Double.isFinite(lat) && Double.isFinite(lng)
+        && Math.abs(lat) <= 90 && Math.abs(lng) <= 180;
+  }
+
+  /** Hamming mínima de la foto nueva contra la del reclamo y contra los otros cierres del mismo reclamo. */
+  private Integer minDhashDistance(BarrioReport report, Long reportId, long dhash) {
+    Integer min = null;
+    try {
+      int d = Long.bitCount(dhash ^ BarrioImageHash.dhash(photos.read(report.getPhotoPath())));
+      min = d;
+    } catch (RuntimeException e) {
+      log.warn("barrio cierre: no se pudo calcular el dHash del reclamo #{}: {}", reportId, e.getMessage());
+    }
+    for (BarrioClosureClaim other : closures.findByReportId(reportId)) {
+      if (other.getPhotoDhash() == null) continue;
+      int d = Long.bitCount(dhash ^ other.getPhotoDhash());
+      if (min == null || d < min) min = d;
+    }
+    return min;
   }
 
   // ----------------------------------------------------------------- ops
@@ -278,7 +361,7 @@ public class BarrioService {
         .map(c -> {
           OpsReport rep = reports.findById(c.getReportId()).map(r -> toOps(r, now)).orElse(null);
           return new OpsClosure(c.getId(), c.getReportId(), photos.urlFor(c.getPhotoPath()),
-              c.getComment(), c.getCreatedAt(), rep);
+              c.getComment(), c.getCreatedAt(), rep, rep == null ? null : rep.photoUrl(), toEvidence(c));
         })
         .toList();
     return new OpsPending(pendingReports, pendingClosures);
@@ -453,6 +536,8 @@ public class BarrioService {
     OffsetDateTime now = OffsetDateTime.now();
     claim.setStatus(BarrioClosureClaim.APPROVED);
     claim.setReviewedAt(now);
+    claim.setHumanDecision("APPROVED");
+    claim.setHumanDecidedAt(now);
     closures.save(claim);
     report.setStatus(BarrioReport.RESOLVED);
     report.setResolvedAt(now);
@@ -472,8 +557,11 @@ public class BarrioService {
   @Transactional
   public ClosureReviewResponse rejectClosure(Long claimId) {
     BarrioClosureClaim claim = requirePendingClosure(claimId);
+    OffsetDateTime now = OffsetDateTime.now();
     claim.setStatus(BarrioClosureClaim.REJECTED);
-    claim.setReviewedAt(OffsetDateTime.now());
+    claim.setReviewedAt(now);
+    claim.setHumanDecision("REJECTED");
+    claim.setHumanDecidedAt(now);
     closures.save(claim);
     return new ClosureReviewResponse(BarrioClosureClaim.REJECTED, claim.getReportId());
   }
@@ -599,6 +687,42 @@ public class BarrioService {
         r.getAiSuggestedCategory(), r.getAiSummary(), r.getAiReviewedAt());
   }
 
+  /** Pruebas del cierre para ops. {@code ai} es null mientras la IA revisa (sin veredicto, o ERROR con intentos por delante). */
+  static OpsClosureEvidence toEvidence(BarrioClosureClaim c) {
+    String v = c.getAiVerdict();
+    OpsClosureAi ai = null;
+    if (v != null && !(BarrioClosureReviewService.ERROR.equals(v) && c.getAiAttempts() < BarrioClosureReviewService.MAX_ATTEMPTS)) {
+      ai = new OpsClosureAi(v, c.getAiSamePlace(), c.getAiIssueGone(), c.getAiReused(), c.getAiConfidence(),
+          c.getAiSummary(), c.getAiReviewedAt());
+    }
+    return new OpsClosureEvidence(
+        c.getEvidenceVerdict() == null ? BarrioClosureEvidence.PENDIENTE : c.getEvidenceVerdict(),
+        BarrioAiReviewService.splitReasons(c.getEvidenceReasons()), c.getDistanceM(), c.getAccuracyM(),
+        c.getPhotoTakenAt(), c.getDhashMinDistance(), ai);
+  }
+
+  private ClosureAgreement closureAgreement() {
+    long strongApproved = 0, strongRejected = 0, weakApproved = 0, weakRejected = 0, undecided = 0;
+    List<BarrioClosureClaim> reviewed = closures.findByEvidenceVerdictIn(
+        List.of(BarrioClosureEvidence.FUERTE, BarrioClosureEvidence.DEBIL));
+    for (BarrioClosureClaim c : reviewed) {
+      String h = c.getHumanDecision();
+      if (h == null) {
+        undecided++;
+        continue;
+      }
+      boolean approved = "APPROVED".equals(h);
+      if (BarrioClosureEvidence.FUERTE.equals(c.getEvidenceVerdict())) {
+        if (approved) strongApproved++; else strongRejected++;
+      } else {
+        if (approved) weakApproved++; else weakRejected++;
+      }
+    }
+    long decided = strongApproved + strongRejected + weakApproved + weakRejected;
+    return new ClosureAgreement(reviewed.size(), decided, strongApproved + weakRejected,
+        strongApproved, strongRejected, weakApproved, weakRejected, undecided);
+  }
+
   /** Coincidencia de la IA con la decisión humana (MERGED cuenta como aprobado). */
   @Transactional(readOnly = true)
   public AiAgreement aiAgreement() {
@@ -627,7 +751,7 @@ public class BarrioService {
     long decided = approveApproved + approveRejected + doubtApproved + doubtRejected;
     return new AiAgreement(reviewed.size(), decided, approveApproved + doubtRejected,
         approveRejected, doubtApproved, approveApproved, doubtRejected, undecided,
-        autoPublished, autoConfirmed, autoUnpublished);
+        autoPublished, autoConfirmed, autoUnpublished, closureAgreement());
   }
 
   /** Todo el teléfono menos los últimos 3 dígitos. */

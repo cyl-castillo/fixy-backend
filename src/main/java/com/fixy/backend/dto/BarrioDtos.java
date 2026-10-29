@@ -90,7 +90,8 @@ public final class BarrioDtos {
       long pendingNoDecision,
       long autoPublished,
       long autoConfirmed,
-      long autoUnpublished
+      long autoUnpublished,
+      ClosureAgreement closures
   ) {}
 
   public record AiSettings(boolean autoPublish, double minConfidence, int dailyCap, long publishedToday) {}
@@ -107,7 +108,44 @@ public final class BarrioDtos {
       String photoUrl,
       String comment,
       OffsetDateTime createdAt,
-      OpsReport report
+      OpsReport report,
+      String beforePhotoUrl,
+      OpsClosureEvidence evidence
+  ) {}
+
+  /** Pruebas de un cierre (Avisá C1). Solo ops: nunca en /api/public. */
+  @JsonInclude(JsonInclude.Include.ALWAYS)
+  public record OpsClosureEvidence(
+      String verdict,
+      List<String> reasons,
+      Double distanceM,
+      Double accuracyM,
+      OffsetDateTime photoTakenAt,
+      Integer dhashMinDistance,
+      OpsClosureAi ai
+  ) {}
+
+  /** Comparación antes/después de la IA; null mientras revisa. */
+  public record OpsClosureAi(
+      String verdict,
+      Boolean samePlace,
+      Boolean issueGone,
+      Boolean reused,
+      Double confidence,
+      String summary,
+      OffsetDateTime reviewedAt
+  ) {}
+
+  /** Coincidencia pruebas vs. decisión humana sobre cierres (modo sombra). */
+  public record ClosureAgreement(
+      long reviewed,
+      long decided,
+      long agree,
+      long strongApproved,
+      long strongRejected,
+      long weakApproved,
+      long weakRejected,
+      long pendingNoDecision
   ) {}
 
   public record OpsPending(List<OpsReport> reports, List<OpsClosure> closures) {}
